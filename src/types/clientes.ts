@@ -89,6 +89,48 @@ export interface LigacaoModel extends RecordModel {
 export type CanalMensagem = 'whatsapp' | 'email' | 'sms'
 export type StatusMensagem = 'pendente' | 'enviada' | 'entregue' | 'lida' | 'falhou'
 
+export interface CanalMarketingModel extends RecordModel {
+  nome: string
+  tipo: CanalMensagem
+  configuracao?: Record<string, unknown> | string
+  ativo: boolean
+  criado_em?: string
+}
+
+export type GatilhoAutomacao =
+  | 'novo_cliente'
+  | 'nova_oportunidade'
+  | 'mudanca_etapa'
+  | 'tarefa_vencida'
+  | 'sem_contato_dias'
+  | 'aniversario'
+  | 'inativo_dias'
+
+export type AcaoAutomacao =
+  | 'enviar_whatsapp'
+  | 'enviar_email'
+  | 'criar_tarefa'
+  | 'mover_etapa'
+  | 'enviar_sms'
+
+export interface AutomacaoModel extends RecordModel {
+  nome: string
+  descricao?: string
+  gatilho: GatilhoAutomacao
+  parametro_gatilho?: string
+  acao: AcaoAutomacao
+  canal_id?: string
+  mensagem_modelo?: string
+  responsavel_id: string
+  ativa: boolean
+  criada_em?: string
+  atualizada_em?: string
+  expand?: {
+    canal_id?: CanalMarketingModel
+    responsavel_id?: Usuario
+  }
+}
+
 export interface MensagemEnviadaModel extends RecordModel {
   automacao_id?: string
   cliente_id: string
@@ -98,6 +140,10 @@ export interface MensagemEnviadaModel extends RecordModel {
   data_envio?: string
   data_leitura?: string
   erro?: string
+  expand?: {
+    cliente_id?: ClienteModel
+    automacao_id?: AutomacaoModel
+  }
 }
 
 /**
