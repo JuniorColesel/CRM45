@@ -63,6 +63,7 @@ export interface TarefaModel extends RecordModel {
   data_conclusao?: string
   expand?: {
     responsavel_id?: Usuario
+    cliente_id?: ClienteModel
   }
 }
 
@@ -81,6 +82,7 @@ export interface LigacaoModel extends RecordModel {
   data_proxima_acao?: string
   expand?: {
     responsavel_id?: Usuario
+    cliente_id?: ClienteModel
   }
 }
 
