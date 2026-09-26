@@ -27,6 +27,10 @@ export interface EtapaFunilModel extends RecordModel {
   cor?: string
 }
 
+export interface MotivoPerdaModel extends RecordModel {
+  descricao: string
+}
+
 export type StatusOportunidade = 'aberto' | 'ganho' | 'perdido'
 
 export interface OportunidadeModel extends RecordModel {
@@ -43,6 +47,7 @@ export interface OportunidadeModel extends RecordModel {
     etapa_id?: EtapaFunilModel
     responsavel_id?: Usuario
     cliente_id?: ClienteModel
+    motivo_perda_id?: MotivoPerdaModel
   }
 }
 
@@ -107,6 +112,22 @@ export function podeEditarCliente(user: Usuario | null, cliente: ClienteModel): 
 
 export function podeExcluirCliente(user: Usuario | null, cliente: ClienteModel): boolean {
   return podeEditarCliente(user, cliente)
+}
+
+/**
+ * Regra de permissão da RLS do PocketBase para edição/exclusão de oportunidades:
+ * - ceo_financeiro pode editar/excluir qualquer oportunidade
+ * - outros perfis (vendedores, coordenador) só podem editar/excluir se forem o responsável (responsavel_id === user.id)
+ */
+export function podeEditarOportunidade(user: Usuario | null, op: OportunidadeModel): boolean {
+  if (!user) return false
+  if (user.perfil === 'estoque') return false
+  if (user.perfil === 'ceo_financeiro') return true
+  return op.responsavel_id === user.id
+}
+
+export function podeExcluirOportunidade(user: Usuario | null, op: OportunidadeModel): boolean {
+  return podeEditarOportunidade(user, op)
 }
 
 /**
