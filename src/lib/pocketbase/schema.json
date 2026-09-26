@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-26T19:23:51.886Z",
+  "generatedAt": "2026-09-26T19:27:36.574Z",
   "collections": [
     {
       "name": "users",
@@ -283,6 +283,293 @@
       "indexes": [
         "CREATE INDEX idx_clientes_responsavel ON clientes (responsavel_id)",
         "CREATE INDEX idx_clientes_grande_cliente ON clientes (grande_cliente)"
+      ]
+    },
+    {
+      "name": "oportunidades",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || responsavel_id = @request.auth.id || (@request.auth.perfil = 'compras_grandes_clientes' && cliente_id.grande_cliente = true))",
+        "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || responsavel_id = @request.auth.id || (@request.auth.perfil = 'compras_grandes_clientes' && cliente_id.grande_cliente = true))",
+        "create": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)",
+        "update": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)",
+        "delete": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)"
+      },
+      "fields": [
+        {
+          "name": "cliente_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "clientes"
+        },
+        {
+          "name": "valor",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "etapa_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "etapas_funil"
+        },
+        {
+          "name": "responsavel_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "usuarios"
+        },
+        {
+          "name": "motivo_perda_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "motivos_perda"
+        },
+        {
+          "name": "data_prevista_fechamento",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_fechamento",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["aberto", "ganho", "perdido"]
+        },
+        {
+          "name": "observacoes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "criado_em",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "atualizado_em",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_oportunidades_cliente ON oportunidades (cliente_id)",
+        "CREATE INDEX idx_oportunidades_responsavel ON oportunidades (responsavel_id)",
+        "CREATE INDEX idx_oportunidades_etapa ON oportunidades (etapa_id)",
+        "CREATE INDEX idx_oportunidades_status ON oportunidades (status)"
+      ]
+    },
+    {
+      "name": "tarefas",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || responsavel_id = @request.auth.id || (@request.auth.perfil = 'compras_grandes_clientes' && cliente_id.grande_cliente = true))",
+        "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || responsavel_id = @request.auth.id || (@request.auth.perfil = 'compras_grandes_clientes' && cliente_id.grande_cliente = true))",
+        "create": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)",
+        "update": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)",
+        "delete": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)"
+      },
+      "fields": [
+        {
+          "name": "cliente_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "clientes"
+        },
+        {
+          "name": "responsavel_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "usuarios"
+        },
+        {
+          "name": "tipo",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["ligacao", "visita", "email", "whatsapp", "reuniao", "outro"]
+        },
+        {
+          "name": "descricao",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "data_hora",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "concluida",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_conclusao",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "criado_em",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_tarefas_cliente ON tarefas (cliente_id)",
+        "CREATE INDEX idx_tarefas_responsavel ON tarefas (responsavel_id)",
+        "CREATE INDEX idx_tarefas_data_hora ON tarefas (data_hora)"
+      ]
+    },
+    {
+      "name": "ligacoes",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || responsavel_id = @request.auth.id || (@request.auth.perfil = 'compras_grandes_clientes' && cliente_id.grande_cliente = true))",
+        "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || responsavel_id = @request.auth.id || (@request.auth.perfil = 'compras_grandes_clientes' && cliente_id.grande_cliente = true))",
+        "create": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)",
+        "update": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)",
+        "delete": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)"
+      },
+      "fields": [
+        {
+          "name": "cliente_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "clientes"
+        },
+        {
+          "name": "responsavel_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "usuarios"
+        },
+        {
+          "name": "data_hora",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "duracao_segundos",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tipo",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["entrada", "saida", "perdida"]
+        },
+        {
+          "name": "resultado",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["atendeu", "nao_atendeu", "caixa_postal", "ocupado", "desligou"]
+        },
+        {
+          "name": "observacoes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "proxima_acao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_proxima_acao",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "criado_em",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_ligacoes_cliente ON ligacoes (cliente_id)",
+        "CREATE INDEX idx_ligacoes_responsavel ON ligacoes (responsavel_id)",
+        "CREATE INDEX idx_ligacoes_data_hora ON ligacoes (data_hora)"
       ]
     }
   ]
