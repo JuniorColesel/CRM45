@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-26T19:18:05.642Z",
+  "generatedAt": "2026-09-26T19:23:51.886Z",
   "collections": [
     {
       "name": "users",
@@ -85,6 +85,204 @@
       "indexes": [
         "CREATE UNIQUE INDEX `idx_tokenKey_pbc_882525820` ON `usuarios` (`tokenKey`)",
         "CREATE UNIQUE INDEX `idx_email_pbc_882525820` ON `usuarios` (`email`) WHERE `email` != ''"
+      ]
+    },
+    {
+      "name": "etapas_funil",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque'",
+        "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque'",
+        "create": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'",
+        "update": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'",
+        "delete": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'"
+      },
+      "fields": [
+        {
+          "name": "nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "ordem",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "cor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": ["CREATE INDEX idx_etapas_funil_ordem ON etapas_funil (ordem)"]
+    },
+    {
+      "name": "motivos_perda",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque'",
+        "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque'",
+        "create": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'",
+        "update": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'",
+        "delete": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'"
+      },
+      "fields": [
+        {
+          "name": "descricao",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "clientes",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil != 'compras_grandes_clientes' || grande_cliente = true)",
+        "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil != 'compras_grandes_clientes' || grande_cliente = true)",
+        "create": "@request.auth.id != '' && @request.auth.perfil != 'estoque'",
+        "update": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)",
+        "delete": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)"
+      },
+      "fields": [
+        {
+          "name": "nome_contato",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "nome_empresa",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "telefone",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cidade",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "email",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cnpj_cpf",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_nascimento",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "observacoes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "grande_cliente",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "aceita_mensagens",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "responsavel_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "usuarios"
+        },
+        {
+          "name": "data_ultima_compra",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "criado_em",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "atualizado_em",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_clientes_responsavel ON clientes (responsavel_id)",
+        "CREATE INDEX idx_clientes_grande_cliente ON clientes (grande_cliente)"
       ]
     }
   ]
