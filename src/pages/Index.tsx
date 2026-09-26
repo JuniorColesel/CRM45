@@ -1,15 +1,27 @@
-import React, { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { TrendingUp, Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react'
+import React, { useEffect, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { TrendingUp, Mail, Lock, Eye, EyeOff, AlertCircle, Loader2 } from 'lucide-react'
+import { useAuth } from '@/contexts/AuthContext'
 
 export default function Index() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
   const navigate = useNavigate()
+  const location = useLocation()
+  const { user, login } = useAuth()
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Se já autenticado, redireciona para /painel
+  useEffect(() => {
+    if (user) {
+      const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/painel'
+      navigate(from, { replace: true })
+    }
+  }, [user, navigate, location])
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
     if (!email.trim() || !password.trim()) {
@@ -18,8 +30,21 @@ export default function Index() {
     }
 
     setError(null)
-    // Simulação visual de login sem autenticação real de backend
-    navigate('/painel')
+    setSubmitting(true)
+
+    try {
+      const loggedUser = await login(email.trim(), password)
+      if (loggedUser.ativo === false) {
+        setError('Usuário inativo. Entre em contato com o administrador.')
+        return
+      }
+      const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/painel'
+      navigate(from, { replace: true })
+    } catch {
+      setError('E-mail ou senha incorretos. Verifique suas credenciais e tente novamente.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -162,9 +187,17 @@ export default function Index() {
             {/* Botão Entrar */}
             <button
               type="submit"
-              className="w-full py-3.5 px-4 rounded-lg bg-[#16A34A] hover:bg-[#15803D] active:scale-[0.98] text-white font-semibold text-sm shadow-sm transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-[#16A34A] focus:ring-offset-2"
+              disabled={submitting}
+              className="w-full py-3.5 px-4 rounded-lg bg-[#16A34A] hover:bg-[#15803D] active:scale-[0.98] text-white font-semibold text-sm shadow-sm transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-[#16A34A] focus:ring-offset-2 disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              Entrar
+              {submitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Entrando...</span>
+                </>
+              ) : (
+                <span>Entrar</span>
+              )}
             </button>
 
             {/* Link Esqueceu a Senha */}

@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { useAuth } from '@/contexts/AuthContext'
 import {
   TrendingUp,
   LayoutDashboard,
@@ -76,8 +77,11 @@ export default function Layout() {
   const pageTitle = currentItem ? currentItem.name : 'Painel'
   const currentYear = new Date().getFullYear()
 
+  const { user, logout } = useAuth()
+
   const handleLogout = () => {
     setMobileMenuOpen(false)
+    logout()
     navigate('/')
   }
 
@@ -134,13 +138,15 @@ export default function Layout() {
         <div className="flex items-center justify-between p-2.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0]">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#16A34A] to-[#7C3AED] text-white font-bold text-sm flex items-center justify-center flex-shrink-0 shadow-sm">
-              C45
+              {user?.nome ? user.nome.charAt(0).toUpperCase() : 'C45'}
             </div>
             <div className="min-w-0">
               <p className="text-xs font-semibold text-[#0F172A] truncate leading-tight">
-                Equipe Colesel 45
+                {user?.nome || 'Equipe Colesel 45'}
               </p>
-              <p className="text-[11px] text-[#64748B] truncate leading-tight">Comercial</p>
+              <p className="text-[11px] text-[#64748B] truncate leading-tight">
+                {user?.perfil || 'Comercial'}
+              </p>
             </div>
           </div>
           <button
@@ -221,12 +227,14 @@ export default function Layout() {
           <div className="hidden lg:flex items-center gap-3 pl-4 border-l border-[#E2E8F0]">
             <div className="text-right">
               <span className="block text-sm font-semibold text-[#0F172A] leading-tight">
-                Equipe Colesel 45
+                {user?.nome || 'Equipe Colesel 45'}
               </span>
-              <span className="block text-xs text-[#64748B]">CRM Comercial</span>
+              <span className="block text-xs text-[#64748B]">
+                {user?.perfil || 'CRM Comercial'}
+              </span>
             </div>
             <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#16A34A] to-[#2563EB] text-white font-bold text-xs flex items-center justify-center shadow-sm">
-              C45
+              {user?.nome ? user.nome.charAt(0).toUpperCase() : 'C45'}
             </div>
           </div>
         </header>
