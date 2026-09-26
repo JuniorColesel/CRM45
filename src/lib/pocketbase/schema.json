@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-26T19:27:36.574Z",
+  "generatedAt": "2026-09-26T19:30:57.501Z",
   "collections": [
     {
       "name": "users",
@@ -570,6 +570,280 @@
         "CREATE INDEX idx_ligacoes_cliente ON ligacoes (cliente_id)",
         "CREATE INDEX idx_ligacoes_responsavel ON ligacoes (responsavel_id)",
         "CREATE INDEX idx_ligacoes_data_hora ON ligacoes (data_hora)"
+      ]
+    },
+    {
+      "name": "canais_marketing",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || ativo = true)",
+        "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || ativo = true)",
+        "create": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'",
+        "update": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'",
+        "delete": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'"
+      },
+      "fields": [
+        {
+          "name": "nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "tipo",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["whatsapp", "email", "sms"]
+        },
+        {
+          "name": "configuracao",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ativo",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "criado_em",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_canais_marketing_tipo ON canais_marketing (tipo)",
+        "CREATE INDEX idx_canais_marketing_ativo ON canais_marketing (ativo)"
+      ]
+    },
+    {
+      "name": "automacoes",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque'",
+        "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque'",
+        "create": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)",
+        "update": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)",
+        "delete": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)"
+      },
+      "fields": [
+        {
+          "name": "nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "descricao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "gatilho",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": [
+            "novo_cliente",
+            "nova_oportunidade",
+            "mudanca_etapa",
+            "tarefa_vencida",
+            "sem_contato_dias",
+            "aniversario",
+            "inativo_dias"
+          ]
+        },
+        {
+          "name": "parametro_gatilho",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "acao",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": [
+            "enviar_whatsapp",
+            "enviar_email",
+            "criar_tarefa",
+            "mover_etapa",
+            "enviar_sms"
+          ]
+        },
+        {
+          "name": "canal_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "canais_marketing"
+        },
+        {
+          "name": "mensagem_modelo",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "responsavel_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "usuarios"
+        },
+        {
+          "name": "ativa",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "criada_em",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "atualizada_em",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_automacoes_responsavel ON automacoes (responsavel_id)",
+        "CREATE INDEX idx_automacoes_canal ON automacoes (canal_id)",
+        "CREATE INDEX idx_automacoes_gatilho ON automacoes (gatilho)",
+        "CREATE INDEX idx_automacoes_ativa ON automacoes (ativa)"
+      ]
+    },
+    {
+      "name": "mensagens_enviadas",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil != 'compras_grandes_clientes' || cliente_id.grande_cliente = true)",
+        "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil != 'compras_grandes_clientes' || cliente_id.grande_cliente = true)",
+        "create": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || cliente_id.responsavel_id = @request.auth.id)",
+        "update": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || cliente_id.responsavel_id = @request.auth.id)",
+        "delete": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || cliente_id.responsavel_id = @request.auth.id)"
+      },
+      "fields": [
+        {
+          "name": "automacao_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "automacoes"
+        },
+        {
+          "name": "cliente_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "clientes"
+        },
+        {
+          "name": "canal",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["whatsapp", "email", "sms"]
+        },
+        {
+          "name": "conteudo",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["pendente", "enviada", "entregue", "lida", "falhou"]
+        },
+        {
+          "name": "data_envio",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_leitura",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "erro",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "criado_em",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_mensagens_enviadas_automacao ON mensagens_enviadas (automacao_id)",
+        "CREATE INDEX idx_mensagens_enviadas_cliente ON mensagens_enviadas (cliente_id)",
+        "CREATE INDEX idx_mensagens_enviadas_canal ON mensagens_enviadas (canal)",
+        "CREATE INDEX idx_mensagens_enviadas_status ON mensagens_enviadas (status)"
       ]
     }
   ]
