@@ -17,9 +17,12 @@ import FunilFiltros, { type FunilFiltrosState } from '@/components/funil/FunilFi
 import KanbanBoard from '@/components/funil/KanbanBoard'
 import OportunidadeModal from '@/components/funil/OportunidadeModal'
 import OportunidadeDetalhesSheet from '@/components/funil/OportunidadeDetalhesSheet'
+import { SeletorDePeriodo } from '@/components/common/SeletorDePeriodo'
+import { usePeriodo } from '@/contexts/PeriodoContext'
 
 export default function FunilPage() {
   const { user } = useAuth()
+  const { periodo, ano, mes, nomeMesAno } = usePeriodo()
 
   // Estados principais de dados
   const [etapas, setEtapas] = useState<EtapaFunilModel[]>([])
@@ -101,11 +104,37 @@ export default function FunilPage() {
     carregarDados()
   }, [carregarDados])
 
-  // Métricas do resumo no topo (calculadas sobre a totalidade das oportunidades acessíveis ao usuário)
+  // Determina se a oportunidade pertence ao período selecionado (mês/ano)
+  // Regra:
+  // - Oportunidades ganhas/perdidas utilizam data_fechamento (se presente) ou data_prevista_fechamento / criado_em / created
+  // - Oportunidades abertas utilizam data_prevista_fechamento (se presente) ou criado_em / created
+  const pertenceAoPeriodo = useCallback(
+    (op: OportunidadeModel) => {
+      let dataRef = ''
+      if (op.status === 'ganho' || op.status === 'perdido') {
+        dataRef =
+          op.data_fechamento || op.data_prevista_fechamento || op.criado_em || op.created || ''
+      } else {
+        dataRef = op.data_prevista_fechamento || op.criado_em || op.created || ''
+      }
+      if (!dataRef) return true // Se sem data, mantém visível
+      const d = new Date(dataRef)
+      if (isNaN(d.getTime())) return true
+      return d.getFullYear() === ano && d.getMonth() + 1 === mes
+    },
+    [ano, mes],
+  )
+
+  // Oportunidades filtradas pelo período selecionado
+  const oportunidadesDoPeriodo = useMemo(() => {
+    return oportunidades.filter(pertenceAoPeriodo)
+  }, [oportunidades, pertenceAoPeriodo])
+
+  // Métricas do resumo no topo (calculadas sobre as oportunidades do período selecionado)
   const metricasResumo = useMemo(() => {
-    const abertas = oportunidades.filter((o) => o.status === 'aberto')
-    const ganhas = oportunidades.filter((o) => o.status === 'ganho')
-    const perdidas = oportunidades.filter((o) => o.status === 'perdido')
+    const abertas = oportunidadesDoPeriodo.filter((o) => o.status === 'aberto')
+    const ganhas = oportunidadesDoPeriodo.filter((o) => o.status === 'ganho')
+    const perdidas = oportunidadesDoPeriodo.filter((o) => o.status === 'perdido')
 
     const totalAbertas = abertas.length
     const valorPipeline = abertas.reduce((acc, curr) => acc + (curr.valor || 0), 0)
@@ -122,11 +151,11 @@ export default function FunilPage() {
       taxaConversao,
       ticketMedio,
     }
-  }, [oportunidades])
+  }, [oportunidadesDoPeriodo])
 
   // Filtragem em tempo real das oportunidades para o Kanban
   const oportunidadesFiltradas = useMemo(() => {
-    return oportunidades.filter((op) => {
+    return oportunidadesDoPeriodo.filter((op) => {
       // 1. Filtro por status
       if (filtros.status !== 'todos' && op.status !== filtros.status) {
         return false
@@ -137,7 +166,7 @@ export default function FunilPage() {
         return false
       }
 
-      // 3. Filtro por data prevista de fechamento (intervalo)
+      // 3. Filtro por data prevista de fechamento (intervalo personalizado se preenchido)
       if (filtros.dataInicio || filtros.dataFim) {
         if (!op.data_prevista_fechamento) return false
         const opDataStr = op.data_prevista_fechamento.substring(0, 10)
@@ -158,7 +187,7 @@ export default function FunilPage() {
 
       return true
     })
-  }, [oportunidades, filtros])
+  }, [oportunidadesDoPeriodo, filtros])
 
   // Ações de abertura de modais
   const handleNovaOportunidade = (etapaId?: string) => {
@@ -280,6 +309,9 @@ export default function FunilPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* Topo: Seletor de Período Global */}
+      <SeletorDePeriodo />
+
       {/* Top Bar: Título, Descrição e Botões de Ação */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-[#E2E8F0]">
         <div>
@@ -288,7 +320,9 @@ export default function FunilPage() {
             Funil de Vendas
           </h2>
           <p className="text-sm text-[#64748B] mt-0.5">
-            Acompanhe propostas comerciais, pipeline de negociação e evolução das etapas.
+            Pipeline de negociação e propostas para{' '}
+            <strong className="text-[#0F172A] font-semibold">{nomeMesAno}</strong> (
+            {oportunidadesDoPeriodo.length} de {oportunidades.length} totais).
           </p>
         </div>
 
@@ -329,7 +363,7 @@ export default function FunilPage() {
         onFiltrosChange={setFiltros}
         usuarios={usuarios}
         totalFiltrado={oportunidadesFiltradas.length}
-        totalGeral={oportunidades.length}
+        totalGeral={oportunidadesDoPeriodo.length}
       />
 
       {/* 1) BOARD KANBAN */}

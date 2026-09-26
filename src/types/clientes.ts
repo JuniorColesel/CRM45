@@ -53,6 +53,19 @@ export interface OportunidadeModel extends RecordModel {
 
 export type TipoTarefa = 'ligacao' | 'visita' | 'email' | 'whatsapp' | 'reuniao' | 'outro'
 
+export interface MetaModel extends RecordModel {
+  usuario_id: string
+  ano: number
+  mes: number
+  valor_meta: number
+  meta_oportunidades: number
+  criado_em?: string
+  atualizado_em?: string
+  expand?: {
+    usuario_id?: Usuario
+  }
+}
+
 export interface TarefaModel extends RecordModel {
   cliente_id: string
   responsavel_id: string

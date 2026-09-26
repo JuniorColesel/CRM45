@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-26T20:01:28.873Z",
+  "generatedAt": "2026-09-26T20:14:49.646Z",
   "collections": [
     {
       "name": "users",
@@ -1185,6 +1185,84 @@
         "CREATE INDEX idx_aprovacoes_conteudo ON aprovacoes_pendentes (conteudo_id)",
         "CREATE INDEX idx_aprovacoes_aprovador ON aprovacoes_pendentes (aprovador_id)",
         "CREATE INDEX idx_aprovacoes_status ON aprovacoes_pendentes (status)"
+      ]
+    },
+    {
+      "name": "metas",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && usuario_id = @request.auth.id))",
+        "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && usuario_id = @request.auth.id))",
+        "create": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && (usuario_id.perfil = 'vendedor_1' || usuario_id.perfil = 'vendedor_2')))",
+        "update": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && (usuario_id.perfil = 'vendedor_1' || usuario_id.perfil = 'vendedor_2')) || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && usuario_id = @request.auth.id))",
+        "delete": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && (usuario_id.perfil = 'vendedor_1' || usuario_id.perfil = 'vendedor_2')))"
+      },
+      "fields": [
+        {
+          "name": "usuario_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "usuarios"
+        },
+        {
+          "name": "ano",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "mes",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "valor_meta",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "meta_oportunidades",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "criado_em",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "atualizado_em",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_metas_usuario_ano_mes ON metas (usuario_id, ano, mes)",
+        "CREATE INDEX idx_metas_usuario ON metas (usuario_id)",
+        "CREATE INDEX idx_metas_ano ON metas (ano)",
+        "CREATE INDEX idx_metas_mes ON metas (mes)"
       ]
     }
   ]

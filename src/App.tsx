@@ -4,6 +4,7 @@ import { Toaster as Sonner } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 
 import { AuthProvider } from './contexts/AuthContext'
+import { PeriodoProvider } from './contexts/PeriodoContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
 import Index from './pages/Index'
@@ -25,35 +26,37 @@ import ConfiguracoesPage from './pages/ConfiguracoesPage'
 const App = () => (
   <BrowserRouter>
     <AuthProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <Routes>
-          {/* Rota de Login independente */}
-          <Route path="/" element={<Index />} />
-          <Route path="/login" element={<Navigate to="/" replace />} />
+      <PeriodoProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <Routes>
+            {/* Rota de Login independente */}
+            <Route path="/" element={<Index />} />
+            <Route path="/login" element={<Navigate to="/" replace />} />
 
-          {/* Rotas dos 10 módulos protegidas e agrupadas com o Layout Global */}
-          <Route element={<ProtectedRoute />}>
-            <Route element={<Layout />}>
-              <Route path="/painel" element={<PainelPage />} />
-              <Route path="/clientes" element={<ClientesPage />} />
-              <Route path="/clientes/:id" element={<ClienteDetalhesPage />} />
-              <Route path="/funil" element={<FunilPage />} />
-              <Route path="/prospeccao" element={<ProspeccaoPage />} />
-              <Route path="/ligacoes" element={<LigacoesPage />} />
-              <Route path="/follow-up" element={<FollowUpPage />} />
-              <Route path="/automacoes" element={<AutomacoesPage />} />
-              <Route path="/marketing" element={<MarketingPage />} />
-              <Route path="/relatorios" element={<RelatoriosPage />} />
-              <Route path="/configuracoes" element={<ConfiguracoesPage />} />
+            {/* Rotas dos 10 módulos protegidas e agrupadas com o Layout Global */}
+            <Route element={<ProtectedRoute />}>
+              <Route element={<Layout />}>
+                <Route path="/painel" element={<PainelPage />} />
+                <Route path="/clientes" element={<ClientesPage />} />
+                <Route path="/clientes/:id" element={<ClienteDetalhesPage />} />
+                <Route path="/funil" element={<FunilPage />} />
+                <Route path="/prospeccao" element={<ProspeccaoPage />} />
+                <Route path="/ligacoes" element={<LigacoesPage />} />
+                <Route path="/follow-up" element={<FollowUpPage />} />
+                <Route path="/automacoes" element={<AutomacoesPage />} />
+                <Route path="/marketing" element={<MarketingPage />} />
+                <Route path="/relatorios" element={<RelatoriosPage />} />
+                <Route path="/configuracoes" element={<ConfiguracoesPage />} />
+              </Route>
             </Route>
-          </Route>
 
-          {/* Sem rota 404 além de redirecionar rota desconhecida para / */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </TooltipProvider>
+            {/* Sem rota 404 além de redirecionar rota desconhecida para / */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </TooltipProvider>
+      </PeriodoProvider>
     </AuthProvider>
   </BrowserRouter>
 )

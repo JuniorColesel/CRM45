@@ -171,6 +171,16 @@ export default function OportunidadeModal({
       const valorNum = parseFloat(valor.replace(',', '.'))
       const respFinal = podeEscolherResponsavel ? responsavelId : user?.id || ''
 
+      // Regra de Fechamento Automático:
+      // Ao salvar uma oportunidade com status "ganho" ou "perdido",
+      // se o campo data_fechamento estiver vazio, preencher automaticamente com a data/hora atual.
+      let dataFechamentoValor: string | null = null
+      if (status === 'ganho' || status === 'perdido') {
+        dataFechamentoValor = oportunidade?.data_fechamento || new Date().toISOString()
+      } else {
+        dataFechamentoValor = null
+      }
+
       const payload: Record<string, unknown> = {
         cliente_id: clienteId,
         valor: valorNum,
@@ -179,10 +189,7 @@ export default function OportunidadeModal({
         status,
         motivo_perda_id: status === 'perdido' ? motivoPerdaId || null : null,
         data_prevista_fechamento: dataPrevista ? new Date(dataPrevista).toISOString() : null,
-        data_fechamento:
-          status === 'ganho' || status === 'perdido'
-            ? oportunidade?.data_fechamento || new Date().toISOString()
-            : null,
+        data_fechamento: dataFechamentoValor,
         observacoes: observacoes.trim() || '',
       }
 
