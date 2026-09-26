@@ -12,6 +12,7 @@ import Layout from './components/Layout'
 // 10 páginas reais para os 10 módulos solicitados
 import PainelPage from './pages/PainelPage'
 import ClientesPage from './pages/ClientesPage'
+import ClienteDetalhesPage from './pages/ClienteDetalhesPage'
 import FunilPage from './pages/FunilPage'
 import ProspeccaoPage from './pages/ProspeccaoPage'
 import LigacoesPage from './pages/LigacoesPage'
@@ -37,6 +38,7 @@ const App = () => (
             <Route element={<Layout />}>
               <Route path="/painel" element={<PainelPage />} />
               <Route path="/clientes" element={<ClientesPage />} />
+              <Route path="/clientes/:id" element={<ClienteDetalhesPage />} />
               <Route path="/funil" element={<FunilPage />} />
               <Route path="/prospeccao" element={<ProspeccaoPage />} />
               <Route path="/ligacoes" element={<LigacoesPage />} />
