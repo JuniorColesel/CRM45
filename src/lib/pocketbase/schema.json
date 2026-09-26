@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-26T19:30:57.501Z",
+  "generatedAt": "2026-09-26T19:34:39.033Z",
   "collections": [
     {
       "name": "users",
@@ -844,6 +844,347 @@
         "CREATE INDEX idx_mensagens_enviadas_cliente ON mensagens_enviadas (cliente_id)",
         "CREATE INDEX idx_mensagens_enviadas_canal ON mensagens_enviadas (canal)",
         "CREATE INDEX idx_mensagens_enviadas_status ON mensagens_enviadas (status)"
+      ]
+    },
+    {
+      "name": "campanhas",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && (status = 'ativa' || status = 'pausada')) || (@request.auth.perfil = 'compras_grandes_clientes' && (publico_alvo.grande_cliente = true || publico_alvo ~ 'grande_cliente')))",
+        "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && (status = 'ativa' || status = 'pausada')) || (@request.auth.perfil = 'compras_grandes_clientes' && (publico_alvo.grande_cliente = true || publico_alvo ~ 'grande_cliente')))",
+        "create": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && responsavel_id = @request.auth.id))",
+        "update": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && responsavel_id = @request.auth.id))",
+        "delete": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && responsavel_id = @request.auth.id))"
+      },
+      "fields": [
+        {
+          "name": "nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "descricao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tipo",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["email", "whatsapp", "sms", "mista"]
+        },
+        {
+          "name": "canal_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "canais_marketing"
+        },
+        {
+          "name": "responsavel_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "usuarios"
+        },
+        {
+          "name": "data_inicio",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_fim",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["rascunho", "ativa", "pausada", "finalizada"]
+        },
+        {
+          "name": "publico_alvo",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "orcamento",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "criado_em",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "atualizado_em",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_campanhas_responsavel ON campanhas (responsavel_id)",
+        "CREATE INDEX idx_campanhas_canal ON campanhas (canal_id)",
+        "CREATE INDEX idx_campanhas_status ON campanhas (status)"
+      ]
+    },
+    {
+      "name": "conteudos_gerados",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && campanha_id.responsavel_id = @request.auth.id) || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && (campanha_id.status = 'ativa' || campanha_id.status = 'pausada')) || (@request.auth.perfil = 'compras_grandes_clientes' && (campanha_id.publico_alvo.grande_cliente = true || campanha_id.publico_alvo ~ 'grande_cliente')))",
+        "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && campanha_id.responsavel_id = @request.auth.id) || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && (campanha_id.status = 'ativa' || campanha_id.status = 'pausada')) || (@request.auth.perfil = 'compras_grandes_clientes' && (campanha_id.publico_alvo.grande_cliente = true || campanha_id.publico_alvo ~ 'grande_cliente')))",
+        "create": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && campanha_id.responsavel_id = @request.auth.id) || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && campanha_id.status = 'ativa'))",
+        "update": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && campanha_id.responsavel_id = @request.auth.id))",
+        "delete": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && campanha_id.responsavel_id = @request.auth.id))"
+      },
+      "fields": [
+        {
+          "name": "campanha_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "campanhas"
+        },
+        {
+          "name": "tipo",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["texto", "imagem", "video", "audio"]
+        },
+        {
+          "name": "conteudo",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "prompt_ia",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["gerado", "aprovado", "rejeitado"]
+        },
+        {
+          "name": "criado_em",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_conteudos_gerados_campanha ON conteudos_gerados (campanha_id)",
+        "CREATE INDEX idx_conteudos_gerados_status ON conteudos_gerados (status)"
+      ]
+    },
+    {
+      "name": "publicacoes",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && campanha_id.responsavel_id = @request.auth.id) || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && cliente_id.responsavel_id = @request.auth.id) || (@request.auth.perfil = 'compras_grandes_clientes' && (cliente_id.grande_cliente = true || campanha_id.publico_alvo.grande_cliente = true || campanha_id.publico_alvo ~ 'grande_cliente')))",
+        "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && campanha_id.responsavel_id = @request.auth.id) || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && cliente_id.responsavel_id = @request.auth.id) || (@request.auth.perfil = 'compras_grandes_clientes' && (cliente_id.grande_cliente = true || campanha_id.publico_alvo.grande_cliente = true || campanha_id.publico_alvo ~ 'grande_cliente')))",
+        "create": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && campanha_id.responsavel_id = @request.auth.id) || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && campanha_id.status = 'ativa' && cliente_id.responsavel_id = @request.auth.id))",
+        "update": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && campanha_id.responsavel_id = @request.auth.id) || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && cliente_id.responsavel_id = @request.auth.id))",
+        "delete": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && campanha_id.responsavel_id = @request.auth.id) || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && cliente_id.responsavel_id = @request.auth.id))"
+      },
+      "fields": [
+        {
+          "name": "campanha_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "campanhas"
+        },
+        {
+          "name": "cliente_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "clientes"
+        },
+        {
+          "name": "conteudo_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "conteudos_gerados"
+        },
+        {
+          "name": "canal",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["whatsapp", "email", "sms"]
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["agendada", "enviada", "entregue", "lida", "falhou"]
+        },
+        {
+          "name": "data_agendada",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "data_envio",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "criado_em",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_publicacoes_campanha ON publicacoes (campanha_id)",
+        "CREATE INDEX idx_publicacoes_cliente ON publicacoes (cliente_id)",
+        "CREATE INDEX idx_publicacoes_conteudo ON publicacoes (conteudo_id)",
+        "CREATE INDEX idx_publicacoes_status ON publicacoes (status)",
+        "CREATE INDEX idx_publicacoes_data_agendada ON publicacoes (data_agendada)"
+      ]
+    },
+    {
+      "name": "aprovacoes_pendentes",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && (conteudo_id.campanha_id.responsavel_id = @request.auth.id || aprovador_id = @request.auth.id)) || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && (conteudo_id.campanha_id.status = 'ativa' || conteudo_id.campanha_id.status = 'pausada')) || (@request.auth.perfil = 'compras_grandes_clientes' && (conteudo_id.campanha_id.publico_alvo.grande_cliente = true || conteudo_id.campanha_id.publico_alvo ~ 'grande_cliente')))",
+        "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && (conteudo_id.campanha_id.responsavel_id = @request.auth.id || aprovador_id = @request.auth.id)) || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && (conteudo_id.campanha_id.status = 'ativa' || conteudo_id.campanha_id.status = 'pausada')) || (@request.auth.perfil = 'compras_grandes_clientes' && (conteudo_id.campanha_id.publico_alvo.grande_cliente = true || conteudo_id.campanha_id.publico_alvo ~ 'grande_cliente')))",
+        "create": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && conteudo_id.campanha_id.responsavel_id = @request.auth.id) || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && conteudo_id.campanha_id.status = 'ativa'))",
+        "update": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && (conteudo_id.campanha_id.responsavel_id = @request.auth.id || aprovador_id = @request.auth.id)))",
+        "delete": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && (conteudo_id.campanha_id.responsavel_id = @request.auth.id || aprovador_id = @request.auth.id)))"
+      },
+      "fields": [
+        {
+          "name": "conteudo_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "conteudos_gerados"
+        },
+        {
+          "name": "aprovador_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "usuarios"
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["pendente", "aprovado", "rejeitado"]
+        },
+        {
+          "name": "comentario",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "criado_em",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "decidido_em",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_aprovacoes_conteudo ON aprovacoes_pendentes (conteudo_id)",
+        "CREATE INDEX idx_aprovacoes_aprovador ON aprovacoes_pendentes (aprovador_id)",
+        "CREATE INDEX idx_aprovacoes_status ON aprovacoes_pendentes (status)"
       ]
     }
   ]
