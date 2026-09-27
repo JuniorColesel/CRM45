@@ -3,7 +3,8 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { AbaProcedimentos } from '@/components/pop/AbaProcedimentos'
 import { AbaTreinamento } from '@/components/pop/AbaTreinamento'
-import { BookOpen, GraduationCap, ShieldAlert, ArrowLeft } from 'lucide-react'
+import { GuiaRapido } from '@/components/pop/GuiaRapido'
+import { BookOpen, GraduationCap, ShieldAlert, ArrowLeft, Compass } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 export function PopTreinamentoPage() {
@@ -15,24 +16,31 @@ export function PopTreinamentoPage() {
   const isCeo = user?.perfil === 'ceo_financeiro'
 
   // Se for obrigatório e NÃO for CEO, a aba Procedimentos deve ficar oculta
+  // O Guia Rápido e o Treinamento continuam acessíveis no modo obrigatório
   const bloquearAbaProcedimentos = isObrigatorioParam && !isCeo
 
-  // Aba ativa: se bloquear procedimentos, forçamos 'treinamento'
-  const [abaAtiva, setAbaAtiva] = useState<'procedimentos' | 'treinamento'>(() => {
+  // Aba ativa: procedimentos, treinamento ou guia
+  const [abaAtiva, setAbaAtiva] = useState<'guia' | 'procedimentos' | 'treinamento'>(() => {
     const tabUrl = searchParams.get('tab')
-    if (tabUrl === 'treinamento' || isObrigatorioParam) {
-      return 'treinamento'
-    }
+    if (tabUrl === 'guia') return 'guia'
+    if (tabUrl === 'treinamento') return 'treinamento'
+    if (isObrigatorioParam) return 'treinamento'
     return 'procedimentos'
   })
 
   // Sincroniza se os searchParams mudarem
   useEffect(() => {
+    const tabUrl = searchParams.get('tab')
     if (bloquearAbaProcedimentos) {
-      setAbaAtiva('treinamento')
+      if (tabUrl === 'guia') {
+        setAbaAtiva('guia')
+      } else {
+        setAbaAtiva('treinamento')
+      }
     } else {
-      const tabUrl = searchParams.get('tab')
-      if (tabUrl === 'treinamento') {
+      if (tabUrl === 'guia') {
+        setAbaAtiva('guia')
+      } else if (tabUrl === 'treinamento') {
         setAbaAtiva('treinamento')
       } else if (tabUrl === 'procedimentos') {
         setAbaAtiva('procedimentos')
@@ -40,7 +48,7 @@ export function PopTreinamentoPage() {
     }
   }, [searchParams, bloquearAbaProcedimentos])
 
-  const alternarAba = (novaAba: 'procedimentos' | 'treinamento') => {
+  const alternarAba = (novaAba: 'guia' | 'procedimentos' | 'treinamento') => {
     if (bloquearAbaProcedimentos && novaAba === 'procedimentos') {
       return
     }
@@ -104,9 +112,24 @@ export function PopTreinamentoPage() {
         </div>
       )}
 
-      {/* Abas Superiores (Procedimentos / Treinamento) */}
+      {/* Abas Superiores (Guia Rápido / Procedimentos / Treinamento) */}
       <div className="border-b border-[#E2E8F0] flex items-center justify-between">
         <div className="flex items-center gap-1 sm:gap-2">
+          {/* Aba Guia Rápido: visível com e sem login, e no modo obrigatório */}
+          <button
+            type="button"
+            onClick={() => alternarAba('guia')}
+            className={[
+              'flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 transition-all duration-150',
+              abaAtiva === 'guia'
+                ? 'border-[#16A34A] text-[#16A34A]'
+                : 'border-transparent text-[#64748B] hover:text-[#0F172A] hover:border-[#CBD5E1]',
+            ].join(' ')}
+          >
+            <Compass className="w-4 h-4" />
+            <span>Guia Rápido</span>
+          </button>
+
           {/* Aba Procedimentos: Oculta se não for CEO no modo obrigatório */}
           {!bloquearAbaProcedimentos && (
             <button
@@ -148,6 +171,10 @@ export function PopTreinamentoPage() {
 
       {/* Conteúdo da Aba Selecionada */}
       <div>
+        {abaAtiva === 'guia' && (
+          <GuiaRapido onIrParaTreinamento={() => alternarAba('treinamento')} />
+        )}
+
         {abaAtiva === 'procedimentos' && !bloquearAbaProcedimentos && <AbaProcedimentos />}
 
         {abaAtiva === 'treinamento' && (

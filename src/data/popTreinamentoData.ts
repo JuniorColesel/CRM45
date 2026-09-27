@@ -22,6 +22,74 @@ export interface SlideTreinamento {
   exemploPratico?: string
 }
 
+export interface QuizPergunta {
+  id: number
+  pergunta: string
+  opcoes: { id: string; texto: string }[]
+  respostaCorreta: string
+}
+
+export const QUIZ_TREINAMENTO: QuizPergunta[] = [
+  {
+    id: 1,
+    pergunta: 'O que é um CRM?',
+    opcoes: [
+      { id: 'a', texto: 'Um sistema de gestão de estoque' },
+      {
+        id: 'b',
+        texto: 'Um sistema para guardar e compartilhar as informações dos clientes e vendas',
+      },
+      { id: 'c', texto: 'Um aplicativo de mensagens' },
+      { id: 'd', texto: 'Um programa de contabilidade' },
+    ],
+    respostaCorreta: 'b',
+  },
+  {
+    id: 2,
+    pergunta: 'Onde você deve registrar uma ligação que fez para um cliente?',
+    opcoes: [
+      { id: 'a', texto: 'Em um bloco de anotações' },
+      { id: 'b', texto: 'No Follow-up do sistema, escolhendo o tipo entrada/saída/perdida' },
+      { id: 'c', texto: 'Enviando um e-mail para o gestor' },
+      { id: 'd', texto: 'Não é preciso registrar' },
+    ],
+    respostaCorreta: 'b',
+  },
+  {
+    id: 3,
+    pergunta: 'Para onde vai uma oportunidade quando o cliente aceita a proposta?',
+    opcoes: [
+      { id: 'a', texto: 'Prospecção' },
+      { id: 'b', texto: 'Qualificação' },
+      { id: 'c', texto: 'Ganha (etapa de fechamento)' },
+      { id: 'd', texto: 'Perdida' },
+    ],
+    respostaCorreta: 'c',
+  },
+  {
+    id: 4,
+    pergunta: 'O que deve ser feito quando um cliente aparece duplicado?',
+    opcoes: [
+      { id: 'a', texto: 'Criar outro cadastro' },
+      { id: 'b', texto: 'Deixar como está' },
+      { id: 'c', texto: 'Buscar o registro existente, editar e evitar duplicar' },
+      { id: 'd', texto: 'Excluir os dois' },
+    ],
+    respostaCorreta: 'c',
+  },
+  {
+    id: 5,
+    pergunta: 'É correto compartilhar sua senha com um colega?',
+    opcoes: [
+      { id: 'a', texto: 'Sim, sempre' },
+      { id: 'b', texto: 'Sim, se ele pedir' },
+      { id: 'c', texto: 'Não, a senha é pessoal e intransferível' },
+      { id: 'd', texto: 'Só com o coordenador' },
+    ],
+    respostaCorreta: 'c',
+  },
+]
+
 export const LISTA_POPS: ProcedimentoOperacionalPadrao[] = [
   {
     id: 'pop-001',

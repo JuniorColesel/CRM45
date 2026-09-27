@@ -1,6 +1,10 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { SLIDES_TREINAMENTO, type SlideTreinamento } from '@/data/popTreinamentoData'
+import {
+  SLIDES_TREINAMENTO,
+  QUIZ_TREINAMENTO,
+  type SlideTreinamento,
+} from '@/data/popTreinamentoData'
 import {
   registrarTreinamentoConcluido,
   VERSAO_TREINAMENTO_ATUAL,
@@ -13,6 +17,7 @@ import {
   RotateCcw,
   FastForward,
   CheckCircle2,
+  XCircle,
   Lightbulb,
   Sparkles,
   BookOpen,
@@ -23,6 +28,8 @@ import {
   Compass,
   BarChart3,
   CheckSquare,
+  HelpCircle,
+  Check,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -35,6 +42,13 @@ interface AbaTreinamentoProps {
 export function AbaTreinamento({ modoObrigatorio = false, aoConcluir }: AbaTreinamentoProps) {
   const [slideAtual, setSlideAtual] = useState(0) // 0-indexed (slide 1 é índice 0)
   const [salvandoConclusao, setSalvandoConclusao] = useState(false)
+
+  // Estado do Quiz no slide 18
+  const [respostasQuiz, setRespostasQuiz] = useState<Record<number, string>>({})
+  const [quizVerificado, setQuizVerificado] = useState(false)
+  const [acertosQuiz, setAcertosQuiz] = useState(0)
+  const [quizAprovado, setQuizAprovado] = useState(false)
+
   const { user } = useAuth()
   const navigate = useNavigate()
   const { toast } = useToast()
@@ -45,6 +59,69 @@ export function AbaTreinamento({ modoObrigatorio = false, aoConcluir }: AbaTrein
   const isUltimoSlide = slideAtual === totalSlides - 1
 
   const porcentagemProgresso = Math.round(((slideAtual + 1) / totalSlides) * 100)
+
+  const handleSelecionarOpcaoQuiz = (perguntaId: number, opcaoId: string) => {
+    setRespostasQuiz((prev) => ({
+      ...prev,
+      [perguntaId]: opcaoId,
+    }))
+    // Se o usuário já havia verificado, qualquer alteração desmarca a verificação para que ele clique em "Verificar respostas" novamente
+    if (quizVerificado) {
+      setQuizVerificado(false)
+      setQuizAprovado(false)
+    }
+  }
+
+  const handleVerificarQuiz = () => {
+    // Verifica se respondeu todas as 5
+    const totalRespondidas = Object.keys(respostasQuiz).length
+    if (totalRespondidas < QUIZ_TREINAMENTO.length) {
+      toast({
+        title: 'Responda todas as perguntas',
+        description: `Você respondeu ${totalRespondidas} de ${QUIZ_TREINAMENTO.length} perguntas do quiz.`,
+        variant: 'destructive',
+      })
+      return
+    }
+
+    let acertos = 0
+    QUIZ_TREINAMENTO.forEach((p) => {
+      if (respostasQuiz[p.id] === p.respostaCorreta) {
+        acertos += 1
+      }
+    })
+
+    setAcertosQuiz(acertos)
+    setQuizVerificado(true)
+    const aprovado = acertos >= 4
+    setQuizAprovado(aprovado)
+
+    if (aprovado) {
+      toast({
+        title: 'Parabéns! Quiz Aprovado',
+        description: `Você acertou ${acertos} de 5 perguntas. Agora você pode concluir o treinamento!`,
+      })
+    } else {
+      toast({
+        title: 'Quiz Não Atingiu a Nota Mínima',
+        description: `Você acertou ${acertos} de 5. Revise o treinamento e tente novamente.`,
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleTentarNovamenteQuiz = () => {
+    // Permite ao usuário manter ou ajustar suas respostas e reverificar
+    setQuizVerificado(false)
+    setQuizAprovado(false)
+  }
+
+  const handleLimparQuiz = () => {
+    setRespostasQuiz({})
+    setQuizVerificado(false)
+    setQuizAprovado(false)
+    setAcertosQuiz(0)
+  }
 
   const handleProximo = () => {
     if (slideAtual < totalSlides - 1) {
@@ -369,6 +446,206 @@ export function AbaTreinamento({ modoObrigatorio = false, aoConcluir }: AbaTrein
                 </div>
               </div>
             )}
+
+            {/* QUIZ DE VERIFICAÇÃO OBRIGATÓRIO NO SLIDE 18 */}
+            {isUltimoSlide && (
+              <div className="mt-8 pt-8 border-t-2 border-dashed border-[#CBD5E1] space-y-6">
+                {/* Header do Quiz */}
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-900 border border-purple-200">
+                      <HelpCircle className="w-3.5 h-3.5 text-purple-700" />
+                      <span>Quiz Obrigatório de Verificação</span>
+                    </div>
+                    <h3 className="text-lg sm:text-xl font-extrabold text-[#0F172A]">
+                      Validação de Conhecimento (5 Perguntas)
+                    </h3>
+                    <p className="text-xs sm:text-sm text-[#64748B]">
+                      Acerte pelo menos <strong>4 de 5</strong> perguntas para liberar o botão de
+                      conclusão do treinamento.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleLimparQuiz}
+                      className="text-xs text-[#64748B] hover:text-[#0F172A] h-8"
+                    >
+                      Limpar respostas
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Lista de 5 Perguntas */}
+                <div className="space-y-5">
+                  {QUIZ_TREINAMENTO.map((q, idx) => {
+                    const respostaEscolhida = respostasQuiz[q.id]
+                    const acertou = respostaEscolhida === q.respostaCorreta
+
+                    return (
+                      <div
+                        key={q.id}
+                        className={[
+                          'border rounded-xl p-5 transition-colors',
+                          quizVerificado
+                            ? acertou
+                              ? 'bg-emerald-50/40 border-emerald-300'
+                              : 'bg-red-50/40 border-red-300'
+                            : 'bg-white border-[#E2E8F0] shadow-2xs',
+                        ].join(' ')}
+                      >
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                          <h4 className="font-bold text-sm sm:text-base text-[#0F172A] flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-full bg-slate-100 text-slate-800 text-xs font-extrabold flex items-center justify-center shrink-0">
+                              {idx + 1}
+                            </span>
+                            <span>{q.pergunta}</span>
+                          </h4>
+
+                          {quizVerificado && (
+                            <span
+                              className={[
+                                'px-2 py-0.5 rounded-full text-xs font-bold flex items-center gap-1 shrink-0',
+                                acertou
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-red-100 text-red-800',
+                              ].join(' ')}
+                            >
+                              {acertou ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5" /> Correta
+                                </>
+                              ) : (
+                                <>
+                                  <XCircle className="w-3.5 h-3.5" /> Incorreta
+                                </>
+                              )}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Opções de múltipla escolha */}
+                        <div className="space-y-2 pt-1">
+                          {q.opcoes.map((op) => {
+                            const isSelected = respostaEscolhida === op.id
+                            const isCorretaReal = op.id === q.respostaCorreta
+
+                            let opcaoStyle =
+                              'border-[#E2E8F0] bg-white text-[#1E293B] hover:bg-slate-50'
+                            if (isSelected) {
+                              opcaoStyle =
+                                'border-[#16A34A] bg-emerald-50/50 text-[#0F172A] font-medium'
+                            }
+
+                            if (quizVerificado) {
+                              if (isCorretaReal) {
+                                opcaoStyle =
+                                  'border-emerald-500 bg-emerald-100/80 text-emerald-950 font-semibold'
+                              } else if (isSelected && !isCorretaReal) {
+                                opcaoStyle =
+                                  'border-red-400 bg-red-100/80 text-red-950 font-medium line-through'
+                              } else {
+                                opcaoStyle =
+                                  'border-slate-200 bg-slate-50 text-slate-400 opacity-60'
+                              }
+                            }
+
+                            return (
+                              <label
+                                key={op.id}
+                                className={[
+                                  'flex items-center gap-3 p-3 rounded-lg border text-xs sm:text-sm cursor-pointer transition-all',
+                                  opcaoStyle,
+                                ].join(' ')}
+                              >
+                                <input
+                                  type="radio"
+                                  name={`quiz-pergunta-${q.id}`}
+                                  value={op.id}
+                                  checked={isSelected}
+                                  onChange={() => handleSelecionarOpcaoQuiz(q.id, op.id)}
+                                  className="w-4 h-4 text-[#16A34A] border-[#CBD5E1] focus:ring-[#16A34A]"
+                                />
+                                <span className="font-bold text-[#64748B] w-5 uppercase">
+                                  {op.id})
+                                </span>
+                                <span className="flex-1">{op.texto}</span>
+                              </label>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* Banner de Resultado do Quiz (se já verificado) */}
+                {quizVerificado && (
+                  <div
+                    className={[
+                      'p-4 sm:p-5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-fade-in-fast',
+                      quizAprovado
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+                        : 'bg-red-50 border-red-300 text-red-950',
+                    ].join(' ')}
+                  >
+                    <div className="flex items-start gap-3">
+                      {quizAprovado ? (
+                        <CheckCircle2 className="w-6 h-6 text-emerald-600 shrink-0 mt-0.5" />
+                      ) : (
+                        <XCircle className="w-6 h-6 text-red-600 shrink-0 mt-0.5" />
+                      )}
+                      <div>
+                        <strong className="block font-bold text-sm sm:text-base">
+                          {quizAprovado
+                            ? `Aprovado! Você acertou ${acertosQuiz} de 5 perguntas.`
+                            : `Você acertou ${acertosQuiz} de 5. Revise o treinamento e tente novamente`}
+                        </strong>
+                        <span className="text-xs sm:text-sm opacity-90 block mt-0.5">
+                          {quizAprovado
+                            ? 'Parabéns pelo aproveitamento! O botão "Concluir treinamento" foi liberado abaixo.'
+                            : 'É necessário acertar no mínimo 4 de 5 perguntas para concluir e desbloquear o acesso ao sistema.'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {!quizAprovado && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleTentarNovamenteQuiz}
+                        className="bg-white border-red-300 text-red-800 hover:bg-red-100 shrink-0 font-semibold"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+                        Tentar novamente
+                      </Button>
+                    )}
+                  </div>
+                )}
+
+                {/* Botão de Verificação das Respostas */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+                  <span className="text-xs text-[#64748B]">
+                    Respondeu {Object.keys(respostasQuiz).length} de {QUIZ_TREINAMENTO.length}{' '}
+                    perguntas
+                  </span>
+
+                  <Button
+                    type="button"
+                    onClick={handleVerificarQuiz}
+                    variant="secondary"
+                    className="w-full sm:w-auto bg-[#0F172A] hover:bg-[#1E293B] text-white font-bold px-6 shadow-sm"
+                  >
+                    <CheckSquare className="w-4 h-4 mr-2" />
+                    Verificar respostas
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -393,24 +670,34 @@ export function AbaTreinamento({ modoObrigatorio = false, aoConcluir }: AbaTrein
 
           {/* Botão Próximo / Concluir */}
           {isUltimoSlide ? (
-            <Button
-              type="button"
-              onClick={handleConcluirTreinamento}
-              disabled={salvandoConclusao}
-              className="w-full sm:w-auto bg-[#16A34A] hover:bg-[#15803D] text-white font-bold shadow-md px-6 py-2.5 h-auto transition-transform active:scale-95"
-            >
-              {salvandoConclusao ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Salvando conclusão...
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="w-4 h-4 mr-2" />
-                  Concluir treinamento
-                </>
-              )}
-            </Button>
+            quizAprovado ? (
+              <Button
+                type="button"
+                onClick={handleConcluirTreinamento}
+                disabled={salvandoConclusao}
+                className="w-full sm:w-auto bg-[#16A34A] hover:bg-[#15803D] text-white font-bold shadow-md px-6 py-2.5 h-auto transition-transform active:scale-95 animate-fade-in-fast"
+              >
+                {salvandoConclusao ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Salvando conclusão...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 mr-2" />
+                    Concluir treinamento
+                  </>
+                )}
+              </Button>
+            ) : (
+              <div
+                className="text-xs font-semibold text-[#64748B] bg-slate-100 border border-slate-200 px-4 py-2.5 rounded-lg flex items-center gap-1.5"
+                title="Responda o quiz acima e acerte pelo menos 4 de 5 para liberar a conclusão"
+              >
+                <HelpCircle className="w-4 h-4 text-purple-600" />
+                <span>Acerte 4+ no Quiz para Concluir</span>
+              </div>
+            )
           ) : (
             <Button
               type="button"
