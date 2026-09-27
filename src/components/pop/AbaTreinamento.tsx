@@ -13,11 +13,16 @@ import {
   RotateCcw,
   FastForward,
   CheckCircle2,
+  Lightbulb,
   Sparkles,
   BookOpen,
   ArrowRight,
   ShieldAlert,
   Loader2,
+  Layers,
+  Compass,
+  BarChart3,
+  CheckSquare,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -102,26 +107,62 @@ export function AbaTreinamento({ modoObrigatorio = false, aoConcluir }: AbaTrein
     }
   }
 
-  // Ícones dinâmicos temáticos para dar um acabamento profissional
-  const getSlideIcon = (num: number) => {
-    switch (num) {
+  // Cores e ícones temáticos por módulo
+  const getModuloBadge = (moduloNum: number) => {
+    switch (moduloNum) {
       case 1:
-        return <Sparkles className="w-8 h-8 text-[#16A34A]" />
+        return {
+          bg: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+          dot: 'bg-emerald-500',
+          icon: <Layers className="w-3.5 h-3.5 text-emerald-600" />,
+        }
       case 2:
+        return {
+          bg: 'bg-blue-50 text-blue-800 border-blue-200',
+          dot: 'bg-blue-500',
+          icon: <Compass className="w-3.5 h-3.5 text-blue-600" />,
+        }
       case 3:
+        return {
+          bg: 'bg-indigo-50 text-indigo-800 border-indigo-200',
+          dot: 'bg-indigo-500',
+          icon: <BarChart3 className="w-3.5 h-3.5 text-indigo-600" />,
+        }
       case 4:
-      case 5:
-      case 6:
-      case 7:
-      case 8:
-      case 9:
-        return <BookOpen className="w-8 h-8 text-[#2563EB]" />
-      case 10:
-        return <CheckCircle2 className="w-8 h-8 text-[#16A34A]" />
+        return {
+          bg: 'bg-amber-50 text-amber-900 border-amber-200',
+          dot: 'bg-amber-500',
+          icon: <CheckSquare className="w-3.5 h-3.5 text-amber-600" />,
+        }
       default:
-        return <BookOpen className="w-8 h-8 text-[#16A34A]" />
+        return {
+          bg: 'bg-slate-50 text-slate-800 border-slate-200',
+          dot: 'bg-slate-500',
+          icon: <BookOpen className="w-3.5 h-3.5 text-slate-600" />,
+        }
     }
   }
+
+  const getSlideIcon = (num: number) => {
+    if (num === 1) {
+      return <Sparkles className="w-8 h-8 text-[#16A34A]" />
+    }
+    if (num === 18) {
+      return <CheckCircle2 className="w-8 h-8 text-[#16A34A]" />
+    }
+    if (num <= 4) {
+      return <Layers className="w-8 h-8 text-[#16A34A]" />
+    }
+    if (num <= 10) {
+      return <Compass className="w-8 h-8 text-[#2563EB]" />
+    }
+    if (num <= 15) {
+      return <BarChart3 className="w-8 h-8 text-[#4F46E5]" />
+    }
+    return <CheckSquare className="w-8 h-8 text-[#D97706]" />
+  }
+
+  const moduloBadge = getModuloBadge(slideCorrente.moduloNumero)
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -134,8 +175,8 @@ export function AbaTreinamento({ modoObrigatorio = false, aoConcluir }: AbaTrein
               Treinamento obrigatório — complete para acessar o sistema
             </strong>
             <span className="text-amber-700 text-xs">
-              Para garantir a qualidade dos processos no CRM Colesel 45, finalize os 10 passos
-              abaixo para desbloquear seu acesso.
+              Para garantir a qualidade dos processos no CRM Colesel 45, finalize os {totalSlides}{' '}
+              passos abaixo para desbloquear seu acesso.
             </span>
           </div>
         </div>
@@ -144,12 +185,16 @@ export function AbaTreinamento({ modoObrigatorio = false, aoConcluir }: AbaTrein
       {/* Barra de Progresso e Ações Superiores */}
       <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 sm:p-5 shadow-sm space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="font-bold text-[#0F172A] tracking-tight">
               Slide {slideAtual + 1} de {totalSlides}
             </span>
             <span className="text-xs text-[#64748B] font-medium">
               ({porcentagemProgresso}% concluído)
+            </span>
+            <span className="hidden sm:inline-block text-[#CBD5E1]">•</span>
+            <span className="text-xs font-semibold text-[#334155] bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
+              {slideCorrente.modulo}
             </span>
           </div>
 
@@ -183,41 +228,57 @@ export function AbaTreinamento({ modoObrigatorio = false, aoConcluir }: AbaTrein
         {/* Linha visual de progresso */}
         <Progress value={porcentagemProgresso} className="h-2 bg-[#F1F5F9]" />
 
-        {/* Indicadores de slides (bolinhas/steps) */}
-        <div className="flex items-center justify-between pt-1 px-1">
-          {SLIDES_TREINAMENTO.map((s, idx) => {
-            const isPassado = idx < slideAtual
-            const isAtual = idx === slideAtual
+        {/* Indicadores de slides (18 steps responsivos em grid/scroll) */}
+        <div className="pt-2">
+          <div className="grid grid-cols-9 sm:grid-cols-18 gap-1 sm:gap-1.5 justify-items-center">
+            {SLIDES_TREINAMENTO.map((s, idx) => {
+              const isPassado = idx < slideAtual
+              const isAtual = idx === slideAtual
 
-            return (
-              <button
-                key={s.numero}
-                type="button"
-                onClick={() => setSlideAtual(idx)}
-                aria-label={`Ir para o slide ${s.numero}`}
-                className={[
-                  'w-6 h-6 sm:w-7 sm:h-7 rounded-full text-[11px] font-bold flex items-center justify-center transition-all duration-150',
-                  isAtual
-                    ? 'bg-[#16A34A] text-white ring-4 ring-emerald-100 scale-110 shadow-sm'
-                    : isPassado
-                      ? 'bg-emerald-100 text-[#166534] hover:bg-emerald-200'
-                      : 'bg-[#F1F5F9] text-[#94A3B8] hover:bg-[#E2E8F0]',
-                ].join(' ')}
-              >
-                {s.numero}
-              </button>
-            )
-          })}
+              return (
+                <button
+                  key={s.numero}
+                  type="button"
+                  onClick={() => setSlideAtual(idx)}
+                  title={`Slide ${s.numero}: ${s.titulo} (${s.modulo})`}
+                  aria-label={`Ir para o slide ${s.numero}`}
+                  className={[
+                    'w-6 h-6 sm:w-7 sm:h-7 rounded-full text-[11px] font-bold flex items-center justify-center transition-all duration-150',
+                    isAtual
+                      ? 'bg-[#16A34A] text-white ring-4 ring-emerald-100 scale-110 shadow-sm'
+                      : isPassado
+                        ? 'bg-emerald-100 text-[#166534] hover:bg-emerald-200'
+                        : 'bg-[#F1F5F9] text-[#94A3B8] hover:bg-[#E2E8F0]',
+                  ].join(' ')}
+                >
+                  {s.numero}
+                </button>
+              )
+            })}
+          </div>
         </div>
       </div>
 
       {/* Card Principal do Slide */}
-      <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm p-6 sm:p-10 relative overflow-hidden min-h-[360px] flex flex-col justify-between">
+      <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm p-6 sm:p-10 relative overflow-hidden min-h-[420px] flex flex-col justify-between">
         {/* Faixa decorativa superior */}
         <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-[#16A34A] via-[#2563EB] to-[#7C3AED]" />
 
         {/* Conteúdo Central do Slide */}
         <div className="space-y-6 pt-2">
+          {/* Tag / Header do Módulo no topo do slide */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-1 border-b border-[#F1F5F9]">
+            <div
+              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${moduloBadge.bg}`}
+            >
+              {moduloBadge.icon}
+              <span>{slideCorrente.modulo}</span>
+            </div>
+            <span className="text-xs font-semibold text-[#64748B]">
+              Slide {slideCorrente.numero} de {totalSlides}
+            </span>
+          </div>
+
           {/* Cabeçalho do Slide */}
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-[#E2E8F0] flex items-center justify-center shadow-inner flex-shrink-0">
@@ -234,10 +295,80 @@ export function AbaTreinamento({ modoObrigatorio = false, aoConcluir }: AbaTrein
           </div>
 
           {/* Corpo do Texto do Slide */}
-          <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl p-6 sm:p-8">
-            <p className="text-base sm:text-lg text-[#1E293B] leading-relaxed font-normal">
-              {slideCorrente.conteudo}
-            </p>
+          <div className="space-y-5">
+            {/* Texto principal e/ou introdução */}
+            {slideCorrente.conteudo && (
+              <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl p-5 sm:p-6">
+                <p className="text-base sm:text-lg text-[#1E293B] leading-relaxed font-normal">
+                  {slideCorrente.conteudo}
+                </p>
+              </div>
+            )}
+
+            {/* Lista com itens (se houver) */}
+            {slideCorrente.itensLista && slideCorrente.itensLista.length > 0 && (
+              <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl p-5 sm:p-6">
+                {slideCorrente.tipoLista === 'ordered' ? (
+                  <ol className="space-y-2.5 list-none">
+                    {slideCorrente.itensLista.map((item, i) => (
+                      <li
+                        key={i}
+                        className="flex items-start gap-3 text-sm sm:text-base text-[#1E293B]"
+                      >
+                        <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-100 text-[#166534] font-bold text-xs flex items-center justify-center mt-0.5">
+                          {i + 1}
+                        </span>
+                        <span className="leading-relaxed">{item}</span>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <ul className="space-y-2 list-none">
+                    {slideCorrente.itensLista.map((item, i) => (
+                      <li
+                        key={i}
+                        className="flex items-start gap-3 text-sm sm:text-base text-[#1E293B]"
+                      >
+                        <span className="flex-shrink-0 w-2 h-2 rounded-full bg-[#16A34A] mt-2" />
+                        <span className="leading-relaxed">{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {slideCorrente.fechamento && (
+                  <div className="mt-4 pt-3 border-t border-slate-200/80 text-sm font-medium text-[#475569] italic">
+                    {slideCorrente.fechamento}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Fechamento simples sem lista (se houver) */}
+            {!slideCorrente.itensLista && slideCorrente.fechamento && (
+              <p className="text-sm font-medium text-[#475569] italic">
+                {slideCorrente.fechamento}
+              </p>
+            )}
+
+            {/* Box destacado de "Exemplo prático" */}
+            {slideCorrente.exemploPratico && (
+              <div className="bg-amber-50/80 border-2 border-amber-200/80 rounded-xl p-5 sm:p-6 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center flex-shrink-0 shadow-sm">
+                    <Lightbulb className="w-5 h-5 text-amber-700" />
+                  </div>
+                  <div className="space-y-1.5 flex-1">
+                    <span className="text-xs font-bold uppercase tracking-wider text-amber-900 block">
+                      Exemplo prático
+                    </span>
+                    <p className="text-sm sm:text-base text-amber-950 leading-relaxed font-normal">
+                      {slideCorrente.exemploPratico}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

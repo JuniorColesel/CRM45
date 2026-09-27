@@ -12,8 +12,14 @@ export interface ProcedimentoOperacionalPadrao {
 
 export interface SlideTreinamento {
   numero: number
+  modulo: string
+  moduloNumero: 1 | 2 | 3 | 4
   titulo: string
   conteudo: string
+  itensLista?: string[]
+  tipoLista?: 'bullet' | 'ordered'
+  fechamento?: string
+  exemploPratico?: string
 }
 
 export const LISTA_POPS: ProcedimentoOperacionalPadrao[] = [
@@ -192,63 +198,202 @@ export const LISTA_POPS: ProcedimentoOperacionalPadrao[] = [
 export const SLIDES_TREINAMENTO: SlideTreinamento[] = [
   {
     numero: 1,
-    titulo: 'Bem-vindo ao Colesel CRM',
+    modulo: 'Módulo 1 – Noções básicas',
+    moduloNumero: 1,
+    titulo: 'Bem-vindo ao seu novo CRM',
     conteudo:
-      'Este treinamento apresenta as funcionalidades essenciais do sistema. Duração: 10 minutos. Ao final, você terá acesso completo.',
+      'Este treinamento vai te ensinar a usar o sistema de gestão que a Colesel adotou. Não se preocupe se nunca usou um CRM antes — vamos começar do absoluto zero, com linguagem simples e exemplos do nosso dia a dia. Ao final, você estará pronto para trabalhar. Duração: cerca de 15 minutos.',
   },
   {
     numero: 2,
-    titulo: 'Visão geral',
+    modulo: 'Módulo 1 – Noções básicas',
+    moduloNumero: 1,
+    titulo: 'Para que serve isso afinal?',
     conteudo:
-      'O Colesel CRM é um sistema de gestão de relacionamento com clientes que centraliza: carteira de clientes, funil de vendas, follow-up de ligações e tarefas, relatórios e metas.',
+      'CRM significa "Gestão de Relacionamento com o Cliente". É um sistema que guarda TODAS as informações dos seus clientes e das suas vendas em um só lugar. Antes, o vendedor anotava em caderno, agenda ou na memória. Com o CRM, tudo fica registrado e compartilhado com o time.',
+    exemploPratico:
+      'Você atendeu o Sr. Carlos na semana passada e ele pediu orçamento de um telhado. Sem o CRM, essa informação fica só na sua cabeça ou num papel. Se você faltar por doença, ninguém sabe do orçamento do Sr. Carlos. Com o CRM, qualquer colega abre o sistema, vê o cliente, vê o que você conversou e dá continuidade.',
   },
   {
     numero: 3,
-    titulo: 'Menu lateral',
+    modulo: 'Módulo 1 – Noções básicas',
+    moduloNumero: 1,
+    titulo: 'Por que a Colesel adotou o CRM',
     conteudo:
-      "O menu lateral dá acesso a todos os módulos. Clique em qualquer item para navegar. O botão 'Voltar' retorna à tela anterior.",
+      'Para não perder oportunidades, para ninguém esquecer de retornar contato, para a diretoria acompanhar o desempenho e para que a carteira da empresa não dependa da memória de uma única pessoa. O CRM garante que ninguém fique "na mão" e que todas as vendas sejam acompanhadas.',
+    exemploPratico:
+      'Imagine que o Renan (coordenador) precisa saber quantas propostas cada vendedor mandou este mês. Sem o CRM, ele teria que perguntar um por um. Com o CRM, ele abre um relatório e vê tudo em segundos.',
   },
   {
     numero: 4,
-    titulo: 'Gestão de clientes',
+    modulo: 'Módulo 1 – Noções básicas',
+    moduloNumero: 1,
+    titulo: 'A rotina do vendedor no CRM',
     conteudo:
-      "Em 'Clientes' você visualiza, filtra, cria e edita registros. Campos obrigatórios: nome e (telefone ou email). Use os filtros para localizar rapidamente.",
+      'No dia a dia você vai: cadastrar e consultar clientes, registrar suas conversas e ligações, acompanhar suas oportunidades de venda no funil, criar tarefas (lembretes), bater suas metas e ver seus relatórios. Todos esses módulos aparecem no menu lateral.',
+    exemploPratico:
+      'Seu dia começa abrindo o CRM, vendo o "Follow-up" — ali aparece quem você precisa ligar hoje, porque está sem contato há dias. Isso é a sua "lista de tarefas do dia".',
   },
   {
     numero: 5,
-    titulo: 'Oportunidades',
-    conteudo:
-      "Em 'Funil' você move oportunidades entre etapas: Prospecção → Qualificação → Proposta → Negociação → Ganha/Perdida. A data de fechamento é registrada automaticamente.",
+    modulo: 'Módulo 2 – O dia a dia no CRM',
+    moduloNumero: 2,
+    titulo: 'Conhecendo o menu',
+    conteudo: 'Cada item do menu é um módulo do sistema. Vamos passar por cada um:',
+    itensLista: [
+      'Painel: resumo geral do que está acontecendo',
+      'Funil: suas oportunidades de venda organizadas por etapa',
+      'Follow-up: ligações pendentes, tarefas e alertas de contato',
+      'Clientes: sua carteira completa de clientes',
+      'Relatórios: números e gráficos de desempenho',
+      'Automações: disparos e lembretes automáticos',
+      'Configurações: integrações, importação, usuários e metas',
+      'POP & Treinamento: este manual e os procedimentos do sistema',
+    ],
+    tipoLista: 'bullet',
+    fechamento: 'Não precisa decorar. Conforme usa, você grava com naturalidade.',
   },
   {
     numero: 6,
-    titulo: 'Ligações e tarefas',
+    modulo: 'Módulo 2 – O dia a dia no CRM',
+    moduloNumero: 2,
+    titulo: 'Cadastrando um cliente',
     conteudo:
-      "Em 'Follow-up' você registra ligações (entrada/saída/perdida) e cria tarefas com vencimento. A tela mostra alertas de clientes sem contato e oportunidades paradas.",
+      'Para cadastrar: acesse "Clientes", clique em "Novo cliente" e preencha os campos. Obrigatórios: nome e (telefone OU email). Os demais (empresa, cidade, CNPJ) são opcionais, mas quanto mais completo, melhor — facilita buscas futuras e relatórios.',
+    exemploPratico:
+      'Você conheceu a Dona Marta numa feira. Cadastre: Nome: Marta Silva, Telefone: (42) 99999-0000, Cidade: São Mateus do Sul. Pronto! Ela está na sua carteira e ninguém mais da equipe vai cadastrar duplicado.',
   },
   {
     numero: 7,
-    titulo: 'Indicadores e exportação',
+    modulo: 'Módulo 2 – O dia a dia no CRM',
+    moduloNumero: 2,
+    titulo: 'Encontrando e atualizando clientes',
     conteudo:
-      "Em 'Relatórios' você visualiza o painel com gráficos e exporta dados em CSV. Use o seletor de período para filtrar.",
+      'Use a busca/filtros (nome, cidade, grande cliente) para localizar. Clique no cliente para ver detalhes e histórico. Use o lápis para editar e a lixeira para excluir (apenas quem tem permissão). A busca é case-insensitive — funciona com maiúsculas ou minúsculas.',
+    exemploPratico:
+      'O cliente "João Construtor" mudou de telefone. Você busca por "joão", abre o registro, clica no lápis, atualiza o número e salva. Pronto — da próxima vez, o número certo já vai aparecer.',
   },
   {
     numero: 8,
-    titulo: 'Integração com ERP',
+    modulo: 'Módulo 2 – O dia a dia no CRM',
+    moduloNumero: 2,
+    titulo: 'O funil explica sua venda',
     conteudo:
-      "Em 'Configurações → Importar dados do Bling' você sobe CSVs de clientes e compras. O sistema detecta colunas automaticamente e trata duplicatas.",
+      'O funil organiza suas vendas em etapas que vão do primeiro contato até o fechamento: Prospecção → Qualificação → Proposta → Negociação → Ganha/Perdida. Ele mostra em que estágio cada negócio está e ajuda a saber no que focar.',
+    exemploPratico:
+      'Tem 5 clientes no funil. 2 estão em "Prospecção" (primeiro contato), 2 em "Proposta" (enviou orçamento) e 1 em "Negociação" (perto de fechar). Seu foco do dia: empurrar os da proposta para a negociação e fechar o da negociação.',
   },
   {
     numero: 9,
-    titulo: 'Acompanhamento de metas',
+    modulo: 'Módulo 2 – O dia a dia no CRM',
+    moduloNumero: 2,
+    titulo: 'Usando o funil',
     conteudo:
-      "Em 'Configurações → Metas do Time' o gestor define valores e oportunidades esperadas. O vendedor vê apenas a própria meta.",
+      'No "Funil", arraste o card da oportunidade para a etapa certa, ou abra o card e altere a etapa no formulário. Quando vai para "Ganha" ou "Perdida", o sistema grava a data de fechamento automaticamente. Se voltar para uma etapa aberta, a data é limpa — os relatórios ficam corretos.',
+    exemploPratico:
+      'Você mandou uma proposta para a Construtora Alfa. Arraste o card dela de "Prospecção" para "Proposta". Na semana seguinte, ela aceitou. Arraste para "Ganha". Pronto — a venda está registrada e entra no relatório de fechamentos desse mês.',
   },
   {
     numero: 10,
-    titulo: 'Treinamento concluído',
+    modulo: 'Módulo 2 – O dia a dia no CRM',
+    moduloNumero: 2,
+    titulo: 'Não esqueça de voltar a falar',
     conteudo:
-      "Parabéns! Você concluiu o treinamento. Clique em 'Concluir treinamento' para acessar o sistema.",
+      'O "Follow-up" é seu melhor amigo. Ele mostra: ligações pendentes, tarefas pendentes, clientes sem contato há mais de 7 dias e oportunidades paradas há mais de 5 dias. Registre cada ligação (entrada/saída/perdida) e crie tarefas com data de vencimento.',
+    exemploPratico:
+      'Você ligou para o Sr. Roberto e ele pediu para "pensar com calma". Registre a ligação como "saída" com a observação "cliente pediu prazo até sexta". Crie uma tarefa pra sexta: "Retornar Sr. Roberto". O CRM vai te lembrar. Sem isso, você esquece — e o concorrente fecha.',
+  },
+  {
+    numero: 11,
+    modulo: 'Módulo 3 – Funil, metas e relatórios',
+    moduloNumero: 3,
+    titulo: 'O valor de registrar cada contato',
+    conteudo:
+      'Cada ligação, tarefa e atualização registrada vira dado. E dado vira informação para a empresa decidir melhor. Um vendedor que registra bem é valorizado. Quem não registra "some" do sistema e prejudica o próprio desempenho.',
+    exemploPratico:
+      'No fim do mês, o relatório mostra que você fez 80 ligações, mas fechou só 2 vendas. Com esse dado, a diretoria pode ver que suas propostas estão demorando e ajudar você a melhorar. Sem registro, ninguém sabe o que fazer para te ajudar.',
+  },
+  {
+    numero: 12,
+    modulo: 'Módulo 3 – Funil, metas e relatórios',
+    moduloNumero: 3,
+    titulo: 'Entendendo suas metas',
+    conteudo:
+      'As metas definem o que se espera de você no mês: valor de vendas (R$), número de oportunidades e de ligações. Acompanhe seu progresso nos relatórios. O vendedor vê a PRÓPRIA meta (somente leitura); o gestor define e acompanha todas.',
+    exemploPratico:
+      'Sua meta do mês é R$ 100.000 em vendas. Você já fechou R$ 40.000. No relatório, vê que está a 40% da meta. Falta R$ 60.000. Sabendo disso, você intensifica o follow-up nos clientes em negociação. A meta te orienta, não te pressiona — ela é o seu norte.',
+  },
+  {
+    numero: 13,
+    modulo: 'Módulo 3 – Funil, metas e relatórios',
+    moduloNumero: 3,
+    titulo: 'Lendo seus relatórios',
+    conteudo:
+      'Em "Relatórios" você vê o Painel (resumo e gráficos) e as abas de Oportunidades, Ligações, Tarefas e Clientes. Use o seletor de período (mês corrente por padrão). Tudo pode ser exportado em CSV — arquivo que abre direto no Excel.',
+    exemploPratico:
+      'Quer saber quantas ligações fez em setembro? Vá em Relatórios → Ligações, selecione setembro e veja o total e a lista. Precisa mostrar pra diretoria? Exporte o CSV e abra no Excel.',
+  },
+  {
+    numero: 14,
+    modulo: 'Módulo 3 – Funil, metas e relatórios',
+    moduloNumero: 3,
+    titulo: 'Sua carteira já importada',
+    conteudo:
+      'O Bling é o ERP (sistema financeiro/estoque) da empresa. Os clientes e compras já cadastrados lá podem ser importados para o CRM em lote. Isso evita recadastrar tudo na mão. A importação é feita por quem tem permissão (CEO/coordenador) na tela de Importação.',
+    exemploPratico:
+      'A Colesel tem 500 clientes no Bling. Em vez de cadastrar um a um, o coordenador exporta o CSV do Bling e importa no CRM. Em minutos, os 500 clientes estão na carteira, com histórico de compras. Você não precisa fazer nada — é automático.',
+  },
+  {
+    numero: 15,
+    modulo: 'Módulo 3 – Funil, metas e relatórios',
+    moduloNumero: 3,
+    titulo: 'Passo a passo da importação',
+    conteudo:
+      'Caso tenha permissão e precise importar: acesse Configurações → Importar dados do Bling. Selecione o arquivo CSV (clientes ou compras). O sistema detecta as colunas automaticamente; revise o mapeamento se necessário. Campos obrigatórios não mapeados ficam vermelhos — associe antes de importar. Clique em Importar e veja o resultado (X criados, Y atualizados, Z erros).',
+    exemploPratico:
+      'Você importou uma planilha nova de clientes. O sistema diz "30 criados, 5 atualizados, 0 erros". Os 5 "atualizados" já existiam e foram atualizados com dados novos. Nenhum duplicado foi criado. Eficiente, né?',
+  },
+  {
+    numero: 16,
+    modulo: 'Módulo 4 – Fechamento e regras',
+    moduloNumero: 4,
+    titulo: 'Boas práticas obrigatórias',
+    conteudo: '',
+    itensLista: [
+      'Cadastre o cliente com telefone OU email — sempre.',
+      'Registre TODA ligação e TODA tarefa. Nada de "eu lembro".',
+      'Mantenha as oportunidades na etapa certa do funil.',
+      'Nunca crie cliente duplicado (busque antes).',
+      'Sua senha é pessoal e intransferível — nunca compartilhe.',
+      'Não tente burlar metas: o sistema registra tudo.',
+      'Se errar um lançamento, corrige imediatamente (não esconde).',
+    ],
+    tipoLista: 'ordered',
+    fechamento: 'Seguir essas regras mantém o time organizado e a diretoria confiando nos dados.',
+  },
+  {
+    numero: 17,
+    modulo: 'Módulo 4 – Fechamento e regras',
+    moduloNumero: 4,
+    titulo: 'Suporte e dúvidas',
+    conteudo: 'Tem três níveis de ajuda:',
+    itensLista: [
+      'Este módulo de treinamento — volte sempre que esquecer algo.',
+      'A aba "Procedimentos" — tem os POPs (procedimentos padrão) de cada tarefa.',
+      'O seu gestor/coordenador — para dúvidas de processo do dia a dia.',
+    ],
+    tipoLista: 'ordered',
+    fechamento: 'Não fique com dúvida: perguntar é sinal de profissionalismo, não de fraqueza.',
+  },
+  {
+    numero: 18,
+    modulo: 'Módulo 4 – Fechamento e regras',
+    moduloNumero: 4,
+    titulo: 'Você está pronto!',
+    conteudo:
+      'Parabéns! Você completou o treinamento e agora entende o básico de CRM, do nosso sistema e do dia a dia. Pode explorar as telas à vontade. A prática é o melhor professor. Ao clicar em "Concluir treinamento", seu acesso completo será liberado.',
+    exemploPratico:
+      'Daqui a duas semanas, esse treinamento vai parecer simples. E se surgir dúvida, você sabe onde encontrar ajuda. Sucesso nas suas vendas!',
   },
 ]
 
