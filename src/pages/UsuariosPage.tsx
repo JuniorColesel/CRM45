@@ -16,6 +16,9 @@ import {
   Mail,
   Shield,
   Calendar,
+  Check,
+  Copy,
+  KeyRound,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -88,22 +91,6 @@ export const PERFIS_CONFIG: Record<PerfilUsuario, { label: string; badgeClass: s
   },
 }
 
-// Dois CEOs iniciais a verificar/criar automaticamente no primeiro carregamento
-const USUARIOS_INICIAIS = [
-  {
-    nome: 'Junior Colesel',
-    email: 'junior.colesel@coleselengenharia.com',
-    perfil: 'ceo_financeiro' as PerfilUsuario,
-    ativo: true,
-  },
-  {
-    nome: 'Alice Paitra',
-    email: 'alice.paitra@coleselengenharia.com',
-    perfil: 'ceo_financeiro' as PerfilUsuario,
-    ativo: true,
-  },
-]
-
 function formatarDataCriacao(isoString?: string): string {
   if (!isoString) return '-'
   try {
@@ -152,8 +139,15 @@ export default function UsuariosPage() {
   const [usuarioParaExcluir, setUsuarioParaExcluir] = useState<Usuario | null>(null)
   const [excluindo, setExcluindo] = useState(false)
 
-  // Flag para evitar execução duplicada da criação inicial no React strict mode
-  const inicializacaoExecutadaRef = useRef(false)
+  // Controle de exibição da senha gerada (exibida apenas uma vez)
+  const [modalSenhaOpen, setModalSenhaOpen] = useState(false)
+  const [dadosNovoUsuario, setDadosNovoUsuario] = useState<{
+    nome: string
+    email: string
+    perfil: string
+    senha_gerada: string
+  } | null>(null)
+  const [senhaCopiada, setSenhaCopiada] = useState(false)
 
   // Voltar (mesmo padrão da Importação: navigate(-1) com fallback)
   const handleVoltar = () => {
@@ -187,78 +181,11 @@ export default function UsuariosPage() {
     }
   }
 
-  // Efeito de inicialização com verificação e criação automática dos dois CEOs
+  // Carregar lista de usuários da tela
   useEffect(() => {
-    if (!isCeoFinanceiro) return
-    if (inicializacaoExecutadaRef.current) return
-    inicializacaoExecutadaRef.current = true
-
-    async function inicializar() {
-      setLoading(true)
-      try {
-        const records = await pb.collection('usuarios').getFullList<Usuario>({
-          sort: 'nome',
-          requestKey: null,
-        })
-
-        const emailsExistentes = new Set(records.map((u) => (u.email || '').toLowerCase().trim()))
-
-        const criadosNomes: string[] = []
-        let listaAtualizada = [...records]
-
-        for (const inicial of USUARIOS_INICIAIS) {
-          const emailLower = inicial.email.toLowerCase().trim()
-          if (!emailsExistentes.has(emailLower)) {
-            try {
-              const novoRecord = await pb.collection('usuarios').create<Usuario>(
-                {
-                  nome: inicial.nome,
-                  email: inicial.email,
-                  perfil: inicial.perfil,
-                  ativo: inicial.ativo,
-                  password: 'Skip@Pass45#',
-                  passwordConfirm: 'Skip@Pass45#',
-                  emailVisibility: true,
-                },
-                { requestKey: null },
-              )
-              emailsExistentes.add(emailLower)
-              listaAtualizada.push(novoRecord)
-              criadosNomes.push(inicial.nome)
-            } catch (err) {
-              console.error(`Erro ao criar usuário inicial ${inicial.nome}:`, err)
-            }
-          }
-        }
-
-        // Ordenar alfabeticamente por nome
-        listaAtualizada.sort((a, b) => a.nome.localeCompare(b.nome))
-        setUsuarios(listaAtualizada)
-
-        if (criadosNomes.length > 0) {
-          toast({
-            title: 'Usuários iniciais criados',
-            description: `Usuários iniciais criados: ${criadosNomes.join(', ')}`,
-          })
-        } else {
-          toast({
-            title: 'Usuários carregados',
-            description: 'Usuários iniciais já existiam.',
-          })
-        }
-      } catch (err: unknown) {
-        const msg = getErrorMessage(err)
-        toast({
-          variant: 'destructive',
-          title: 'Erro na inicialização',
-          description: msg || 'Falha ao sincronizar usuários com o banco de dados.',
-        })
-      } finally {
-        setLoading(false)
-      }
+    if (isCeoFinanceiro) {
+      carregarUsuarios()
     }
-
-    inicializar()
   }, [isCeoFinanceiro])
 
   // Filtragem em tempo real por nome/email e perfil (Hook no topo, incondicional)
@@ -422,27 +349,38 @@ export default function UsuariosPage() {
           description: `Os dados de "${atualizado.nome}" foram atualizados com sucesso.`,
         })
       } else {
-        // Criação de novo usuário (auth collection exige password)
-        const payload: Record<string, unknown> = {
-          nome: formNome.trim(),
-          email: formEmail.trim(),
-          perfil: formPerfil,
-          ativo: formAtivo,
-          password: 'Skip@Pass45#',
-          passwordConfirm: 'Skip@Pass45#',
-          emailVisibility: true,
-        }
+        // Criação de novo usuário via rota de backend segura /backend/v1/criar_usuario
+        const response = await pb.send<{
+          success: boolean
+          usuario: Usuario
+          senha_gerada: string
+        }>('/backend/v1/criar_usuario', {
+          method: 'POST',
+          body: {
+            nome: formNome.trim(),
+            email: formEmail.trim(),
+            perfil: formPerfil,
+            ativo: formAtivo,
+          },
+        })
 
-        const criado = await pb
-          .collection('usuarios')
-          .create<Usuario>(payload, { requestKey: null })
-
+        const criado = response.usuario
         setUsuarios((prev) => [criado, ...prev].sort((a, b) => a.nome.localeCompare(b.nome)))
 
         toast({
-          title: 'Usuário criado',
-          description: `O usuário "${criado.nome}" foi cadastrado com sucesso.`,
+          title: 'Usuário cadastrado com sucesso',
+          description: `O usuário "${criado.nome}" foi registrado no sistema.`,
         })
+
+        // Guardar os dados temporariamente para exibir a senha gerada uma única vez
+        setDadosNovoUsuario({
+          nome: criado.nome,
+          email: criado.email,
+          perfil: PERFIS_CONFIG[criado.perfil]?.label || criado.perfil,
+          senha_gerada: response.senha_gerada,
+        })
+        setSenhaCopiada(false)
+        setModalSenhaOpen(true)
       }
 
       setModalOpen(false)
@@ -1111,6 +1049,113 @@ export default function UsuariosPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL DE EXIBIÇÃO DA SENHA GERADA (APENAS UMA VEZ) */}
+      <Dialog
+        open={modalSenhaOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setModalSenhaOpen(false)
+            setDadosNovoUsuario(null)
+            setSenhaCopiada(false)
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md bg-white">
+          <DialogHeader>
+            <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 mb-1">
+              <KeyRound className="w-5 h-5" />
+            </div>
+            <DialogTitle className="text-lg font-bold text-[#0F172A]">
+              Credenciais do Novo Usuário
+            </DialogTitle>
+            <DialogDescription className="text-xs text-[#64748B]">
+              O usuário foi criado com sucesso no banco de dados. A senha foi gerada de forma segura
+              e é exibida <strong>apenas uma vez</strong> neste momento. Copie e envie ao
+              colaborador.
+            </DialogDescription>
+          </DialogHeader>
+
+          {dadosNovoUsuario && (
+            <div className="space-y-3.5 pt-2">
+              <div className="bg-[#F8FAFC] p-3 rounded-lg border border-[#E2E8F0] space-y-1.5 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-[#64748B]">Colaborador:</span>
+                  <span className="font-semibold text-[#0F172A]">{dadosNovoUsuario.nome}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[#64748B]">E-mail de acesso:</span>
+                  <span className="font-mono text-[#0F172A]">{dadosNovoUsuario.email}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[#64748B]">Perfil atribuído:</span>
+                  <span className="font-semibold text-[#7C3AED]">{dadosNovoUsuario.perfil}</span>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-[#0F172A]">
+                  Senha Temporária Forte Gerada:
+                </Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    readOnly
+                    value={dadosNovoUsuario.senha_gerada}
+                    className="font-mono text-sm bg-amber-50/60 border-amber-200 text-[#0F172A] tracking-wider select-all"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      if (dadosNovoUsuario?.senha_gerada) {
+                        navigator.clipboard.writeText(dadosNovoUsuario.senha_gerada)
+                        setSenhaCopiada(true)
+                        toast({
+                          title: 'Senha copiada!',
+                          description:
+                            'A senha temporária foi copiada para a área de transferência.',
+                        })
+                        setTimeout(() => setSenhaCopiada(false), 3000)
+                      }
+                    }}
+                    className="flex-shrink-0 text-xs gap-1.5 h-9"
+                  >
+                    {senhaCopiada ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        <span className="text-emerald-700 font-semibold">Copiada</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5 text-[#64748B]" />
+                        <span>Copiar</span>
+                      </>
+                    )}
+                  </Button>
+                </div>
+                <p className="text-[11px] text-[#64748B]">
+                  Por questões de segurança, esta senha nunca será gravada em texto puro no
+                  navegador e não poderá ser visualizada novamente após fechar esta janela.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="pt-3 border-t border-slate-100 flex items-center justify-end">
+            <Button
+              type="button"
+              onClick={() => {
+                setModalSenhaOpen(false)
+                setDadosNovoUsuario(null)
+                setSenhaCopiada(false)
+              }}
+              className="bg-[#16A34A] hover:bg-[#15803D] text-white font-semibold text-xs"
+            >
+              Concluir e Fechar
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

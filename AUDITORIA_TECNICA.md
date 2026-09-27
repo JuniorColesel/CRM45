@@ -190,6 +190,7 @@ O projeto possui 8 migrações em `pocketbase/migrations/`:
   ```
 - **Impacto:** Se um vendedor ou coordenador mover acidentalmente uma oportunidade para "Ganho" e depois devolvê-la para o estágio de "Negociação" (`status = 'aberto'`), o campo `data_fechamento` **permanece preenchido** com a data antiga. Em `src/pages/RelatoriosPage.tsx` e `src/pages/FunilPage.tsx`, os cálculos de conversão filtram propostas por `data_fechamento`, fazendo com que oportunidades reabertas continuem sendo computadas como finalizadas.
 - **Correção Proposta:** Atualizar o hook para limpar explicitamente `data_fechamento` quando o status retornar para `'aberto'`:
+
   ```javascript
   onRecordUpdate((e) => {
     const status = e.record.get('status')

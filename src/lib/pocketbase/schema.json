@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-27T01:39:59.478Z",
+  "generatedAt": "2026-09-27T12:01:29.443Z",
   "collections": [
     {
       "name": "users",
@@ -50,9 +50,9 @@
       "apiRules": {
         "list": "@request.auth.id != '' && (id = @request.auth.id || @request.auth.perfil = 'ceo_financeiro')",
         "view": "@request.auth.id != '' && (id = @request.auth.id || @request.auth.perfil = 'ceo_financeiro')",
-        "create": null,
-        "update": "@request.auth.id != '' && id = @request.auth.id",
-        "delete": null
+        "create": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'",
+        "update": "@request.auth.id != '' && (id = @request.auth.id || @request.auth.perfil = 'ceo_financeiro')",
+        "delete": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro' && @request.auth.id != id"
       },
       "fields": [
         {
@@ -174,8 +174,8 @@
         "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil != 'compras_grandes_clientes' || grande_cliente = true)",
         "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil != 'compras_grandes_clientes' || grande_cliente = true)",
         "create": "@request.auth.id != '' && @request.auth.perfil != 'estoque'",
-        "update": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)",
-        "delete": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)"
+        "update": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id || (@request.auth.perfil = 'coordenador_vendas' && (responsavel_id.perfil = 'vendedor_1' || responsavel_id.perfil = 'vendedor_2')))",
+        "delete": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id || (@request.auth.perfil = 'coordenador_vendas' && (responsavel_id.perfil = 'vendedor_1' || responsavel_id.perfil = 'vendedor_2')))"
       },
       "fields": [
         {
@@ -292,8 +292,8 @@
         "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || responsavel_id = @request.auth.id || (@request.auth.perfil = 'compras_grandes_clientes' && cliente_id.grande_cliente = true))",
         "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || responsavel_id = @request.auth.id || (@request.auth.perfil = 'compras_grandes_clientes' && cliente_id.grande_cliente = true))",
         "create": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)",
-        "update": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)",
-        "delete": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)"
+        "update": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id || (@request.auth.perfil = 'coordenador_vendas' && (responsavel_id.perfil = 'vendedor_1' || responsavel_id.perfil = 'vendedor_2')))",
+        "delete": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id || (@request.auth.perfil = 'coordenador_vendas' && (responsavel_id.perfil = 'vendedor_1' || responsavel_id.perfil = 'vendedor_2')))"
       },
       "fields": [
         {
@@ -398,8 +398,8 @@
         "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || responsavel_id = @request.auth.id || (@request.auth.perfil = 'compras_grandes_clientes' && cliente_id.grande_cliente = true))",
         "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || responsavel_id = @request.auth.id || (@request.auth.perfil = 'compras_grandes_clientes' && cliente_id.grande_cliente = true))",
         "create": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)",
-        "update": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)",
-        "delete": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)"
+        "update": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id || (@request.auth.perfil = 'coordenador_vendas' && (responsavel_id.perfil = 'vendedor_1' || responsavel_id.perfil = 'vendedor_2')))",
+        "delete": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id || (@request.auth.perfil = 'coordenador_vendas' && (responsavel_id.perfil = 'vendedor_1' || responsavel_id.perfil = 'vendedor_2')))"
       },
       "fields": [
         {
@@ -482,8 +482,8 @@
         "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || responsavel_id = @request.auth.id || (@request.auth.perfil = 'compras_grandes_clientes' && cliente_id.grande_cliente = true))",
         "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || responsavel_id = @request.auth.id || (@request.auth.perfil = 'compras_grandes_clientes' && cliente_id.grande_cliente = true))",
         "create": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)",
-        "update": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)",
-        "delete": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id)"
+        "update": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id || (@request.auth.perfil = 'coordenador_vendas' && (responsavel_id.perfil = 'vendedor_1' || responsavel_id.perfil = 'vendedor_2')))",
+        "delete": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id || (@request.auth.perfil = 'coordenador_vendas' && (responsavel_id.perfil = 'vendedor_1' || responsavel_id.perfil = 'vendedor_2')))"
       },
       "fields": [
         {
@@ -1193,9 +1193,9 @@
       "apiRules": {
         "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && usuario_id = @request.auth.id))",
         "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && usuario_id = @request.auth.id))",
-        "create": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && (usuario_id.perfil = 'vendedor_1' || usuario_id.perfil = 'vendedor_2')))",
-        "update": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && (usuario_id.perfil = 'vendedor_1' || usuario_id.perfil = 'vendedor_2')) || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && usuario_id = @request.auth.id))",
-        "delete": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && (usuario_id.perfil = 'vendedor_1' || usuario_id.perfil = 'vendedor_2')))"
+        "create": "@request.auth.id != '' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && (usuario_id.perfil = 'vendedor_1' || usuario_id.perfil = 'vendedor_2')))",
+        "update": "@request.auth.id != '' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && (usuario_id.perfil = 'vendedor_1' || usuario_id.perfil = 'vendedor_2')))",
+        "delete": "@request.auth.id != '' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && (usuario_id.perfil = 'vendedor_1' || usuario_id.perfil = 'vendedor_2')))"
       },
       "fields": [
         {
