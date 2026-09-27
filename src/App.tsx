@@ -26,6 +26,7 @@ import ImportacaoPage from './pages/ImportacaoPage'
 import UsuariosPage from './pages/UsuariosPage'
 import PrimeirosPassosPage from './pages/PrimeirosPassosPage'
 import MetasPage from './pages/MetasPage'
+import IntegracoesPage from './pages/IntegracoesPage'
 
 const App = () => (
   <BrowserRouter>
@@ -57,6 +58,7 @@ const App = () => (
                 <Route path="/usuarios" element={<UsuariosPage />} />
                 <Route path="/primeiros-passos" element={<PrimeirosPassosPage />} />
                 <Route path="/metas" element={<MetasPage />} />
+                <Route path="/integracoes" element={<IntegracoesPage />} />
               </Route>
             </Route>
 

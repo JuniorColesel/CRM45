@@ -16,7 +16,10 @@ export function detectarDelimitador(primeiraLinha: string): string {
   const tabs = (primeiraLinha.match(/\t/g) || []).length
 
   if (tabs > virgulas && tabs > pontoEVirgula) return '\t'
-  if (pontoEVirgula >= virgulas) return ';'
+  if (pontoEVirgula >= virgulas && pontoEVirgula > 0) return ';'
+  if (virgulas > 0) return ','
+  if (pontoEVirgula > 0) return ';'
+  if (tabs > 0) return '\t'
   return ','
 }
 
@@ -137,19 +140,77 @@ export function normalizarNomeColuna(coluna: string): string {
     .replace(/^_|_$/g, '')
 
   // Mapeamentos comuns
-  if (norm === 'nome' || norm === 'contato' || norm === 'nome_do_contato') return 'nome_contato'
-  if (norm === 'empresa' || norm === 'razao_social' || norm === 'nome_fantasia')
+  if (
+    norm === 'nome' ||
+    norm === 'contato' ||
+    norm === 'nome_do_contato' ||
+    norm === 'cliente_nome' ||
+    norm === 'razao'
+  )
+    return 'nome_contato'
+  if (
+    norm === 'empresa' ||
+    norm === 'razao_social' ||
+    norm === 'nome_fantasia' ||
+    norm === 'fantasia'
+  )
     return 'nome_empresa'
-  if (norm === 'fone' || norm === 'celular' || norm === 'whatsapp') return 'telefone'
-  if (norm === 'municipio') return 'cidade'
-  if (norm === 'e_mail' || norm === 'correio_eletronico') return 'email'
-  if (norm === 'cnpj' || norm === 'cpf' || norm === 'documento' || norm === 'cnpjcpf')
+  if (
+    norm === 'fone' ||
+    norm === 'celular' ||
+    norm === 'whatsapp' ||
+    norm === 'tel' ||
+    norm === 'telefone_1'
+  )
+    return 'telefone'
+  if (norm === 'municipio' || norm === 'uf_cidade') return 'cidade'
+  if (norm === 'e_mail' || norm === 'email' || norm === 'correio_eletronico') return 'email'
+  if (
+    norm === 'cnpj' ||
+    norm === 'cpf' ||
+    norm === 'documento' ||
+    norm === 'cnpjcpf' ||
+    norm === 'cpf_cnpj' ||
+    norm === 'cnpj_ou_cpf'
+  )
     return 'cnpj_cpf'
-  if (norm === 'ultima_compra' || norm === 'data_da_ultima_compra') return 'data_ultima_compra'
-  if (norm === 'vip' || norm === 'grande_cliente_sim_nao') return 'grande_cliente'
-  if (norm === 'data' || norm === 'data_de_compra' || norm === 'datacompra') return 'data_compra'
-  if (norm === 'preco' || norm === 'valor_compra' || norm === 'total') return 'valor'
-  if (norm === 'identificador' || norm === 'id_cliente' || norm === 'cliente_doc') return 'cliente'
+  if (
+    norm === 'ultima_compra' ||
+    norm === 'data_da_ultima_compra' ||
+    norm === 'data_ultima_venda' ||
+    norm === 'dt_ultima_compra'
+  )
+    return 'data_ultima_compra'
+  if (
+    norm === 'vip' ||
+    norm === 'grande_cliente_sim_nao' ||
+    norm === 'grande' ||
+    norm === 'key_account'
+  )
+    return 'grande_cliente'
+  if (
+    norm === 'data' ||
+    norm === 'data_de_compra' ||
+    norm === 'datacompra' ||
+    norm === 'data_venda' ||
+    norm === 'data_do_pedido'
+  )
+    return 'data_compra'
+  if (
+    norm === 'preco' ||
+    norm === 'valor_compra' ||
+    norm === 'total' ||
+    norm === 'total_pedido' ||
+    norm === 'valor_total'
+  )
+    return 'valor'
+  if (
+    norm === 'identificador' ||
+    norm === 'id_cliente' ||
+    norm === 'cliente_doc' ||
+    norm === 'cliente_identificador'
+  )
+    return 'cliente'
 
   return norm
 }

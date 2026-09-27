@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useSearchParams, useLocation } from 'react-router-dom'
 import { Zap, History, Radio, RefreshCw, Lock } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -14,10 +15,37 @@ import { getErrorMessage } from '@/lib/pocketbase/errors'
 export default function AutomacoesPage() {
   const { user } = useAuth()
   const isCeoFinanceiro = user?.perfil === 'ceo_financeiro'
+  const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
+
+  // Aba inicial: query param ?aba=canais ou location.state?.aba
+  const abaQuery = searchParams.get('aba') || (location.state as { aba?: string } | null)?.aba
 
   // Sub-navegação por abas no topo do conteúdo:
   // 'automacoes' | 'historico' | 'canais'
-  const [tabAtiva, setTabAtiva] = useState<string>('automacoes')
+  const [tabAtiva, setTabAtiva] = useState<string>(() => {
+    if (abaQuery && ['automacoes', 'historico', 'canais'].includes(abaQuery)) {
+      return abaQuery
+    }
+    return 'automacoes'
+  })
+
+  // Sincroniza se query param mudar
+  useEffect(() => {
+    const param = searchParams.get('aba')
+    if (param && ['automacoes', 'historico', 'canais'].includes(param)) {
+      setTabAtiva(param)
+    }
+  }, [searchParams])
+
+  const handleTabChange = (novaAba: string) => {
+    setTabAtiva(novaAba)
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev)
+      p.set('aba', novaAba)
+      return p
+    })
+  }
 
   // Estados dos dados
   const [automacoes, setAutomacoes] = useState<AutomacaoModel[]>([])
@@ -136,7 +164,7 @@ export default function AutomacoesPage() {
       </div>
 
       {/* Navegação por Abas (Tabs no topo do conteúdo, consistente com LigaçõesPage) */}
-      <Tabs value={tabAtiva} onValueChange={setTabAtiva} className="space-y-6">
+      <Tabs value={tabAtiva} onValueChange={handleTabChange} className="space-y-6">
         <TabsList className="bg-slate-100 p-1 rounded-xl">
           <TabsTrigger
             value="automacoes"
