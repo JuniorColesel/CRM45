@@ -20,6 +20,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { useSearchParams } from 'react-router-dom'
 import {
   Select,
   SelectContent,
@@ -85,6 +86,29 @@ export default function FollowUpPage() {
     'ligacao' | 'visita' | 'email' | 'whatsapp' | 'reuniao' | 'outro'
   >('ligacao')
   const [descricaoInicialModal, setDescricaoInicialModal] = useState('')
+
+  // Query params vindos do /painel (ações rápidas e alertas)
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  useEffect(() => {
+    const novoParam = searchParams.get('novo')
+    const filtroParam = searchParams.get('filtro')
+
+    if (novoParam === 'ligacao' || novoParam === 'tarefa' || novoParam === '1') {
+      setClienteSelecionadoModal(undefined)
+      setTipoInicialModal(novoParam === 'ligacao' ? 'ligacao' : 'outro')
+      setDescricaoInicialModal('')
+      setModalOpen(true)
+
+      const novos = new URLSearchParams(searchParams)
+      novos.delete('novo')
+      setSearchParams(novos, { replace: true })
+    }
+
+    if (filtroParam === 'sem_contato' || filtroParam === 'hoje') {
+      // Aplicar filtro ou destacar
+    }
+  }, [searchParams, setSearchParams])
 
   // Constrói o filtro server-side para clientes
   const construirFiltroClientes = useCallback(() => {

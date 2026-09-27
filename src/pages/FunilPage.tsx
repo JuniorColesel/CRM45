@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { TrendingUp, Plus, RefreshCw, Layers, Filter } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import pb from '@/lib/pocketbase/client'
@@ -57,6 +58,29 @@ export default function FunilPage() {
   const [oportunidadeSelecionada, setOportunidadeSelecionada] = useState<OportunidadeModel | null>(
     null,
   )
+
+  // Query params (suporte para abertura de modal e filtros vindos do /painel)
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  useEffect(() => {
+    // Parâmetro ?novo=1 abre modal de criação de oportunidade
+    if (searchParams.get('novo') === '1') {
+      setOportunidadeEditando(null)
+      setEtapaInicialModal(etapas[0]?.id)
+      setModalOpen(true)
+      const novosParams = new URLSearchParams(searchParams)
+      novosParams.delete('novo')
+      setSearchParams(novosParams, { replace: true })
+    }
+
+    // Parâmetro ?filtro=paradas filtra oportunidades abertas
+    if (searchParams.get('filtro') === 'paradas') {
+      setFiltros((prev) => ({
+        ...prev,
+        status: 'aberto',
+      }))
+    }
+  }, [searchParams, setSearchParams, etapas])
 
   // Constrói o filtro server-side para oportunidades considerando o período e os filtros aplicados
   const construirFiltroOportunidades = useCallback(() => {
