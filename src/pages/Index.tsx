@@ -200,8 +200,8 @@ export default function Index() {
               )}
             </button>
 
-            {/* Link Esqueceu a Senha */}
-            <div className="text-center pt-2">
+            {/* Link Esqueceu a Senha e Link Ver Treinamento */}
+            <div className="text-center pt-2 flex flex-col items-center gap-2">
               <button
                 type="button"
                 className="text-sm font-medium text-[#7C3AED] hover:text-[#6D28D9] transition-colors"
@@ -211,6 +211,17 @@ export default function Index() {
               >
                 Esqueceu a senha?
               </button>
+
+              <div className="pt-2 border-t border-[#F1F5F9] w-full flex items-center justify-center">
+                <button
+                  type="button"
+                  onClick={() => navigate('/pop-treinamento')}
+                  className="text-xs font-semibold text-[#16A34A] hover:text-[#15803D] hover:underline transition-colors flex items-center gap-1.5 py-1 px-3 rounded-md hover:bg-emerald-50"
+                >
+                  <span>Ver treinamento</span>
+                  <span aria-hidden="true">→</span>
+                </button>
+              </div>
             </div>
           </form>
         </div>

@@ -27,6 +27,33 @@ import UsuariosPage from './pages/UsuariosPage'
 import PrimeirosPassosPage from './pages/PrimeirosPassosPage'
 import MetasPage from './pages/MetasPage'
 import IntegracoesPage from './pages/IntegracoesPage'
+import PopTreinamentoPage from './pages/PopTreinamentoPage'
+import { useAuth } from './contexts/AuthContext'
+
+/**
+ * Componente que envolve /pop-treinamento para permitir acesso LIVRE
+ * (caso não esteja logado, exibe a página em container próprio;
+ * caso esteja logado, usa o Layout com menu lateral).
+ */
+const PopTreinamentoRouteWrapper = () => {
+  const { user } = useAuth()
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC]">
+        <div className="max-w-7xl mx-auto p-4 sm:p-6 md:p-8">
+          <PopTreinamentoPage />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <Layout>
+      <PopTreinamentoPage />
+    </Layout>
+  )
+}
 
 const App = () => (
   <BrowserRouter>
@@ -40,7 +67,10 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/login" element={<Navigate to="/" replace />} />
 
-            {/* Rotas dos 10 módulos protegidas e agrupadas com o Layout Global */}
+            {/* Rota de POP & Treinamento: se deslogado, entra aqui livremente */}
+            <Route path="/pop-treinamento" element={<PopTreinamentoRouteWrapper />} />
+
+            {/* Rotas dos módulos protegidas e agrupadas com o Layout Global */}
             <Route element={<ProtectedRoute />}>
               <Route element={<Layout />}>
                 <Route path="/painel" element={<PainelPage />} />

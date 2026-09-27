@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-27T12:20:14.699Z",
+  "generatedAt": "2026-09-27T12:32:58.021Z",
   "collections": [
     {
       "name": "users",
@@ -1263,6 +1263,56 @@
         "CREATE INDEX idx_metas_usuario ON metas (usuario_id)",
         "CREATE INDEX idx_metas_ano ON metas (ano)",
         "CREATE INDEX idx_metas_mes ON metas (mes)"
+      ]
+    },
+    {
+      "name": "treinamento_concluido",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && (usuario_id = @request.auth.id || @request.auth.perfil = 'ceo_financeiro')",
+        "view": "@request.auth.id != '' && (usuario_id = @request.auth.id || @request.auth.perfil = 'ceo_financeiro')",
+        "create": "@request.auth.id != '' && (usuario_id = @request.auth.id || @request.auth.perfil = 'ceo_financeiro')",
+        "update": "@request.auth.id != '' && (usuario_id = @request.auth.id || @request.auth.perfil = 'ceo_financeiro')",
+        "delete": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'"
+      },
+      "fields": [
+        {
+          "name": "usuario_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "usuarios"
+        },
+        {
+          "name": "concluido_em",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "versao_treinamento",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_treinamento_usuario ON treinamento_concluido (usuario_id)",
+        "CREATE INDEX idx_treinamento_versao ON treinamento_concluido (versao_treinamento)"
       ]
     }
   ]

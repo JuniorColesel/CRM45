@@ -16,6 +16,7 @@ import {
   LogOut,
   Menu,
   X,
+  BookOpen,
 } from 'lucide-react'
 
 export interface NavigationItem {
@@ -66,9 +67,19 @@ export const NAVIGATION_ITEMS: NavigationItem[] = [
     icon: Settings,
     ariaLabel: 'Acessar Configurações do sistema',
   },
+  {
+    name: 'POP & Treinamento',
+    href: '/pop-treinamento',
+    icon: BookOpen,
+    ariaLabel: 'Acessar módulo de POP & Treinamento',
+  },
 ]
 
-export default function Layout() {
+interface LayoutProps {
+  children?: React.ReactNode
+}
+
+export default function Layout({ children }: LayoutProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
@@ -78,6 +89,13 @@ export default function Layout() {
   const currentYear = new Date().getFullYear()
 
   const { user, logout } = useAuth()
+
+  // Bloqueio do menu no modo de treinamento obrigatório (exceto CEO)
+  const searchParams = new URLSearchParams(location.search)
+  const isTreinamentoObrigatorio =
+    location.pathname === '/pop-treinamento' &&
+    searchParams.get('treinamento') === 'obrigatorio' &&
+    user?.perfil !== 'ceo_financeiro'
 
   const handleLogout = () => {
     setMobileMenuOpen(false)
@@ -106,16 +124,31 @@ export default function Layout() {
           const Icon = item.icon
           const isActive = location.pathname === item.href
 
+          // Se estiver no modo obrigatório, bloqueia navegação para outras rotas (apenas logout permitido)
+          if (isTreinamentoObrigatorio && item.href !== '/pop-treinamento') {
+            return (
+              <div
+                key={item.href}
+                className="flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-[15px] font-medium text-slate-400 opacity-50 cursor-not-allowed select-none"
+                title="Conclua o treinamento obrigatório para liberar os módulos"
+              >
+                <Icon className="w-5 h-5 flex-shrink-0 text-slate-400" />
+                <span className="truncate">{item.name}</span>
+              </div>
+            )
+          }
+
           return (
             <NavLink
               key={item.href}
               to={item.href}
+              end={item.href === '/pop-treinamento'}
               aria-label={item.ariaLabel}
               onClick={() => setMobileMenuOpen(false)}
               className={({ isActive: isLinkActive }) =>
                 [
                   'group flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-[15px] font-medium transition-all duration-150',
-                  isLinkActive
+                  isLinkActive || isActive
                     ? 'bg-[#16A34A] text-white shadow-sm font-semibold'
                     : 'text-[#0F172A] hover:bg-[#F1F5F9] hover:text-[#7C3AED]',
                 ].join(' ')
@@ -209,15 +242,17 @@ export default function Layout() {
         {/* Top Header */}
         <header className="sticky top-0 z-20 h-16 bg-white/95 backdrop-blur border-b border-[#E2E8F0] px-4 sm:px-8 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            {/* Hambúrguer visível apenas < 1024px */}
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen(true)}
-              className="lg:hidden p-2 rounded-lg text-[#0F172A] hover:bg-[#F1F5F9] focus:outline-none focus:ring-2 focus:ring-[#16A34A]"
-              aria-label="Abrir menu de navegação"
-            >
-              <Menu className="w-6 h-6 text-[#0F172A]" />
-            </button>
+            {/* Hambúrguer visível apenas < 1024px (escondido se menu estiver bloqueado) */}
+            {!isTreinamentoObrigatorio && (
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(true)}
+                className="lg:hidden p-2 rounded-lg text-[#0F172A] hover:bg-[#F1F5F9] focus:outline-none focus:ring-2 focus:ring-[#16A34A]"
+                aria-label="Abrir menu de navegação"
+              >
+                <Menu className="w-6 h-6 text-[#0F172A]" />
+              </button>
+            )}
             <h1 className="text-xl sm:text-2xl font-bold text-[#0F172A] tracking-tight">
               {pageTitle}
             </h1>
@@ -240,9 +275,7 @@ export default function Layout() {
         </header>
 
         {/* Scrollable Page Body */}
-        <main className="flex-1 p-6 sm:p-8 overflow-y-auto">
-          <Outlet />
-        </main>
+        <main className="flex-1 p-6 sm:p-8 overflow-y-auto">{children || <Outlet />}</main>
 
         {/* Rodapé discreto na base */}
         <footer className="py-4 px-6 border-t border-[#E2E8F0] bg-white text-center text-xs text-[#64748B]">
