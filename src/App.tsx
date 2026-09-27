@@ -24,6 +24,8 @@ import RelatoriosPage from './pages/RelatoriosPage'
 import ConfiguracoesPage from './pages/ConfiguracoesPage'
 import ImportacaoPage from './pages/ImportacaoPage'
 import UsuariosPage from './pages/UsuariosPage'
+import PrimeirosPassosPage from './pages/PrimeirosPassosPage'
+import MetasPage from './pages/MetasPage'
 
 const App = () => (
   <BrowserRouter>
@@ -53,6 +55,8 @@ const App = () => (
                 <Route path="/configuracoes" element={<ConfiguracoesPage />} />
                 <Route path="/importacao" element={<ImportacaoPage />} />
                 <Route path="/usuarios" element={<UsuariosPage />} />
+                <Route path="/primeiros-passos" element={<PrimeirosPassosPage />} />
+                <Route path="/metas" element={<MetasPage />} />
               </Route>
             </Route>
 
