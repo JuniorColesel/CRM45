@@ -22,6 +22,7 @@ import AutomacoesPage from './pages/AutomacoesPage'
 import MarketingPage from './pages/MarketingPage'
 import RelatoriosPage from './pages/RelatoriosPage'
 import ConfiguracoesPage from './pages/ConfiguracoesPage'
+import ImportacaoPage from './pages/ImportacaoPage'
 
 const App = () => (
   <BrowserRouter>
@@ -49,6 +50,7 @@ const App = () => (
                 <Route path="/marketing" element={<MarketingPage />} />
                 <Route path="/relatorios" element={<RelatoriosPage />} />
                 <Route path="/configuracoes" element={<ConfiguracoesPage />} />
+                <Route path="/importacao" element={<ImportacaoPage />} />
               </Route>
             </Route>
 
