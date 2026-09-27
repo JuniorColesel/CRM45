@@ -541,7 +541,8 @@ export default function ImportacaoPage() {
       'mariana@santosalimentos.com.br,25/03/2024,1850.00\n'
 
     const downloadCsv = (nomeArquivo: string, conteudo: string) => {
-      const blob = new Blob(['\uFEFF' + conteudo], { type: 'text/csv;charset=utf-8;' })
+      const bom = new Uint8Array([0xef, 0xbb, 0xbf])
+      const blob = new Blob([bom, conteudo], { type: 'text/csv;charset=utf-8' })
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url

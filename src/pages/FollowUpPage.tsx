@@ -34,6 +34,7 @@ import { formatarData, formatarMoeda } from '@/types/clientes'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/pocketbase/errors'
 import TarefaModal from '@/components/tarefas/TarefaModal'
+import { PaginacaoControles } from '@/components/common/PaginacaoControles'
 
 interface FollowUpCardGroup {
   id: string
@@ -65,6 +66,12 @@ export default function FollowUpPage() {
   const [usuarios, setUsuarios] = useState<Usuario[]>([])
   const [loading, setLoading] = useState(true)
 
+  // Paginação server-side (limit 50 + offset) na consulta de clientes
+  const [paginaAtual, setPaginaAtual] = useState(1)
+  const [itensPorPagina, setItensPorPagina] = useState(50)
+  const [totalRegistros, setTotalRegistros] = useState(0)
+  const [totalPaginas, setTotalPaginas] = useState(1)
+
   // Filtros em tempo real
   const [busca, setBusca] = useState('')
   const [filtroResponsavel, setFiltroResponsavel] = useState('todos')
@@ -79,32 +86,61 @@ export default function FollowUpPage() {
   >('ligacao')
   const [descricaoInicialModal, setDescricaoInicialModal] = useState('')
 
+  // Constrói o filtro server-side para clientes
+  const construirFiltroClientes = useCallback(() => {
+    const condicoes: string[] = []
+
+    if (filtroResponsavel !== 'todos') {
+      condicoes.push(`responsavel_id = '${filtroResponsavel}'`)
+    }
+
+    if (busca.trim()) {
+      const termo = busca.trim().replace(/'/g, "\\'")
+      condicoes.push(
+        `(nome_contato ~ '${termo}' || nome_empresa ~ '${termo}' || cidade ~ '${termo}' || cnpj_cpf ~ '${termo}')`,
+      )
+    }
+
+    return condicoes.length > 0 ? condicoes.join(' && ') : ''
+  }, [filtroResponsavel, busca])
+
+  // Carrega clientes paginados via server-side e atividades dos clientes
   const carregarDados = useCallback(async () => {
     try {
       setLoading(true)
-      const [clientesRes, tarefasRes, ligacoesRes, opsRes, usuariosRes] = await Promise.all([
-        pb.collection('clientes').getFullList<ClienteModel>({
+      const filtro = construirFiltroClientes()
+
+      const [clientesResult, tarefasRes, ligacoesRes, opsRes, usuariosRes] = await Promise.all([
+        pb.collection('clientes').getList<ClienteModel>(paginaAtual, itensPorPagina, {
           sort: 'nome_contato',
           expand: 'responsavel_id',
+          filter: filtro || undefined,
+          requestKey: null,
         }),
         pb.collection('tarefas').getFullList<TarefaModel>({
           sort: '-created',
+          requestKey: null,
         }),
         pb.collection('ligacoes').getFullList<LigacaoModel>({
           sort: '-data_hora',
+          requestKey: null,
         }),
         pb.collection('oportunidades').getFullList<OportunidadeModel>({
           sort: '-created',
+          requestKey: null,
         }),
         pb
           .collection('usuarios')
           .getFullList<Usuario>({
             sort: 'nome',
+            requestKey: null,
           })
           .catch(() => (user ? [user] : [])),
       ])
 
-      setClientes(clientesRes)
+      setClientes(clientesResult.items)
+      setTotalRegistros(clientesResult.totalItems)
+      setTotalPaginas(Math.max(1, clientesResult.totalPages))
       setTarefas(tarefasRes)
       setLigacoes(ligacoesRes)
       setOportunidades(opsRes)
@@ -119,10 +155,18 @@ export default function FollowUpPage() {
             ? 'Você não tem permissão para visualizar alguns dos registros necessários.'
             : 'Não foi possível carregar os dados de clientes para follow-up.',
       })
+      setClientes([])
+      setTotalRegistros(0)
+      setTotalPaginas(1)
     } finally {
       setLoading(false)
     }
-  }, [user])
+  }, [paginaAtual, itensPorPagina, construirFiltroClientes, user])
+
+  // Voltar à página 1 quando busca, filtro ou itensPorPagina mudarem
+  useEffect(() => {
+    setPaginaAtual(1)
+  }, [busca, filtroResponsavel, itensPorPagina])
 
   useEffect(() => {
     carregarDados()
@@ -140,32 +184,8 @@ export default function FollowUpPage() {
     setModalOpen(true)
   }
 
-  // Filtragem básica dos clientes antes de computar os 4 grupos
-  const clientesFiltrados = useMemo(() => {
-    return clientes.filter((c) => {
-      // Filtro de responsável
-      if (filtroResponsavel !== 'todos' && c.responsavel_id !== filtroResponsavel) {
-        return false
-      }
-
-      // Busca textual
-      if (busca.trim()) {
-        const termo = busca.toLowerCase().trim()
-        const contato = c.nome_contato?.toLowerCase() || ''
-        const empresa = c.nome_empresa?.toLowerCase() || ''
-        const cidade = c.cidade?.toLowerCase() || ''
-        const cnpj = c.cnpj_cpf?.toLowerCase() || ''
-        const match =
-          contato.includes(termo) ||
-          empresa.includes(termo) ||
-          cidade.includes(termo) ||
-          cnpj.includes(termo)
-        if (!match) return false
-      }
-
-      return true
-    })
-  }, [clientes, filtroResponsavel, busca])
+  // Os clientes já vêm paginados e filtrados do backend (server-side)
+  const clientesFiltrados = clientes
 
   // CÁLCULO NO FRONTEND DOS 4 GRUPOS DE FOLLOW-UP
   const grupos = useMemo<FollowUpCardGroup[]>(() => {
@@ -402,6 +422,14 @@ export default function FollowUpPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* Contador total no topo */}
+      <div className="flex items-center justify-between text-xs text-[#64748B] px-1">
+        <span>
+          <strong className="text-[#0F172A]">{totalRegistros}</strong>{' '}
+          {totalRegistros === 1 ? 'registro encontrado' : 'registros encontrados'}
+        </span>
+      </div>
+
       {/* Cabeçalho */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-[#E2E8F0]">
         <div>
@@ -629,6 +657,24 @@ export default function FollowUpPage() {
           })}
         </div>
       )}
+
+      {/* Controles de Paginação no Rodapé da Listagem de Follow-up */}
+      <div className="rounded-xl border border-[#E2E8F0] overflow-hidden bg-white shadow-sm">
+        <PaginacaoControles
+          paginaAtual={paginaAtual}
+          totalPaginas={totalPaginas}
+          totalRegistros={totalRegistros}
+          itensPorPagina={itensPorPagina}
+          onPaginaChange={setPaginaAtual}
+          onItensPorPaginaChange={(qtd) => {
+            setItensPorPagina(qtd)
+            setPaginaAtual(1)
+          }}
+          opcoesItensPorPagina={[25, 50, 100]}
+          nomeItens="clientes para follow-up"
+          loading={loading}
+        />
+      </div>
 
       {/* Modal Reutilizável de Nova Tarefa */}
       <TarefaModal

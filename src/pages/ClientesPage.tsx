@@ -44,6 +44,7 @@ import { podeEditarCliente, podeExcluirCliente, formatarData } from '@/types/cli
 import ClienteModal from '@/components/clientes/ClienteModal'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/pocketbase/errors'
+import { PaginacaoControles } from '@/components/common/PaginacaoControles'
 
 export default function ClientesPage() {
   const navigate = useNavigate()
@@ -55,21 +56,54 @@ export default function ClientesPage() {
   const [busca, setBusca] = useState('')
   const [filtroGrandeCliente, setFiltroGrandeCliente] = useState<'todos' | 'sim' | 'nao'>('todos')
 
+  // Paginação server-side (limit 50 + offset)
+  const [paginaAtual, setPaginaAtual] = useState(1)
+  const [itensPorPagina, setItensPorPagina] = useState(50)
+  const [totalRegistros, setTotalRegistros] = useState(0)
+  const [totalPaginas, setTotalPaginas] = useState(1)
+
   // Modais de Criação / Edição / Exclusão
   const [modalOpen, setModalOpen] = useState(false)
   const [clienteEditando, setClienteEditando] = useState<ClienteModel | null>(null)
   const [clienteExcluindo, setClienteExcluindo] = useState<ClienteModel | null>(null)
   const [excluindo, setExcluindo] = useState(false)
 
-  // Carrega lista de clientes respeitando a RLS
+  // Monta a expressão de filtro server-side compatível com o PocketBase
+  const construirFiltro = useCallback(() => {
+    const condicoes: string[] = []
+
+    if (filtroGrandeCliente === 'sim') {
+      condicoes.push('grande_cliente = true')
+    } else if (filtroGrandeCliente === 'nao') {
+      condicoes.push('grande_cliente = false')
+    }
+
+    if (busca.trim()) {
+      const termo = busca.trim().replace(/'/g, "\\'")
+      condicoes.push(
+        `(nome_contato ~ '${termo}' || nome_empresa ~ '${termo}' || telefone ~ '${termo}' || cidade ~ '${termo}' || email ~ '${termo}')`,
+      )
+    }
+
+    return condicoes.length > 0 ? condicoes.join(' && ') : ''
+  }, [busca, filtroGrandeCliente])
+
+  // Carrega lista de clientes com paginação server-side respeitando a RLS
   const carregarClientes = useCallback(async () => {
     try {
       setLoading(true)
-      const records = await pb.collection('clientes').getFullList<ClienteModel>({
-        sort: '-created',
-        expand: 'responsavel_id',
-      })
-      setClientes(records)
+      const filter = construirFiltro()
+      const result = await pb
+        .collection('clientes')
+        .getList<ClienteModel>(paginaAtual, itensPorPagina, {
+          sort: '-created',
+          expand: 'responsavel_id',
+          filter: filter || undefined,
+          requestKey: null,
+        })
+      setClientes(result.items)
+      setTotalRegistros(result.totalItems)
+      setTotalPaginas(Math.max(1, result.totalPages))
     } catch (err: unknown) {
       const msg = getErrorMessage(err)
       toast({
@@ -81,10 +115,17 @@ export default function ClientesPage() {
             : 'Não foi possível carregar os clientes. Tente novamente.',
       })
       setClientes([])
+      setTotalRegistros(0)
+      setTotalPaginas(1)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [paginaAtual, itensPorPagina, construirFiltro])
+
+  // Ao mudar filtros, voltar à página 1
+  useEffect(() => {
+    setPaginaAtual(1)
+  }, [busca, filtroGrandeCliente, itensPorPagina])
 
   // Carrega lista de usuários para exibir no seletor de responsáveis (apenas ceo e coordenador)
   useEffect(() => {
@@ -102,8 +143,12 @@ export default function ClientesPage() {
       }
     }
     carregarUsuarios()
+  }, [user])
+
+  // Recarregar clientes quando os parâmetros de paginação/filtro mudam
+  useEffect(() => {
     carregarClientes()
-  }, [user, carregarClientes])
+  }, [carregarClientes])
 
   // Confirmação de exclusão
   const handleConfirmarExclusao = async () => {
@@ -112,11 +157,18 @@ export default function ClientesPage() {
     try {
       await pb.collection('clientes').delete(clienteExcluindo.id)
       setClientes((prev) => prev.filter((c) => c.id !== clienteExcluindo.id))
+      setTotalRegistros((prev) => Math.max(0, prev - 1))
       toast({
         title: 'Cliente excluído',
         description: `O cliente "${clienteExcluindo.nome_contato}" foi removido com sucesso.`,
       })
       setClienteExcluindo(null)
+      // Se era o último da página e não for página 1, volta uma página
+      if (clientes.length === 1 && paginaAtual > 1) {
+        setPaginaAtual((p) => p - 1)
+      } else {
+        carregarClientes()
+      }
     } catch (err: unknown) {
       const msg = getErrorMessage(err)
       toast({
@@ -132,24 +184,8 @@ export default function ClientesPage() {
     }
   }
 
-  // Filtragem local por texto (nome_contato, nome_empresa, telefone, cidade) e grande_cliente
-  const clientesFiltrados = useMemo(() => {
-    return clientes.filter((c) => {
-      // Filtro de grande cliente
-      if (filtroGrandeCliente === 'sim' && !c.grande_cliente) return false
-      if (filtroGrandeCliente === 'nao' && c.grande_cliente) return false
-
-      // Busca textual
-      if (!busca.trim()) return true
-      const termo = busca.toLowerCase().trim()
-      const matchContato = c.nome_contato?.toLowerCase().includes(termo)
-      const matchEmpresa = c.nome_empresa?.toLowerCase().includes(termo)
-      const matchTelefone = c.telefone?.toLowerCase().includes(termo)
-      const matchCidade = c.cidade?.toLowerCase().includes(termo)
-      const matchEmail = c.email?.toLowerCase().includes(termo)
-      return Boolean(matchContato || matchEmpresa || matchTelefone || matchCidade || matchEmail)
-    })
-  }, [clientes, busca, filtroGrandeCliente])
+  // Os clientes já vêm paginados e filtrados do backend (server-side)
+  const clientesFiltrados = clientes
 
   const abrirNovoCliente = () => {
     setClienteEditando(null)
@@ -161,16 +197,8 @@ export default function ClientesPage() {
     setModalOpen(true)
   }
 
-  const handleClienteSalvo = (clienteSalvo: ClienteModel) => {
-    setClientes((prev) => {
-      const index = prev.findIndex((c) => c.id === clienteSalvo.id)
-      if (index >= 0) {
-        const novo = [...prev]
-        novo[index] = clienteSalvo
-        return novo
-      }
-      return [clienteSalvo, ...prev]
-    })
+  const handleClienteSalvo = (_clienteSalvo: ClienteModel) => {
+    carregarClientes()
   }
 
   return (
@@ -251,11 +279,11 @@ export default function ClientesPage() {
         </div>
       </div>
 
-      {/* Contagem / Resumo */}
+      {/* Contagem / Resumo no topo */}
       <div className="flex items-center justify-between text-xs text-[#64748B] px-1">
         <span>
-          Mostrando <strong className="text-[#0F172A]">{clientesFiltrados.length}</strong> de{' '}
-          <strong className="text-[#0F172A]">{clientes.length}</strong> clientes
+          <strong className="text-[#0F172A]">{totalRegistros}</strong>{' '}
+          {totalRegistros === 1 ? 'registro encontrado' : 'registros encontrados'}
         </span>
         {busca && <span className="italic">Filtro ativo: &quot;{busca}&quot;</span>}
       </div>
@@ -584,6 +612,22 @@ export default function ClientesPage() {
                 )
               })}
             </div>
+
+            {/* Rodapé da tabela com controles de navegação e seletor 25, 50, 100 */}
+            <PaginacaoControles
+              paginaAtual={paginaAtual}
+              totalPaginas={totalPaginas}
+              totalRegistros={totalRegistros}
+              itensPorPagina={itensPorPagina}
+              onPaginaChange={setPaginaAtual}
+              onItensPorPaginaChange={(qtd) => {
+                setItensPorPagina(qtd)
+                setPaginaAtual(1)
+              }}
+              opcoesItensPorPagina={[25, 50, 100]}
+              nomeItens="clientes"
+              loading={loading}
+            />
           </>
         )}
       </div>

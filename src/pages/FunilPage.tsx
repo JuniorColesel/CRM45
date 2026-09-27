@@ -19,6 +19,7 @@ import OportunidadeModal from '@/components/funil/OportunidadeModal'
 import OportunidadeDetalhesSheet from '@/components/funil/OportunidadeDetalhesSheet'
 import { SeletorDePeriodo } from '@/components/common/SeletorDePeriodo'
 import { usePeriodo } from '@/contexts/PeriodoContext'
+import { PaginacaoControles } from '@/components/common/PaginacaoControles'
 
 export default function FunilPage() {
   const { user } = useAuth()
@@ -31,6 +32,12 @@ export default function FunilPage() {
   const [usuarios, setUsuarios] = useState<Usuario[]>([])
   const [motivosPerda, setMotivosPerda] = useState<MotivoPerdaModel[]>([])
   const [loading, setLoading] = useState(true)
+
+  // Paginação server-side (limit 50 + offset)
+  const [paginaAtual, setPaginaAtual] = useState(1)
+  const [itensPorPagina, setItensPorPagina] = useState(50)
+  const [totalRegistros, setTotalRegistros] = useState(0)
+  const [totalPaginas, setTotalPaginas] = useState(1)
 
   // Filtros em tempo real
   const [filtros, setFiltros] = useState<FunilFiltrosState>({
@@ -51,40 +58,108 @@ export default function FunilPage() {
     null,
   )
 
-  // Carregar todos os dados do funil com expand
-  const carregarDados = useCallback(async () => {
+  // Constrói o filtro server-side para oportunidades considerando o período e os filtros aplicados
+  const construirFiltroOportunidades = useCallback(() => {
+    const condicoes: string[] = []
+
+    // 1. Filtro por status
+    if (filtros.status !== 'todos') {
+      condicoes.push(`status = '${filtros.status}'`)
+    }
+
+    // 2. Filtro por responsável
+    if (filtros.responsavelId !== 'todos') {
+      condicoes.push(`responsavel_id = '${filtros.responsavelId}'`)
+    }
+
+    // 3. Filtro por data prevista (personalizado)
+    if (filtros.dataInicio) {
+      condicoes.push(`data_prevista_fechamento >= '${filtros.dataInicio} 00:00:00'`)
+    }
+    if (filtros.dataFim) {
+      condicoes.push(`data_prevista_fechamento <= '${filtros.dataFim} 23:59:59'`)
+    }
+
+    // 4. Período selecionado (ano e mês)
+    const inicioMesStr = `${ano}-${String(mes).padStart(2, '0')}-01 00:00:00`
+    const fimDoMesDia = new Date(ano, mes, 0).getDate()
+    const fimMesStr = `${ano}-${String(mes).padStart(2, '0')}-${String(fimDoMesDia).padStart(2, '0')} 23:59:59`
+
+    // Regra do período:
+    // Para ganho/perdido: data_fechamento no mês ou (data_fechamento='' && created no mês)
+    // Para aberto: data_prevista_fechamento no mês ou (data_prevista_fechamento='' && created no mês)
+    const filtroPeriodo = `((status = 'ganho' && ((data_fechamento >= '${inicioMesStr}' && data_fechamento <= '${fimMesStr}') || (data_fechamento = '' && created >= '${inicioMesStr}' && created <= '${fimMesStr}'))) || (status = 'perdido' && ((data_fechamento >= '${inicioMesStr}' && data_fechamento <= '${fimMesStr}') || (data_fechamento = '' && created >= '${inicioMesStr}' && created <= '${fimMesStr}'))) || (status = 'aberto' && ((data_prevista_fechamento >= '${inicioMesStr}' && data_prevista_fechamento <= '${fimMesStr}') || (data_prevista_fechamento = '' && created <= '${fimMesStr}'))))`
+    condicoes.push(filtroPeriodo)
+
+    // 5. Busca textual
+    if (filtros.busca.trim()) {
+      const termo = filtros.busca.trim().replace(/'/g, "\\'")
+      condicoes.push(
+        `(cliente_id.nome_contato ~ '${termo}' || cliente_id.nome_empresa ~ '${termo}' || responsavel_id.nome ~ '${termo}')`,
+      )
+    }
+
+    return condicoes.join(' && ')
+  }, [filtros, ano, mes])
+
+  // Carregar dados auxiliares (etapas, clientes, usuários, motivos)
+  useEffect(() => {
+    let cancelado = false
+    async function carregarAuxiliares() {
+      try {
+        const [etapasRes, clientesRes, usuariosRes, motivosRes] = await Promise.all([
+          pb.collection('etapas_funil').getFullList<EtapaFunilModel>({
+            sort: 'ordem',
+          }),
+          pb.collection('clientes').getFullList<ClienteModel>({
+            sort: 'nome_contato',
+          }),
+          pb
+            .collection('usuarios')
+            .getFullList<Usuario>({
+              sort: 'nome',
+            })
+            .catch(() => (user ? [user] : [])),
+          pb
+            .collection('motivos_perda')
+            .getFullList<MotivoPerdaModel>({
+              sort: 'created',
+            })
+            .catch(() => []),
+        ])
+        if (!cancelado) {
+          setEtapas(etapasRes)
+          setClientes(clientesRes)
+          setUsuarios(usuariosRes.length > 0 ? usuariosRes : user ? [user] : [])
+          setMotivosPerda(motivosRes)
+        }
+      } catch (err: unknown) {
+        console.error('Erro ao carregar auxiliares do funil:', err)
+      }
+    }
+    carregarAuxiliares()
+    return () => {
+      cancelado = true
+    }
+  }, [user])
+
+  // Carregar oportunidades com paginação server-side
+  const carregarOportunidades = useCallback(async () => {
     try {
       setLoading(true)
-      const [etapasRes, opsRes, clientesRes, usuariosRes, motivosRes] = await Promise.all([
-        pb.collection('etapas_funil').getFullList<EtapaFunilModel>({
-          sort: 'ordem',
-        }),
-        pb.collection('oportunidades').getFullList<OportunidadeModel>({
+      const filtro = construirFiltroOportunidades()
+      const opsResult = await pb
+        .collection('oportunidades')
+        .getList<OportunidadeModel>(paginaAtual, itensPorPagina, {
           sort: '-created',
           expand: 'cliente_id,responsavel_id,etapa_id,motivo_perda_id',
-        }),
-        pb.collection('clientes').getFullList<ClienteModel>({
-          sort: 'nome_contato',
-        }),
-        pb
-          .collection('usuarios')
-          .getFullList<Usuario>({
-            sort: 'nome',
-          })
-          .catch(() => (user ? [user] : [])),
-        pb
-          .collection('motivos_perda')
-          .getFullList<MotivoPerdaModel>({
-            sort: 'created',
-          })
-          .catch(() => []),
-      ])
+          filter: filtro || undefined,
+          requestKey: null,
+        })
 
-      setEtapas(etapasRes)
-      setOportunidades(opsRes)
-      setClientes(clientesRes)
-      setUsuarios(usuariosRes.length > 0 ? usuariosRes : user ? [user] : [])
-      setMotivosPerda(motivosRes)
+      setOportunidades(opsResult.items)
+      setTotalRegistros(opsResult.totalItems)
+      setTotalPaginas(Math.max(1, opsResult.totalPages))
     } catch (err: unknown) {
       const msg = getErrorMessage(err)
       toast({
@@ -95,46 +170,32 @@ export default function FunilPage() {
             ? 'Você não tem permissão para visualizar algumas informações do funil de vendas.'
             : 'Não foi possível carregar os dados do funil comercial.',
       })
+      setOportunidades([])
+      setTotalRegistros(0)
+      setTotalPaginas(1)
     } finally {
       setLoading(false)
     }
-  }, [user])
+  }, [paginaAtual, itensPorPagina, construirFiltroOportunidades])
 
+  // Voltar à página 1 ao alterar filtros ou período
   useEffect(() => {
-    carregarDados()
-  }, [carregarDados])
+    setPaginaAtual(1)
+  }, [filtros, ano, mes, itensPorPagina])
 
-  // Determina se a oportunidade pertence ao período selecionado (mês/ano)
-  // Regra:
-  // - Oportunidades ganhas/perdidas utilizam data_fechamento (se presente) ou data_prevista_fechamento / criado_em / created
-  // - Oportunidades abertas utilizam data_prevista_fechamento (se presente) ou criado_em / created
-  const pertenceAoPeriodo = useCallback(
-    (op: OportunidadeModel) => {
-      let dataRef = ''
-      if (op.status === 'ganho' || op.status === 'perdido') {
-        dataRef =
-          op.data_fechamento || op.data_prevista_fechamento || op.criado_em || op.created || ''
-      } else {
-        dataRef = op.data_prevista_fechamento || op.criado_em || op.created || ''
-      }
-      if (!dataRef) return true // Se sem data, mantém visível
-      const d = new Date(dataRef)
-      if (isNaN(d.getTime())) return true
-      return d.getFullYear() === ano && d.getMonth() + 1 === mes
-    },
-    [ano, mes],
-  )
+  // Disparar requisição de oportunidades quando mudam parâmetros
+  useEffect(() => {
+    carregarOportunidades()
+  }, [carregarOportunidades])
 
-  // Oportunidades filtradas pelo período selecionado
-  const oportunidadesDoPeriodo = useMemo(() => {
-    return oportunidades.filter(pertenceAoPeriodo)
-  }, [oportunidades, pertenceAoPeriodo])
+  // As oportunidades já vêm filtradas do PocketBase de acordo com período e filtros server-side
+  const oportunidadesFiltradas = oportunidades
 
-  // Métricas do resumo no topo (calculadas sobre as oportunidades do período selecionado)
+  // Métricas do resumo no topo (calculadas sobre as oportunidades retornadas da página atual)
   const metricasResumo = useMemo(() => {
-    const abertas = oportunidadesDoPeriodo.filter((o) => o.status === 'aberto')
-    const ganhas = oportunidadesDoPeriodo.filter((o) => o.status === 'ganho')
-    const perdidas = oportunidadesDoPeriodo.filter((o) => o.status === 'perdido')
+    const abertas = oportunidades.filter((o) => o.status === 'aberto')
+    const ganhas = oportunidades.filter((o) => o.status === 'ganho')
+    const perdidas = oportunidades.filter((o) => o.status === 'perdido')
 
     const totalAbertas = abertas.length
     const valorPipeline = abertas.reduce((acc, curr) => acc + (curr.valor || 0), 0)
@@ -151,43 +212,7 @@ export default function FunilPage() {
       taxaConversao,
       ticketMedio,
     }
-  }, [oportunidadesDoPeriodo])
-
-  // Filtragem em tempo real das oportunidades para o Kanban
-  const oportunidadesFiltradas = useMemo(() => {
-    return oportunidadesDoPeriodo.filter((op) => {
-      // 1. Filtro por status
-      if (filtros.status !== 'todos' && op.status !== filtros.status) {
-        return false
-      }
-
-      // 2. Filtro por responsável
-      if (filtros.responsavelId !== 'todos' && op.responsavel_id !== filtros.responsavelId) {
-        return false
-      }
-
-      // 3. Filtro por data prevista de fechamento (intervalo personalizado se preenchido)
-      if (filtros.dataInicio || filtros.dataFim) {
-        if (!op.data_prevista_fechamento) return false
-        const opDataStr = op.data_prevista_fechamento.substring(0, 10)
-        if (filtros.dataInicio && opDataStr < filtros.dataInicio) return false
-        if (filtros.dataFim && opDataStr > filtros.dataFim) return false
-      }
-
-      // 4. Busca textual por nome do cliente ou responsável
-      if (filtros.busca.trim()) {
-        const termo = filtros.busca.toLowerCase().trim()
-        const clienteNome = op.expand?.cliente_id?.nome_contato?.toLowerCase() || ''
-        const empresaNome = op.expand?.cliente_id?.nome_empresa?.toLowerCase() || ''
-        const respNome = op.expand?.responsavel_id?.nome?.toLowerCase() || ''
-        const match =
-          clienteNome.includes(termo) || empresaNome.includes(termo) || respNome.includes(termo)
-        if (!match) return false
-      }
-
-      return true
-    })
-  }, [oportunidadesDoPeriodo, filtros])
+  }, [oportunidades])
 
   // Ações de abertura de modais
   const handleNovaOportunidade = (etapaId?: string) => {
@@ -283,28 +308,16 @@ export default function FunilPage() {
 
   // Callback de sucesso ao salvar modal (criar ou editar)
   const handleOportunidadeSalva = (salva: OportunidadeModel) => {
-    setOportunidades((prev) => {
-      const idx = prev.findIndex((o) => o.id === salva.id)
-      if (idx >= 0) {
-        const novo = [...prev]
-        novo[idx] = salva
-        return novo
-      }
-      return [salva, ...prev]
-    })
-
-    // Se estiver selecionada no painel de detalhes, atualiza lá também
+    carregarOportunidades()
     if (oportunidadeSelecionada?.id === salva.id) {
       setOportunidadeSelecionada(salva)
     }
   }
 
   // Callback ao excluir
-  const handleOportunidadeExcluida = (opId: string) => {
-    setOportunidades((prev) => prev.filter((o) => o.id !== opId))
-    if (oportunidadeSelecionada?.id === opId) {
-      setOportunidadeSelecionada(null)
-    }
+  const handleOportunidadeExcluida = (_opId: string) => {
+    carregarOportunidades()
+    setOportunidadeSelecionada(null)
   }
 
   return (
@@ -321,8 +334,7 @@ export default function FunilPage() {
           </h2>
           <p className="text-sm text-[#64748B] mt-0.5">
             Pipeline de negociação e propostas para{' '}
-            <strong className="text-[#0F172A] font-semibold">{nomeMesAno}</strong> (
-            {oportunidadesDoPeriodo.length} de {oportunidades.length} totais).
+            <strong className="text-[#0F172A] font-semibold">{nomeMesAno}</strong>.
           </p>
         </div>
 
@@ -330,7 +342,7 @@ export default function FunilPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={carregarDados}
+            onClick={carregarOportunidades}
             disabled={loading}
             className="text-[#64748B] hover:text-[#0F172A]"
             title="Atualizar dados do funil"
@@ -357,13 +369,21 @@ export default function FunilPage() {
         ticketMedio={metricasResumo.ticketMedio}
       />
 
+      {/* Contador total no topo e Filtros */}
+      <div className="flex items-center justify-between text-xs text-[#64748B] px-1">
+        <span>
+          <strong className="text-[#0F172A]">{totalRegistros}</strong>{' '}
+          {totalRegistros === 1 ? 'registro encontrado' : 'registros encontrados'}
+        </span>
+      </div>
+
       {/* 2) FILTROS EM TEMPO REAL */}
       <FunilFiltros
         filtros={filtros}
         onFiltrosChange={setFiltros}
         usuarios={usuarios}
         totalFiltrado={oportunidadesFiltradas.length}
-        totalGeral={oportunidadesDoPeriodo.length}
+        totalGeral={totalRegistros}
       />
 
       {/* 1) BOARD KANBAN */}
@@ -384,13 +404,33 @@ export default function FunilPage() {
             </p>
           </div>
         ) : (
-          <KanbanBoard
-            etapas={etapas}
-            oportunidades={oportunidadesFiltradas}
-            onCardClick={handleCardClick}
-            onNovaOportunidadeEtapa={handleNovaOportunidade}
-            onMudarEtapa={handleMudarEtapa}
-          />
+          <div className="space-y-4">
+            <KanbanBoard
+              etapas={etapas}
+              oportunidades={oportunidadesFiltradas}
+              onCardClick={handleCardClick}
+              onNovaOportunidadeEtapa={handleNovaOportunidade}
+              onMudarEtapa={handleMudarEtapa}
+            />
+
+            {/* Controles de paginação server-side com seletor 25, 50, 100 */}
+            <div className="rounded-xl border border-[#E2E8F0] overflow-hidden">
+              <PaginacaoControles
+                paginaAtual={paginaAtual}
+                totalPaginas={totalPaginas}
+                totalRegistros={totalRegistros}
+                itensPorPagina={itensPorPagina}
+                onPaginaChange={setPaginaAtual}
+                onItensPorPaginaChange={(qtd) => {
+                  setItensPorPagina(qtd)
+                  setPaginaAtual(1)
+                }}
+                opcoesItensPorPagina={[25, 50, 100]}
+                nomeItens="oportunidades"
+                loading={loading}
+              />
+            </div>
+          </div>
         )}
       </div>
 

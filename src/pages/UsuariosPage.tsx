@@ -62,6 +62,7 @@ import { useAuth, type PerfilUsuario, type Usuario } from '@/contexts/AuthContex
 import pb from '@/lib/pocketbase/client'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/pocketbase/errors'
+import { PaginacaoControles } from '@/components/common/PaginacaoControles'
 
 // Lista de perfis com rótulos e cores solicitadas
 export const PERFIS_CONFIG: Record<PerfilUsuario, { label: string; badgeClass: string }> = {
@@ -116,6 +117,10 @@ export default function UsuariosPage() {
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
   const [filtroPerfil, setFiltroPerfil] = useState<string>('todos')
+
+  // Paginação client-side (padrão 50 por página)
+  const [paginaAtual, setPaginaAtual] = useState(1)
+  const [itensPorPagina, setItensPorPagina] = useState(50)
 
   // Controle do modal de formulário (criar / editar)
   const [modalOpen, setModalOpen] = useState(false)
@@ -201,6 +206,17 @@ export default function UsuariosPage() {
       return matchNome || matchEmail
     })
   }, [usuarios, busca, filtroPerfil])
+
+  // Resetar página atual para 1 sempre que os filtros mudarem
+  useEffect(() => {
+    setPaginaAtual(1)
+  }, [busca, filtroPerfil, itensPorPagina])
+
+  const totalPaginas = Math.max(1, Math.ceil(usuariosFiltrados.length / itensPorPagina))
+  const usuariosPaginados = useMemo(() => {
+    const inicio = (paginaAtual - 1) * itensPorPagina
+    return usuariosFiltrados.slice(inicio, inicio + itensPorPagina)
+  }, [usuariosFiltrados, paginaAtual, itensPorPagina])
 
   // Se NÃO for ceo_financeiro, exibe o aviso "Acesso restrito" com ícone de cadeado
   if (!isCeoFinanceiro) {
@@ -600,8 +616,10 @@ export default function UsuariosPage() {
       {/* Contagem / Resumo */}
       <div className="flex items-center justify-between text-xs text-[#64748B] px-1">
         <span>
-          Mostrando <strong className="text-[#0F172A]">{usuariosFiltrados.length}</strong> de{' '}
-          <strong className="text-[#0F172A]">{usuarios.length}</strong> usuários cadastrados
+          <strong className="text-[#0F172A]">{usuariosFiltrados.length}</strong>{' '}
+          {usuariosFiltrados.length === 1 ? 'registro encontrado' : 'registros encontrados'} (
+          Mostrando {usuariosPaginados.length} de {usuariosFiltrados.length} usuários
+          {usuariosFiltrados.length !== usuarios.length && ` filtrados de ${usuarios.length}`})
         </span>
         {(busca || filtroPerfil !== 'todos') && (
           <span className="italic">Filtros aplicados em tempo real</span>
@@ -671,7 +689,7 @@ export default function UsuariosPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody className="divide-y divide-[#E2E8F0]">
-                  {usuariosFiltrados.map((u) => {
+                  {usuariosPaginados.map((u) => {
                     const isSelf = u.id === user?.id
                     const perfilInfo = PERFIS_CONFIG[u.perfil] || {
                       label: u.perfil,
@@ -800,7 +818,7 @@ export default function UsuariosPage() {
 
             {/* Cards Mobile (<768px) */}
             <div className="md:hidden divide-y divide-[#E2E8F0]">
-              {usuariosFiltrados.map((u) => {
+              {usuariosPaginados.map((u) => {
                 const isSelf = u.id === user?.id
                 const perfilInfo = PERFIS_CONFIG[u.perfil] || {
                   label: u.perfil,
@@ -902,6 +920,22 @@ export default function UsuariosPage() {
                 )
               })}
             </div>
+
+            {/* Rodapé com controles de paginação */}
+            <PaginacaoControles
+              paginaAtual={paginaAtual}
+              totalPaginas={totalPaginas}
+              totalRegistros={usuariosFiltrados.length}
+              itensPorPagina={itensPorPagina}
+              onPaginaChange={setPaginaAtual}
+              onItensPorPaginaChange={(qtd) => {
+                setItensPorPagina(qtd)
+                setPaginaAtual(1)
+              }}
+              opcoesItensPorPagina={[25, 50, 100]}
+              nomeItens="usuários"
+              loading={loading}
+            />
           </>
         )}
       </div>
