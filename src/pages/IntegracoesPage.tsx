@@ -17,7 +17,13 @@ import {
   Server,
   KeyRound,
   ShieldAlert,
+  Bot,
+  Sparkles,
+  RotateCcw,
 } from 'lucide-react'
+import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
+import { PROMPT_IA_PADRAO, type AssistenteIaConfig } from '@/types/conversas'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -37,6 +43,7 @@ import { toast } from '@/hooks/use-toast'
 const STORAGE_BLING_TOKEN = 'integracao_bling_token'
 const STORAGE_WHATSAPP = 'integracao_whatsapp'
 const STORAGE_EMAIL_SMS = 'integracao_email_sms'
+export const STORAGE_ASSISTENTE_IA = 'integracao_assistente_ia'
 
 interface WhatsappConfig {
   provedor: string
@@ -110,6 +117,32 @@ export default function IntegracoesPage() {
   })
   const [showSmtpSenha, setShowSmtpSenha] = useState(false)
 
+  // ==========================================
+  // ESTADO: SEÇÃO D - ASSISTENTE IA
+  // ==========================================
+  const [iaConfig, setIaConfig] = useState<AssistenteIaConfig>(() => {
+    try {
+      const salvo = localStorage.getItem(STORAGE_ASSISTENTE_IA)
+      if (salvo) {
+        const parsed = JSON.parse(salvo)
+        return {
+          ativo: parsed.ativo !== false,
+          permitirPreco: parsed.permitirPreco !== false,
+          tomDeVoz: parsed.tomDeVoz || 'profissional',
+          promptSistema: parsed.promptSistema || PROMPT_IA_PADRAO,
+        }
+      }
+    } catch {
+      // Ignora erro
+    }
+    return {
+      ativo: true,
+      permitirPreco: true,
+      tomDeVoz: 'profissional',
+      promptSistema: PROMPT_IA_PADRAO,
+    }
+  })
+
   const handleVoltar = () => {
     if (window.history.length > 2) {
       navigate(-1)
@@ -170,6 +203,31 @@ export default function IntegracoesPage() {
         description: 'Não foi possível gravar os dados no armazenamento local.',
       })
     }
+  }
+
+  const handleSalvarIaConfig = (e: React.FormEvent) => {
+    e.preventDefault()
+    try {
+      localStorage.setItem(STORAGE_ASSISTENTE_IA, JSON.stringify(iaConfig))
+      toast({
+        title: 'Assistente de IA configurado',
+        description: 'As preferências e o prompt do assistente foram salvos com sucesso.',
+      })
+    } catch {
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao salvar',
+        description: 'Não foi possível gravar os dados no armazenamento local.',
+      })
+    }
+  }
+
+  const handleRestaurarPromptPadrao = () => {
+    setIaConfig((prev) => ({ ...prev, promptSistema: PROMPT_IA_PADRAO }))
+    toast({
+      title: 'Prompt padrão restaurado',
+      description: 'O texto original do prompt de vendas Colesel 45 foi restabelecido.',
+    })
   }
 
   // Se perfil NÃO for ceo_financeiro nem coordenador_vendas
@@ -488,7 +546,184 @@ export default function IntegracoesPage() {
       </Card>
 
       {/* ======================================================== */}
-      {/* SEÇÃO C: E-MAIL / SMS */}
+      {/* SEÇÃO D: ASSISTENTE DE IA */}
+      {/* ======================================================== */}
+      <Card className="border-[#E2E8F0] shadow-sm rounded-2xl overflow-hidden bg-white">
+        <CardHeader className="bg-[#F8FAFC] border-b border-[#E2E8F0] pb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-purple-100 text-[#7C3AED] flex items-center justify-center flex-shrink-0">
+                <Bot className="w-5 h-5" />
+              </div>
+              <div>
+                <CardTitle className="text-lg font-bold text-[#0F172A] flex items-center gap-2">
+                  <span>3. Assistente de IA de Vendas (WhatsApp)</span>
+                  <Badge className="bg-purple-50 text-[#7C3AED] border-purple-200 text-[11px] font-semibold gap-1">
+                    <Sparkles className="w-3 h-3" />
+                    Skip AI Gateway
+                  </Badge>
+                </CardTitle>
+                <CardDescription className="text-xs text-[#64748B]">
+                  Sugere respostas personalizadas baseadas no histórico do cliente e no catálogo de
+                  produtos.
+                </CardDescription>
+              </div>
+            </div>
+
+            <div>
+              {iaConfig.ativo ? (
+                <Badge className="bg-emerald-50 text-[#16A34A] border-emerald-200 text-xs font-semibold gap-1.5 py-1 px-3">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Ativo
+                </Badge>
+              ) : (
+                <Badge className="bg-slate-100 text-slate-600 border-slate-300 text-xs font-semibold gap-1.5 py-1 px-3">
+                  Pausado
+                </Badge>
+              )}
+            </div>
+          </div>
+        </CardHeader>
+
+        <CardContent className="p-6 space-y-6">
+          {/* Informação sobre chave gerenciada pelo backend */}
+          <div className="p-4 rounded-xl bg-emerald-50/70 border border-emerald-200 text-xs sm:text-sm text-[#0F172A] flex items-start gap-3">
+            <KeyRound className="w-5 h-5 text-[#16A34A] flex-shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-semibold text-emerald-950">
+                Chave da API de IA (Gerenciada pelo Backend):
+              </p>
+              <p className="text-xs text-emerald-900 leading-relaxed">
+                A infraestrutura de IA utiliza o gateway nativo Skip Cloud configurado com segurança
+                no servidor. Não é necessário inserir chaves de API manualmente: as conexões de LLM
+                já estão operacionais, com isolamento de credenciais e faturamento unificado.
+              </p>
+            </div>
+          </div>
+
+          <form onSubmit={handleSalvarIaConfig} className="space-y-5">
+            {/* Toggles principais */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Toggle Ativar Assistente */}
+              <div className="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 bg-slate-50/60">
+                <div className="space-y-0.5 pr-2">
+                  <Label
+                    htmlFor="ia-ativo"
+                    className="text-xs font-bold text-[#0F172A] cursor-pointer"
+                  >
+                    Ativar Assistente de IA
+                  </Label>
+                  <p className="text-[11px] text-[#64748B]">
+                    Habilita o botão &quot;✨ Sugerir resposta&quot; na tela de conversas.
+                  </p>
+                </div>
+                <Switch
+                  id="ia-ativo"
+                  checked={iaConfig.ativo}
+                  onCheckedChange={(val) => setIaConfig((prev) => ({ ...prev, ativo: val }))}
+                />
+              </div>
+
+              {/* Toggle Permitir Preço */}
+              <div className="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 bg-slate-50/60">
+                <div className="space-y-0.5 pr-2">
+                  <Label
+                    htmlFor="ia-preco"
+                    className="text-xs font-bold text-[#0F172A] cursor-pointer"
+                  >
+                    Permitir que a IA sugira preço
+                  </Label>
+                  <p className="text-[11px] text-[#64748B]">
+                    Se desligado, a IA nunca cita valores e instrui aguardar proposta.
+                  </p>
+                </div>
+                <Switch
+                  id="ia-preco"
+                  checked={iaConfig.permitirPreco}
+                  onCheckedChange={(val) =>
+                    setIaConfig((prev) => ({ ...prev, permitirPreco: val }))
+                  }
+                />
+              </div>
+            </div>
+
+            {/* Tom de Voz */}
+            <div className="max-w-md space-y-1.5">
+              <Label htmlFor="ia-tom" className="text-xs font-bold text-[#0F172A]">
+                Tom de Voz do Assistente
+              </Label>
+              <Select
+                value={iaConfig.tomDeVoz}
+                onValueChange={(val: 'profissional' | 'amigavel' | 'direto') =>
+                  setIaConfig((prev) => ({ ...prev, tomDeVoz: val }))
+                }
+              >
+                <SelectTrigger id="ia-tom" className="h-10 text-xs bg-white">
+                  <SelectValue placeholder="Selecione o tom de voz" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="profissional">Profissional (Equilibrado e focado)</SelectItem>
+                  <SelectItem value="amigavel">Amigável (Acolhedor e caloroso)</SelectItem>
+                  <SelectItem value="direto">Direto (Ultra sucinto e pragmático)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-[#64748B]">
+                Ajusta as diretrizes do prompt dinamicamente para cada mensagem gerada.
+              </p>
+            </div>
+
+            {/* Prompt de Sistema Editável */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label
+                  htmlFor="ia-prompt"
+                  className="text-xs font-bold text-[#0F172A] flex items-center gap-1.5"
+                >
+                  <span>Prompt de Sistema (Instruções Base da Colesel)</span>
+                </Label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleRestaurarPromptPadrao}
+                  className="text-xs text-[#64748B] hover:text-[#0F172A] h-7 px-2 gap-1"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Restaurar padrão
+                </Button>
+              </div>
+
+              <Textarea
+                id="ia-prompt"
+                rows={12}
+                value={iaConfig.promptSistema}
+                onChange={(e) =>
+                  setIaConfig((prev) => ({ ...prev, promptSistema: e.target.value }))
+                }
+                className="text-xs font-mono bg-white leading-relaxed resize-y"
+                placeholder="Insira as instruções do assistente..."
+              />
+              <p className="text-[11px] text-[#64748B]">
+                O vendedor <strong>sempre revisa antes de enviar</strong> — a IA nunca dispara
+                mensagens automaticamente.
+              </p>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <Button
+                type="submit"
+                className="bg-[#16A34A] hover:bg-[#15803D] text-white font-semibold text-xs shadow-sm gap-2"
+              >
+                <Save className="w-4 h-4" />
+                Salvar Configurações da IA
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      {/* ======================================================== */}
+      {/* SEÇÃO E: E-MAIL / SMS */}
       {/* ======================================================== */}
       <Card className="border-[#E2E8F0] shadow-sm rounded-2xl overflow-hidden bg-white">
         <CardHeader className="bg-[#F8FAFC] border-b border-[#E2E8F0] pb-4">
@@ -498,7 +733,7 @@ export default function IntegracoesPage() {
             </div>
             <div>
               <CardTitle className="text-lg font-bold text-[#0F172A]">
-                3. E-mail SMTP e Gateway SMS
+                4. E-mail SMTP e Gateway SMS
               </CardTitle>
               <CardDescription className="text-xs text-[#64748B]">
                 Servidor de envio de e-mails transacionais e campanhas por SMS.

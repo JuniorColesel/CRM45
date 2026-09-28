@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-28T10:51:01.612Z",
+  "generatedAt": "2026-09-28T11:35:53.323Z",
   "collections": [
     {
       "name": "users",
@@ -278,6 +278,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["ativo", "rascunho"]
         }
       ],
       "indexes": [
@@ -1314,6 +1321,312 @@
         "CREATE INDEX idx_treinamento_usuario ON treinamento_concluido (usuario_id)",
         "CREATE INDEX idx_treinamento_versao ON treinamento_concluido (versao_treinamento)"
       ]
+    },
+    {
+      "name": "conversas_whatsapp",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && (cliente_id = null || cliente_id.responsavel_id = @request.auth.id)))",
+        "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && (cliente_id = null || cliente_id.responsavel_id = @request.auth.id)))",
+        "create": "@request.auth.id != '' && @request.auth.perfil != 'estoque'",
+        "update": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && (cliente_id = null || cliente_id.responsavel_id = @request.auth.id)))",
+        "delete": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'"
+      },
+      "fields": [
+        {
+          "name": "cliente_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "clientes"
+        },
+        {
+          "name": "numero",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "provedor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["aberta", "fechada"]
+        },
+        {
+          "name": "ultima_mensagem",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ultima_intencao",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["alta", "media", "baixa"]
+        },
+        {
+          "name": "ultima_resposta_ia",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "criado_em",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "atualizado_em",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_conversas_numero ON conversas_whatsapp (numero)",
+        "CREATE INDEX idx_conversas_cliente ON conversas_whatsapp (cliente_id)",
+        "CREATE INDEX idx_conversas_status ON conversas_whatsapp (status)"
+      ]
+    },
+    {
+      "name": "mensagens_whatsapp",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && (conversa_id.cliente_id = null || conversa_id.cliente_id.responsavel_id = @request.auth.id)))",
+        "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && (conversa_id.cliente_id = null || conversa_id.cliente_id.responsavel_id = @request.auth.id)))",
+        "create": "@request.auth.id != '' && @request.auth.perfil != 'estoque'",
+        "update": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && (conversa_id.cliente_id = null || conversa_id.cliente_id.responsavel_id = @request.auth.id)))",
+        "delete": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'"
+      },
+      "fields": [
+        {
+          "name": "conversa_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "conversas_whatsapp"
+        },
+        {
+          "name": "direcao",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["entrada", "saida"]
+        },
+        {
+          "name": "texto",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "intencao_detectada",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["alta", "media", "baixa"]
+        },
+        {
+          "name": "sugestao_ia",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "usada_ia",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "criado_em",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_mensagens_conversa ON mensagens_whatsapp (conversa_id)",
+        "CREATE INDEX idx_mensagens_direcao ON mensagens_whatsapp (direcao)"
+      ]
+    },
+    {
+      "name": "produtos",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque'",
+        "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque'",
+        "create": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'",
+        "update": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'",
+        "delete": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'"
+      },
+      "fields": [
+        {
+          "name": "nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "preco",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "unidade",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "disponibilidade",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "prazo_entrega",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "criado_em",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "atualizado_em",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": ["CREATE INDEX idx_produtos_nome ON produtos (nome)"]
+    },
+    {
+      "name": "sugestoes_ia",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && (conversa_id.cliente_id = null || conversa_id.cliente_id.responsavel_id = @request.auth.id)))",
+        "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && (conversa_id.cliente_id = null || conversa_id.cliente_id.responsavel_id = @request.auth.id)))",
+        "create": "@request.auth.id != '' && @request.auth.perfil != 'estoque'",
+        "update": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && (conversa_id.cliente_id = null || conversa_id.cliente_id.responsavel_id = @request.auth.id)))",
+        "delete": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'"
+      },
+      "fields": [
+        {
+          "name": "conversa_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "conversas_whatsapp"
+        },
+        {
+          "name": "mensagem_cliente",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sugestao_gerada",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "usada",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "editada",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "criado_em",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": ["CREATE INDEX idx_sugestoes_conversa ON sugestoes_ia (conversa_id)"]
     }
   ]
 }

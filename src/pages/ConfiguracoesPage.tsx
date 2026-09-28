@@ -62,10 +62,20 @@ const CARDS_CONFIGURACOES: ConfigCardItem[] = [
     perfisPermitidos: ['ceo_financeiro', 'coordenador_vendas'],
   },
   {
+    id: 'produtos',
+    titulo: 'Catálogo de Produtos',
+    descricao: 'Tabela de preços, prazos e estoque da Colesel consultados pelo Assistente de IA.',
+    rota: '/produtos',
+    icone: Sliders,
+    corIcone: 'text-[#D97706]',
+    bgIcone: 'bg-amber-100',
+    perfisPermitidos: ['ceo_financeiro', 'coordenador_vendas', 'vendedor_1', 'vendedor_2'],
+  },
+  {
     id: 'integracoes',
     titulo: 'Integrações',
     descricao:
-      'Configure tokens de API do Bling ERP, WhatsApp Business (Meta) e provedores SMTP/SMS.',
+      'Configure tokens de API do Bling ERP, WhatsApp Business (Meta), Assistente IA e provedores SMTP/SMS.',
     rota: '/integracoes',
     icone: Settings,
     corIcone: 'text-[#0F172A]',

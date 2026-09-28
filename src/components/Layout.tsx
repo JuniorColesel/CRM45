@@ -9,6 +9,7 @@ import {
   Target,
   Phone,
   RotateCcw,
+  MessageSquare,
   Zap,
   Megaphone,
   BarChart3,
@@ -47,6 +48,12 @@ export const NAVIGATION_ITEMS: NavigationItem[] = [
     href: '/follow-up',
     icon: RotateCcw,
     ariaLabel: 'Acessar rotina de Follow-up',
+  },
+  {
+    name: 'Conversas',
+    href: '/conversas',
+    icon: MessageSquare,
+    ariaLabel: 'Acessar módulo de Conversas com IA',
   },
   { name: 'Automações', href: '/automacoes', icon: Zap, ariaLabel: 'Acessar Automações de vendas' },
   {

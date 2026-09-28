@@ -78,6 +78,9 @@ export default function ClientesPage() {
       condicoes.push('grande_cliente = false')
     }
 
+    // Ignorar clientes com status 'rascunho' na listagem oficial de /clientes até serem promovidos
+    condicoes.push("(status = null || status = '' || status = 'ativo')")
+
     if (busca.trim()) {
       const termo = busca.trim().replace(/'/g, "\\'")
       condicoes.push(

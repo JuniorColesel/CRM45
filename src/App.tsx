@@ -28,6 +28,8 @@ import PrimeirosPassosPage from './pages/PrimeirosPassosPage'
 import MetasPage from './pages/MetasPage'
 import IntegracoesPage from './pages/IntegracoesPage'
 import PopTreinamentoPage from './pages/PopTreinamentoPage'
+import ConversasPage from './pages/ConversasPage'
+import CatalogoProdutosPage from './pages/CatalogoProdutosPage'
 import { useAuth } from './contexts/AuthContext'
 
 /**
@@ -80,6 +82,8 @@ const App = () => (
                 <Route path="/prospeccao" element={<ProspeccaoPage />} />
                 <Route path="/ligacoes" element={<LigacoesPage />} />
                 <Route path="/follow-up" element={<FollowUpPage />} />
+                <Route path="/conversas" element={<ConversasPage />} />
+                <Route path="/produtos" element={<CatalogoProdutosPage />} />
                 <Route path="/automacoes" element={<AutomacoesPage />} />
                 <Route path="/marketing" element={<MarketingPage />} />
                 <Route path="/relatorios" element={<RelatoriosPage />} />
