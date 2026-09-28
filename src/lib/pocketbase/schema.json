@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-28T11:43:50.931Z",
+  "generatedAt": "2026-09-28T12:06:16.636Z",
   "collections": [
     {
       "name": "users",
@@ -1627,6 +1627,94 @@
         }
       ],
       "indexes": ["CREATE INDEX idx_sugestoes_conversa ON sugestoes_ia (conversa_id)"]
+    },
+    {
+      "name": "integracoes_config",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'",
+        "view": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'",
+        "create": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'",
+        "update": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'",
+        "delete": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'"
+      },
+      "fields": [
+        {
+          "name": "whatsapp_provedor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "whatsapp_telefone",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "smtp_host",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "smtp_port",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "smtp_user",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "gateway_sms",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ia_ativo",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ia_permitir_preco",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ia_tom_de_voz",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ia_prompt_sistema",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": []
     }
   ]
 }

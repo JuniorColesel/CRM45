@@ -1,29 +1,16 @@
 /**
- * Endpoint do backend: POST /backend/v1/sugerir_resposta_ia
+ * Endpoint do backend: POST /backend/v1/ia/sugerir
  *
- * Gera sugestão de resposta via Skip AI Gateway ($ai.chat)
- *
- * MUDANÇA DE SEGURANÇA v0.0.30:
- * - Lê ia_api_key e preferências do backend (coleção integracoes_config) com fallback seguro para defaults/secrets.
- * - O frontend NUNCA envia nem vê chaves de API de IA.
- * - NENHUMA credencial é logada no console ou retornada no payload.
- *
- * Contexto:
- * - Última mensagem do cliente
- * - Últimas 5 mensagens da conversa
- * - Histórico do cliente no CRM (nome, compras anteriores, oportunidade aberta)
- * - Catálogo de produtos (produtos cadastrados)
- * - Prompt de sistema customizado ou padrão
- * - Toggles: permitirPreco (boolean), tomDeVoz (profissional | amigavel | direto), ativo (boolean)
- * - Limite de 5 sugestões por conversa
- * - Registra em sugestoes_ia
+ * Rota proxy oficial solicitada: POST /backend/v1/ia/sugerir
+ * Lê ia_api_key e configurações do backend (integracoes_config).
+ * Chama o gateway de IA nativo ($ai.chat).
  *
  * ⚠ IMPORTANTE PB HOOKS: Toda lógica inline dentro do callback!
  */
 
 routerAdd(
   'POST',
-  '/backend/v1/sugerir_resposta_ia',
+  '/backend/v1/ia/sugerir',
   (e) => {
     const authRecord = e.auth
     if (!authRecord) {

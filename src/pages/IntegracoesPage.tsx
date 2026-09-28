@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -20,6 +20,8 @@ import {
   Bot,
   Sparkles,
   RotateCcw,
+  ShieldCheck,
+  Loader2,
 } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
@@ -38,25 +40,28 @@ import {
 } from '@/components/ui/select'
 import { useAuth } from '@/contexts/AuthContext'
 import { toast } from '@/hooks/use-toast'
+import pb from '@/lib/pocketbase/client'
+import { getErrorMessage } from '@/lib/pocketbase/errors'
 
-// Chaves de localStorage
-const STORAGE_BLING_TOKEN = 'integracao_bling_token'
-const STORAGE_WHATSAPP = 'integracao_whatsapp'
-const STORAGE_EMAIL_SMS = 'integracao_email_sms'
-export const STORAGE_ASSISTENTE_IA = 'integracao_assistente_ia'
-
-interface WhatsappConfig {
-  provedor: string
-  telefone: string
-  token: string
-}
-
-interface EmailSmsConfig {
-  smtpServidor: string
-  smtpPorta: string
-  smtpUsuario: string
-  smtpSenha: string
-  gatewaySms: string
+interface ConfigsBackendResponse {
+  bling_token_mascarado: string
+  tem_bling_token: boolean
+  whatsapp_token_mascarado: string
+  tem_whatsapp_token: boolean
+  whatsapp_provedor: string
+  whatsapp_telefone: string
+  smtp_host: string
+  smtp_port: string
+  smtp_user: string
+  smtp_password_mascarada: string
+  tem_smtp_password: boolean
+  gateway_sms: string
+  ia_api_key_mascarada: string
+  tem_ia_api_key: boolean
+  ia_ativo: boolean
+  ia_permitir_preco: boolean
+  ia_tom_de_voz: 'profissional' | 'amigavel' | 'direto'
+  ia_prompt_sistema: string
 }
 
 export default function IntegracoesPage() {
@@ -66,82 +71,103 @@ export default function IntegracoesPage() {
 
   // Acesso permitido APENAS a ceo_financeiro e coordenador_vendas
   const podeAcessar = perfil === 'ceo_financeiro' || perfil === 'coordenador_vendas'
+  const isCeo = perfil === 'ceo_financeiro'
+
+  // Carregamento inicial do backend
+  const [carregando, setCarregando] = useState(true)
+  const [salvandoBling, setSalvandoBling] = useState(false)
+  const [salvandoWhatsapp, setSalvandoWhatsapp] = useState(false)
+  const [salvandoEmailSms, setSalvandoEmailSms] = useState(false)
+  const [salvandoIa, setSalvandoIa] = useState(false)
 
   // ==========================================
   // ESTADO: SEÇÃO A - BLING
   // ==========================================
-  const [blingToken, setBlingToken] = useState<string>(() => {
-    try {
-      return localStorage.getItem(STORAGE_BLING_TOKEN) || ''
-    } catch {
-      return ''
-    }
-  })
+  const [blingToken, setBlingToken] = useState<string>('')
   const [showBlingToken, setShowBlingToken] = useState(false)
+  const [temBlingSalvo, setTemBlingSalvo] = useState(false)
 
   // ==========================================
   // ESTADO: SEÇÃO B - WHATSAPP / META
   // ==========================================
-  const [whatsappData, setWhatsappData] = useState<WhatsappConfig>(() => {
-    try {
-      const salvo = localStorage.getItem(STORAGE_WHATSAPP)
-      if (salvo) return JSON.parse(salvo)
-    } catch {
-      // Ignora erro
-    }
-    return {
-      provedor: 'zenvia',
-      telefone: '',
-      token: '',
-    }
-  })
+  const [whatsappProvedor, setWhatsappProvedor] = useState('zenvia')
+  const [whatsappTelefone, setWhatsappTelefone] = useState('')
+  const [whatsappToken, setWhatsappToken] = useState('')
   const [showWhatsappToken, setShowWhatsappToken] = useState(false)
+  const [temWhatsappSalvo, setTemWhatsappSalvo] = useState(false)
 
   // ==========================================
   // ESTADO: SEÇÃO C - EMAIL / SMS
   // ==========================================
-  const [emailSmsData, setEmailSmsData] = useState<EmailSmsConfig>(() => {
-    try {
-      const salvo = localStorage.getItem(STORAGE_EMAIL_SMS)
-      if (salvo) return JSON.parse(salvo)
-    } catch {
-      // Ignora erro
-    }
-    return {
-      smtpServidor: '',
-      smtpPorta: '587',
-      smtpUsuario: '',
-      smtpSenha: '',
-      gatewaySms: 'zenvia',
-    }
-  })
+  const [smtpServidor, setSmtpServidor] = useState('')
+  const [smtpPorta, setSmtpPorta] = useState('587')
+  const [smtpUsuario, setSmtpUsuario] = useState('')
+  const [smtpSenha, setSmtpSenha] = useState('')
   const [showSmtpSenha, setShowSmtpSenha] = useState(false)
+  const [temSmtpSenhaSalva, setTemSmtpSenhaSalva] = useState(false)
+  const [gatewaySms, setGatewaySms] = useState('zenvia')
 
   // ==========================================
   // ESTADO: SEÇÃO D - ASSISTENTE IA
   // ==========================================
-  const [iaConfig, setIaConfig] = useState<AssistenteIaConfig>(() => {
-    try {
-      const salvo = localStorage.getItem(STORAGE_ASSISTENTE_IA)
-      if (salvo) {
-        const parsed = JSON.parse(salvo)
-        return {
-          ativo: parsed.ativo !== false,
-          permitirPreco: parsed.permitirPreco !== false,
-          tomDeVoz: parsed.tomDeVoz || 'profissional',
-          promptSistema: parsed.promptSistema || PROMPT_IA_PADRAO,
-        }
-      }
-    } catch {
-      // Ignora erro
-    }
-    return {
-      ativo: true,
-      permitirPreco: true,
-      tomDeVoz: 'profissional',
-      promptSistema: PROMPT_IA_PADRAO,
-    }
+  const [iaConfig, setIaConfig] = useState<AssistenteIaConfig>({
+    ativo: true,
+    permitirPreco: true,
+    tomDeVoz: 'profissional',
+    promptSistema: PROMPT_IA_PADRAO,
   })
+
+  // Carregar configurações reais do backend (com máscaras para campos sensíveis)
+  const carregarConfiguracoes = useCallback(async () => {
+    try {
+      setCarregando(true)
+      const res = await pb.send<ConfigsBackendResponse>('/backend/v1/integracoes/config', {
+        method: 'GET',
+      })
+
+      if (res) {
+        // Bling
+        setBlingToken(res.bling_token_mascarado || '')
+        setTemBlingSalvo(res.tem_bling_token)
+
+        // WhatsApp
+        setWhatsappProvedor(res.whatsapp_provedor || 'zenvia')
+        setWhatsappTelefone(res.whatsapp_telefone || '')
+        setWhatsappToken(res.whatsapp_token_mascarado || '')
+        setTemWhatsappSalvo(res.tem_whatsapp_token)
+
+        // SMTP
+        setSmtpServidor(res.smtp_host || '')
+        setSmtpPorta(res.smtp_port || '587')
+        setSmtpUsuario(res.smtp_user || '')
+        setSmtpSenha(res.smtp_password_mascarada || '')
+        setTemSmtpSenhaSalva(res.tem_smtp_password)
+        setGatewaySms(res.gateway_sms || 'zenvia')
+
+        // IA
+        setIaConfig({
+          ativo: res.ia_ativo !== false,
+          permitirPreco: res.ia_permitir_preco !== false,
+          tomDeVoz: res.ia_tom_de_voz || 'profissional',
+          promptSistema: res.ia_prompt_sistema || PROMPT_IA_PADRAO,
+        })
+      }
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Falha ao carregar configurações de integração',
+        description: getErrorMessage(err),
+      })
+    } finally {
+      setCarregando(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (podeAcessar) {
+      carregarConfiguracoes()
+    }
+  }, [podeAcessar, carregarConfiguracoes])
 
   const handleVoltar = () => {
     if (window.history.length > 2) {
@@ -152,73 +178,180 @@ export default function IntegracoesPage() {
   }
 
   // ==========================================
-  // HANDLERS DE SALVAR
+  // HANDLERS DE SALVAR NO BACKEND PROTEGIDO
   // ==========================================
-  const handleSalvarBling = (e: React.FormEvent) => {
+  const handleSalvarBling = async (e: React.FormEvent) => {
     e.preventDefault()
-    try {
-      localStorage.setItem(STORAGE_BLING_TOKEN, blingToken.trim())
-      toast({
-        title: 'Integração Bling salva',
-        description: 'O token da API do Bling foi gravado com sucesso no navegador.',
-      })
-    } catch {
+    if (!isCeo) {
       toast({
         variant: 'destructive',
-        title: 'Erro ao salvar',
-        description: 'Não foi possível gravar os dados no armazenamento local.',
+        title: 'Permissão insuficiente',
+        description: 'Apenas o perfil CEO / Financeiro pode alterar credenciais de integrações.',
       })
+      return
+    }
+
+    try {
+      setSalvandoBling(true)
+      const res = await pb.send<ConfigsBackendResponse>('/backend/v1/integracoes/config', {
+        method: 'POST',
+        body: JSON.stringify({
+          bling_token: blingToken,
+        }),
+      })
+
+      if (res) {
+        setBlingToken(res.bling_token_mascarado || '')
+        setTemBlingSalvo(res.tem_bling_token)
+        toast({
+          title: 'Integração Bling salva no servidor',
+          description: 'O token da API do Bling foi armazenado com segurança no backend.',
+        })
+      }
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao salvar token do Bling',
+        description: getErrorMessage(err),
+      })
+    } finally {
+      setSalvandoBling(false)
     }
   }
 
-  const handleSalvarWhatsapp = (e: React.FormEvent) => {
+  const handleSalvarWhatsapp = async (e: React.FormEvent) => {
     e.preventDefault()
-    try {
-      localStorage.setItem(STORAGE_WHATSAPP, JSON.stringify(whatsappData))
-      toast({
-        title: 'Configurações de WhatsApp salvas',
-        description: 'Os parâmetros da API WhatsApp Business foram atualizados com sucesso.',
-      })
-    } catch {
+    if (!isCeo) {
       toast({
         variant: 'destructive',
-        title: 'Erro ao salvar',
-        description: 'Não foi possível gravar os dados no armazenamento local.',
+        title: 'Permissão insuficiente',
+        description: 'Apenas o perfil CEO / Financeiro pode alterar credenciais de integrações.',
       })
+      return
+    }
+
+    try {
+      setSalvandoWhatsapp(true)
+      const res = await pb.send<ConfigsBackendResponse>('/backend/v1/integracoes/config', {
+        method: 'POST',
+        body: JSON.stringify({
+          whatsapp_token: whatsappToken,
+          whatsapp_provedor: whatsappProvedor,
+          whatsapp_telefone: whatsappTelefone,
+        }),
+      })
+
+      if (res) {
+        setWhatsappToken(res.whatsapp_token_mascarado || '')
+        setTemWhatsappSalvo(res.tem_whatsapp_token)
+        setWhatsappProvedor(res.whatsapp_provedor || 'zenvia')
+        setWhatsappTelefone(res.whatsapp_telefone || '')
+        toast({
+          title: 'Configurações de WhatsApp salvas no servidor',
+          description: 'Credenciais protegidas no backend com isolamento seguro.',
+        })
+      }
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao salvar WhatsApp',
+        description: getErrorMessage(err),
+      })
+    } finally {
+      setSalvandoWhatsapp(false)
     }
   }
 
-  const handleSalvarEmailSms = (e: React.FormEvent) => {
+  const handleSalvarEmailSms = async (e: React.FormEvent) => {
     e.preventDefault()
-    try {
-      localStorage.setItem(STORAGE_EMAIL_SMS, JSON.stringify(emailSmsData))
-      toast({
-        title: 'Servidores de E-mail/SMS salvos',
-        description: 'As configurações SMTP e Gateway SMS foram gravadas com sucesso.',
-      })
-    } catch {
+    if (!isCeo) {
       toast({
         variant: 'destructive',
-        title: 'Erro ao salvar',
-        description: 'Não foi possível gravar os dados no armazenamento local.',
+        title: 'Permissão insuficiente',
+        description: 'Apenas o perfil CEO / Financeiro pode alterar credenciais de integrações.',
       })
+      return
+    }
+
+    try {
+      setSalvandoEmailSms(true)
+      const res = await pb.send<ConfigsBackendResponse>('/backend/v1/integracoes/config', {
+        method: 'POST',
+        body: JSON.stringify({
+          smtp_host: smtpServidor,
+          smtp_port: smtpPorta,
+          smtp_user: smtpUsuario,
+          smtp_password: smtpSenha,
+          gateway_sms: gatewaySms,
+        }),
+      })
+
+      if (res) {
+        setSmtpSenha(res.smtp_password_mascarada || '')
+        setTemSmtpSenhaSalva(res.tem_smtp_password)
+        setSmtpServidor(res.smtp_host || '')
+        setSmtpPorta(res.smtp_port || '587')
+        setSmtpUsuario(res.smtp_user || '')
+        setGatewaySms(res.gateway_sms || 'zenvia')
+        toast({
+          title: 'Servidores de E-mail/SMS salvos no servidor',
+          description: 'Credenciais gravadas na coleção segura do backend.',
+        })
+      }
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao salvar E-mail/SMS',
+        description: getErrorMessage(err),
+      })
+    } finally {
+      setSalvandoEmailSms(false)
     }
   }
 
-  const handleSalvarIaConfig = (e: React.FormEvent) => {
+  const handleSalvarIaConfig = async (e: React.FormEvent) => {
     e.preventDefault()
-    try {
-      localStorage.setItem(STORAGE_ASSISTENTE_IA, JSON.stringify(iaConfig))
-      toast({
-        title: 'Assistente de IA configurado',
-        description: 'As preferências e o prompt do assistente foram salvos com sucesso.',
-      })
-    } catch {
+    if (!isCeo) {
       toast({
         variant: 'destructive',
-        title: 'Erro ao salvar',
-        description: 'Não foi possível gravar os dados no armazenamento local.',
+        title: 'Permissão insuficiente',
+        description: 'Apenas o perfil CEO / Financeiro pode alterar configurações de integrações.',
       })
+      return
+    }
+
+    try {
+      setSalvandoIa(true)
+      const res = await pb.send<ConfigsBackendResponse>('/backend/v1/integracoes/config', {
+        method: 'POST',
+        body: JSON.stringify({
+          ia_ativo: iaConfig.ativo,
+          ia_permitir_preco: iaConfig.permitirPreco,
+          ia_tom_de_voz: iaConfig.tomDeVoz,
+          ia_prompt_sistema: iaConfig.promptSistema,
+        }),
+      })
+
+      if (res) {
+        setIaConfig({
+          ativo: res.ia_ativo,
+          permitirPreco: res.ia_permitir_preco,
+          tomDeVoz: res.ia_tom_de_voz || 'profissional',
+          promptSistema: res.ia_prompt_sistema || PROMPT_IA_PADRAO,
+        })
+        toast({
+          title: 'Assistente de IA configurado no servidor',
+          description: 'Preferências salvas no backend com sucesso.',
+        })
+      }
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao salvar configurações da IA',
+        description: getErrorMessage(err),
+      })
+    } finally {
+      setSalvandoIa(false)
     }
   }
 
@@ -272,8 +405,8 @@ export default function IntegracoesPage() {
     )
   }
 
-  // Status calculado de WhatsApp: Configurado se tiver token e telefone preenchidos
-  const isWhatsappConfigurado = Boolean(whatsappData.token.trim() && whatsappData.telefone.trim())
+  // Status calculado de WhatsApp: Configurado se tiver token salvo e telefone preenchidos
+  const isWhatsappConfigurado = Boolean(temWhatsappSalvo && whatsappTelefone.trim())
 
   return (
     <div className="space-y-8 animate-fade-in pb-16 max-w-5xl mx-auto">
@@ -297,17 +430,30 @@ export default function IntegracoesPage() {
               <Plug className="w-3 h-3 text-[#16A34A]" />
               Conexões Externas
             </Badge>
+            <Badge
+              variant="outline"
+              className="bg-emerald-50 text-emerald-800 border-emerald-200 text-xs font-semibold gap-1"
+            >
+              <ShieldCheck className="w-3 h-3 text-emerald-600" />
+              Segurança v0.0.30 (Backend Vault)
+            </Badge>
           </div>
           <h2 className="text-2xl font-bold tracking-tight text-[#0F172A] pt-1">
             Integrações do Sistema
           </h2>
           <p className="text-xs sm:text-sm text-[#64748B]">
-            Configure as chaves e credenciais para o Bling ERP, WhatsApp Business API (Meta) e
-            serviços de E-mail/SMS.
+            Todas as chaves de API e senhas residem exclusivamente no servidor seguro. O navegador
+            apenas manipula valores mascarados.
           </p>
         </div>
 
-        <div>
+        <div className="flex items-center gap-2">
+          {carregando && (
+            <div className="flex items-center gap-1.5 text-xs text-[#64748B]">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <span>Carregando do servidor...</span>
+            </div>
+          )}
           <Badge
             variant="outline"
             className="text-xs text-slate-600 bg-white border-slate-200 py-1.5 px-3"
@@ -328,9 +474,22 @@ export default function IntegracoesPage() {
                 <Layers className="w-5 h-5" />
               </div>
               <div>
-                <CardTitle className="text-lg font-bold text-[#0F172A]">1. Bling ERP</CardTitle>
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-lg font-bold text-[#0F172A]">1. Bling ERP</CardTitle>
+                  {temBlingSalvo ? (
+                    <Badge className="bg-emerald-50 text-[#16A34A] border-emerald-200 text-[11px] font-semibold gap-1">
+                      <CheckCircle2 className="w-3 h-3" />
+                      Token Ativo no Servidor
+                    </Badge>
+                  ) : (
+                    <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-[11px] font-semibold">
+                      Sem Token
+                    </Badge>
+                  )}
+                </div>
                 <CardDescription className="text-xs text-[#64748B]">
-                  Integração de pedidos de venda, contatos e sincronização de dados.
+                  Integração de pedidos de venda, contatos e sincronização de dados via proxy
+                  seguro.
                 </CardDescription>
               </div>
             </div>
@@ -350,7 +509,6 @@ export default function IntegracoesPage() {
         </CardHeader>
 
         <CardContent className="p-6 space-y-6">
-          {/* Instruções EXATAS solicitadas pelo usuário */}
           <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm text-[#0F172A] flex items-start gap-3">
             <Info className="w-5 h-5 text-[#16A34A] flex-shrink-0 mt-0.5" />
             <div className="space-y-1">
@@ -374,7 +532,7 @@ export default function IntegracoesPage() {
           <form onSubmit={handleSalvarBling} className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="bling-token" className="text-xs font-bold text-[#0F172A]">
-                Token de API (Bling)
+                Token de API (Bling) — Mascarado
               </Label>
               <div className="relative">
                 <Input
@@ -382,33 +540,45 @@ export default function IntegracoesPage() {
                   type={showBlingToken ? 'text' : 'password'}
                   value={blingToken}
                   onChange={(e) => setBlingToken(e.target.value)}
-                  placeholder="Cole aqui seu token de API ou API key v2/v3 do Bling"
+                  placeholder={
+                    temBlingSalvo
+                      ? 'Token já configurado no backend'
+                      : 'Cole aqui seu token de API v2/v3'
+                  }
                   className="pr-10 h-10 text-xs font-mono bg-white"
+                  disabled={!isCeo}
                 />
                 <button
                   type="button"
                   onClick={() => setShowBlingToken(!showBlingToken)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-[#64748B] hover:text-[#0F172A]"
-                  title={showBlingToken ? 'Ocultar token' : 'Exibir token'}
+                  title={showBlingToken ? 'Ocultar máscara' : 'Exibir máscara'}
                 >
                   {showBlingToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
               <p className="text-[11px] text-[#64748B]">
-                O token é armazenado com segurança localmente no seu navegador para as rotinas de
-                sincronização.
+                Gravado exclusivamente na coleção protegida <code>integracoes_config</code> (RLS
+                restrita a CEO). O frontend nunca armazena nem visualiza o token real.
               </p>
             </div>
 
-            <div className="flex justify-end pt-2">
-              <Button
-                type="submit"
-                className="bg-[#16A34A] hover:bg-[#15803D] text-white font-semibold text-xs shadow-sm gap-2"
-              >
-                <Save className="w-4 h-4" />
-                Salvar Token do Bling
-              </Button>
-            </div>
+            {isCeo && (
+              <div className="flex justify-end pt-2">
+                <Button
+                  type="submit"
+                  disabled={salvandoBling}
+                  className="bg-[#16A34A] hover:bg-[#15803D] text-white font-semibold text-xs shadow-sm gap-2"
+                >
+                  {salvandoBling ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Save className="w-4 h-4" />
+                  )}
+                  Salvar Token do Bling no Servidor
+                </Button>
+              </div>
+            )}
           </form>
         </CardContent>
       </Card>
@@ -428,17 +598,16 @@ export default function IntegracoesPage() {
                   2. WhatsApp Business API (Meta)
                 </CardTitle>
                 <CardDescription className="text-xs text-[#64748B]">
-                  Envio automático de mensagens e réguas de follow-up via WhatsApp oficial.
+                  Envio de mensagens por proxy seguro <code>/backend/v1/whatsapp/enviar</code>.
                 </CardDescription>
               </div>
             </div>
 
-            {/* Status: Não configurado (vermelho) ou Configurado (verde) */}
             <div>
               {isWhatsappConfigurado ? (
                 <Badge className="bg-emerald-50 text-[#16A34A] border-emerald-200 text-xs font-semibold gap-1.5 py-1 px-3">
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  Configurado
+                  Configurado no Backend
                 </Badge>
               ) : (
                 <Badge className="bg-red-50 text-[#DC2626] border-red-200 text-xs font-semibold gap-1.5 py-1 px-3">
@@ -451,7 +620,6 @@ export default function IntegracoesPage() {
         </CardHeader>
 
         <CardContent className="p-6 space-y-6">
-          {/* Instruções EXATAS solicitadas pelo usuário */}
           <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm text-[#0F172A] flex items-start gap-3">
             <Info className="w-5 h-5 text-[#2563EB] flex-shrink-0 mt-0.5" />
             <div className="space-y-1">
@@ -473,8 +641,9 @@ export default function IntegracoesPage() {
                   Provedor BSP Oficial
                 </Label>
                 <Select
-                  value={whatsappData.provedor}
-                  onValueChange={(val) => setWhatsappData((prev) => ({ ...prev, provedor: val }))}
+                  value={whatsappProvedor}
+                  onValueChange={setWhatsappProvedor}
+                  disabled={!isCeo}
                 >
                   <SelectTrigger id="whatsapp-provedor" className="h-10 text-xs bg-white">
                     <SelectValue placeholder="Selecione o provedor" />
@@ -497,12 +666,11 @@ export default function IntegracoesPage() {
                 <Input
                   id="whatsapp-telefone"
                   type="text"
-                  value={whatsappData.telefone}
-                  onChange={(e) =>
-                    setWhatsappData((prev) => ({ ...prev, telefone: e.target.value }))
-                  }
+                  value={whatsappTelefone}
+                  onChange={(e) => setWhatsappTelefone(e.target.value)}
                   placeholder="Ex: +55 11 98765-4321"
                   className="h-10 text-xs bg-white"
+                  disabled={!isCeo}
                 />
               </div>
             </div>
@@ -510,43 +678,55 @@ export default function IntegracoesPage() {
             {/* Token de Acesso */}
             <div className="space-y-1.5">
               <Label htmlFor="whatsapp-token" className="text-xs font-bold text-[#0F172A]">
-                Token de Acesso (Access Token / API Key)
+                Token de Acesso (Access Token / API Key) — Mascarado
               </Label>
               <div className="relative">
                 <Input
                   id="whatsapp-token"
                   type={showWhatsappToken ? 'text' : 'password'}
-                  value={whatsappData.token}
-                  onChange={(e) => setWhatsappData((prev) => ({ ...prev, token: e.target.value }))}
-                  placeholder="Cole aqui o token permanente da Meta ou da chave do provedor"
+                  value={whatsappToken}
+                  onChange={(e) => setWhatsappToken(e.target.value)}
+                  placeholder={
+                    temWhatsappSalvo
+                      ? 'Token protegido no servidor'
+                      : 'Cole aqui o token permanente da Meta/Zenvia'
+                  }
                   className="pr-10 h-10 text-xs font-mono bg-white"
+                  disabled={!isCeo}
                 />
                 <button
                   type="button"
                   onClick={() => setShowWhatsappToken(!showWhatsappToken)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-[#64748B] hover:text-[#0F172A]"
-                  title={showWhatsappToken ? 'Ocultar token' : 'Exibir token'}
+                  title={showWhatsappToken ? 'Ocultar máscara' : 'Exibir máscara'}
                 >
                   {showWhatsappToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>
 
-            <div className="flex justify-end pt-2">
-              <Button
-                type="submit"
-                className="bg-[#16A34A] hover:bg-[#15803D] text-white font-semibold text-xs shadow-sm gap-2"
-              >
-                <Save className="w-4 h-4" />
-                Salvar Configurações de WhatsApp
-              </Button>
-            </div>
+            {isCeo && (
+              <div className="flex justify-end pt-2">
+                <Button
+                  type="submit"
+                  disabled={salvandoWhatsapp}
+                  className="bg-[#16A34A] hover:bg-[#15803D] text-white font-semibold text-xs shadow-sm gap-2"
+                >
+                  {salvandoWhatsapp ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Save className="w-4 h-4" />
+                  )}
+                  Salvar WhatsApp no Servidor
+                </Button>
+              </div>
+            )}
           </form>
         </CardContent>
       </Card>
 
       {/* ======================================================== */}
-      {/* SEÇÃO D: ASSISTENTE DE IA */}
+      {/* SEÇÃO C: ASSISTENTE DE IA */}
       {/* ======================================================== */}
       <Card className="border-[#E2E8F0] shadow-sm rounded-2xl overflow-hidden bg-white">
         <CardHeader className="bg-[#F8FAFC] border-b border-[#E2E8F0] pb-4">
@@ -560,12 +740,11 @@ export default function IntegracoesPage() {
                   <span>3. Assistente de IA de Vendas (WhatsApp)</span>
                   <Badge className="bg-purple-50 text-[#7C3AED] border-purple-200 text-[11px] font-semibold gap-1">
                     <Sparkles className="w-3 h-3" />
-                    Skip AI Gateway
+                    Skip AI Gateway Nativo
                   </Badge>
                 </CardTitle>
                 <CardDescription className="text-xs text-[#64748B]">
-                  Sugere respostas personalizadas baseadas no histórico do cliente e no catálogo de
-                  produtos.
+                  Executado server-side via rota <code>/backend/v1/ia/sugerir</code>.
                 </CardDescription>
               </div>
             </div>
@@ -574,7 +753,7 @@ export default function IntegracoesPage() {
               {iaConfig.ativo ? (
                 <Badge className="bg-emerald-50 text-[#16A34A] border-emerald-200 text-xs font-semibold gap-1.5 py-1 px-3">
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  Ativo
+                  Ativo no Backend
                 </Badge>
               ) : (
                 <Badge className="bg-slate-100 text-slate-600 border-slate-300 text-xs font-semibold gap-1.5 py-1 px-3">
@@ -586,7 +765,6 @@ export default function IntegracoesPage() {
         </CardHeader>
 
         <CardContent className="p-6 space-y-6">
-          {/* Informação sobre chave gerenciada pelo backend */}
           <div className="p-4 rounded-xl bg-emerald-50/70 border border-emerald-200 text-xs sm:text-sm text-[#0F172A] flex items-start gap-3">
             <KeyRound className="w-5 h-5 text-[#16A34A] flex-shrink-0 mt-0.5" />
             <div className="space-y-1">
@@ -602,9 +780,7 @@ export default function IntegracoesPage() {
           </div>
 
           <form onSubmit={handleSalvarIaConfig} className="space-y-5">
-            {/* Toggles principais */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Toggle Ativar Assistente */}
               <div className="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 bg-slate-50/60">
                 <div className="space-y-0.5 pr-2">
                   <Label
@@ -614,17 +790,17 @@ export default function IntegracoesPage() {
                     Ativar Assistente de IA
                   </Label>
                   <p className="text-[11px] text-[#64748B]">
-                    Habilita o botão &quot;✨ Sugerir resposta&quot; na tela de conversas.
+                    Habilita a geração server-side de sugestões no módulo de Conversas.
                   </p>
                 </div>
                 <Switch
                   id="ia-ativo"
                   checked={iaConfig.ativo}
                   onCheckedChange={(val) => setIaConfig((prev) => ({ ...prev, ativo: val }))}
+                  disabled={!isCeo}
                 />
               </div>
 
-              {/* Toggle Permitir Preço */}
               <div className="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 bg-slate-50/60">
                 <div className="space-y-0.5 pr-2">
                   <Label
@@ -643,11 +819,11 @@ export default function IntegracoesPage() {
                   onCheckedChange={(val) =>
                     setIaConfig((prev) => ({ ...prev, permitirPreco: val }))
                   }
+                  disabled={!isCeo}
                 />
               </div>
             </div>
 
-            {/* Tom de Voz */}
             <div className="max-w-md space-y-1.5">
               <Label htmlFor="ia-tom" className="text-xs font-bold text-[#0F172A]">
                 Tom de Voz do Assistente
@@ -657,6 +833,7 @@ export default function IntegracoesPage() {
                 onValueChange={(val: 'profissional' | 'amigavel' | 'direto') =>
                   setIaConfig((prev) => ({ ...prev, tomDeVoz: val }))
                 }
+                disabled={!isCeo}
               >
                 <SelectTrigger id="ia-tom" className="h-10 text-xs bg-white">
                   <SelectValue placeholder="Selecione o tom de voz" />
@@ -667,12 +844,8 @@ export default function IntegracoesPage() {
                   <SelectItem value="direto">Direto (Ultra sucinto e pragmático)</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-[11px] text-[#64748B]">
-                Ajusta as diretrizes do prompt dinamicamente para cada mensagem gerada.
-              </p>
             </div>
 
-            {/* Prompt de Sistema Editável */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label
@@ -681,16 +854,18 @@ export default function IntegracoesPage() {
                 >
                   <span>Prompt de Sistema (Instruções Base da Colesel)</span>
                 </Label>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleRestaurarPromptPadrao}
-                  className="text-xs text-[#64748B] hover:text-[#0F172A] h-7 px-2 gap-1"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  Restaurar padrão
-                </Button>
+                {isCeo && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleRestaurarPromptPadrao}
+                    className="text-xs text-[#64748B] hover:text-[#0F172A] h-7 px-2 gap-1"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    Restaurar padrão
+                  </Button>
+                )}
               </div>
 
               <Textarea
@@ -702,28 +877,32 @@ export default function IntegracoesPage() {
                 }
                 className="text-xs font-mono bg-white leading-relaxed resize-y"
                 placeholder="Insira as instruções do assistente..."
+                disabled={!isCeo}
               />
-              <p className="text-[11px] text-[#64748B]">
-                O vendedor <strong>sempre revisa antes de enviar</strong> — a IA nunca dispara
-                mensagens automaticamente.
-              </p>
             </div>
 
-            <div className="flex justify-end pt-2">
-              <Button
-                type="submit"
-                className="bg-[#16A34A] hover:bg-[#15803D] text-white font-semibold text-xs shadow-sm gap-2"
-              >
-                <Save className="w-4 h-4" />
-                Salvar Configurações da IA
-              </Button>
-            </div>
+            {isCeo && (
+              <div className="flex justify-end pt-2">
+                <Button
+                  type="submit"
+                  disabled={salvandoIa}
+                  className="bg-[#16A34A] hover:bg-[#15803D] text-white font-semibold text-xs shadow-sm gap-2"
+                >
+                  {salvandoIa ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Save className="w-4 h-4" />
+                  )}
+                  Salvar Configurações da IA no Servidor
+                </Button>
+              </div>
+            )}
           </form>
         </CardContent>
       </Card>
 
       {/* ======================================================== */}
-      {/* SEÇÃO E: E-MAIL / SMS */}
+      {/* SEÇÃO D: E-MAIL / SMS */}
       {/* ======================================================== */}
       <Card className="border-[#E2E8F0] shadow-sm rounded-2xl overflow-hidden bg-white">
         <CardHeader className="bg-[#F8FAFC] border-b border-[#E2E8F0] pb-4">
@@ -736,7 +915,7 @@ export default function IntegracoesPage() {
                 4. E-mail SMTP e Gateway SMS
               </CardTitle>
               <CardDescription className="text-xs text-[#64748B]">
-                Servidor de envio de e-mails transacionais e campanhas por SMS.
+                Servidor de envio transacional via proxy <code>/backend/v1/smtp/enviar</code>.
               </CardDescription>
             </div>
           </div>
@@ -751,7 +930,6 @@ export default function IntegracoesPage() {
               </h4>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {/* Servidor SMTP */}
                 <div className="sm:col-span-2 space-y-1.5">
                   <Label htmlFor="smtp-servidor" className="text-xs font-bold text-[#0F172A]">
                     Servidor SMTP (Host)
@@ -759,16 +937,14 @@ export default function IntegracoesPage() {
                   <Input
                     id="smtp-servidor"
                     type="text"
-                    value={emailSmsData.smtpServidor}
-                    onChange={(e) =>
-                      setEmailSmsData((prev) => ({ ...prev, smtpServidor: e.target.value }))
-                    }
+                    value={smtpServidor}
+                    onChange={(e) => setSmtpServidor(e.target.value)}
                     placeholder="Ex: smtp.sendgrid.net ou smtp.office365.com"
                     className="h-10 text-xs bg-white"
+                    disabled={!isCeo}
                   />
                 </div>
 
-                {/* Porta SMTP */}
                 <div className="space-y-1.5">
                   <Label htmlFor="smtp-porta" className="text-xs font-bold text-[#0F172A]">
                     Porta SMTP
@@ -776,16 +952,14 @@ export default function IntegracoesPage() {
                   <Input
                     id="smtp-porta"
                     type="text"
-                    value={emailSmsData.smtpPorta}
-                    onChange={(e) =>
-                      setEmailSmsData((prev) => ({ ...prev, smtpPorta: e.target.value }))
-                    }
+                    value={smtpPorta}
+                    onChange={(e) => setSmtpPorta(e.target.value)}
                     placeholder="Ex: 587 ou 465"
                     className="h-10 text-xs bg-white font-mono"
+                    disabled={!isCeo}
                   />
                 </div>
 
-                {/* Usuário SMTP */}
                 <div className="sm:col-span-2 space-y-1.5">
                   <Label htmlFor="smtp-usuario" className="text-xs font-bold text-[#0F172A]">
                     Usuário / E-mail de Envio
@@ -793,30 +967,27 @@ export default function IntegracoesPage() {
                   <Input
                     id="smtp-usuario"
                     type="text"
-                    value={emailSmsData.smtpUsuario}
-                    onChange={(e) =>
-                      setEmailSmsData((prev) => ({ ...prev, smtpUsuario: e.target.value }))
-                    }
+                    value={smtpUsuario}
+                    onChange={(e) => setSmtpUsuario(e.target.value)}
                     placeholder="Ex: apikey ou contato@colesel45.com.br"
                     className="h-10 text-xs bg-white"
+                    disabled={!isCeo}
                   />
                 </div>
 
-                {/* Senha SMTP */}
                 <div className="space-y-1.5">
                   <Label htmlFor="smtp-senha" className="text-xs font-bold text-[#0F172A]">
-                    Senha / Chave SMTP
+                    Senha / Chave SMTP — Mascarada
                   </Label>
                   <div className="relative">
                     <Input
                       id="smtp-senha"
                       type={showSmtpSenha ? 'text' : 'password'}
-                      value={emailSmsData.smtpSenha}
-                      onChange={(e) =>
-                        setEmailSmsData((prev) => ({ ...prev, smtpSenha: e.target.value }))
-                      }
-                      placeholder="••••••••••••"
-                      className="pr-10 h-10 text-xs bg-white"
+                      value={smtpSenha}
+                      onChange={(e) => setSmtpSenha(e.target.value)}
+                      placeholder={temSmtpSenhaSalva ? '••••••••••••' : 'Digite a senha do SMTP'}
+                      className="pr-10 h-10 text-xs bg-white font-mono"
+                      disabled={!isCeo}
                     />
                     <button
                       type="button"
@@ -841,10 +1012,7 @@ export default function IntegracoesPage() {
                 <Label htmlFor="gateway-sms" className="text-xs font-bold text-[#0F172A]">
                   Gateway SMS
                 </Label>
-                <Select
-                  value={emailSmsData.gatewaySms}
-                  onValueChange={(val) => setEmailSmsData((prev) => ({ ...prev, gatewaySms: val }))}
-                >
+                <Select value={gatewaySms} onValueChange={setGatewaySms} disabled={!isCeo}>
                   <SelectTrigger id="gateway-sms" className="h-10 text-xs bg-white">
                     <SelectValue placeholder="Selecione o provedor de SMS" />
                   </SelectTrigger>
@@ -857,22 +1025,25 @@ export default function IntegracoesPage() {
                     <SelectItem value="outro">Outro Gateway HTTP</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-[11px] text-[#64748B]">
-                  Os disparos de SMS utilizam as credenciais cadastradas na aba de Canais de
-                  Automação.
-                </p>
               </div>
             </div>
 
-            <div className="flex justify-end pt-2">
-              <Button
-                type="submit"
-                className="bg-[#16A34A] hover:bg-[#15803D] text-white font-semibold text-xs shadow-sm gap-2"
-              >
-                <Save className="w-4 h-4" />
-                Salvar E-mail e SMS
-              </Button>
-            </div>
+            {isCeo && (
+              <div className="flex justify-end pt-2">
+                <Button
+                  type="submit"
+                  disabled={salvandoEmailSms}
+                  className="bg-[#16A34A] hover:bg-[#15803D] text-white font-semibold text-xs shadow-sm gap-2"
+                >
+                  {salvandoEmailSms ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Save className="w-4 h-4" />
+                  )}
+                  Salvar E-mail e SMS no Servidor
+                </Button>
+              </div>
+            )}
           </form>
         </CardContent>
       </Card>

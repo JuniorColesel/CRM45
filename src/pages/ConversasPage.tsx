@@ -53,13 +53,7 @@ import type {
   ConversaWhatsappModel,
   MensagemWhatsappModel,
   IntencaoConversa,
-  AssistenteIaConfig,
 } from '@/types/conversas'
-import { PROMPT_IA_PADRAO } from '@/types/conversas'
-import { STORAGE_ASSISTENTE_IA } from './IntegracoesPage'
-
-const STORAGE_WHATSAPP = 'integracao_whatsapp'
-
 export default function ConversasPage() {
   const { user } = useAuth()
   const perfil = user?.perfil
@@ -238,46 +232,9 @@ export default function ConversasPage() {
     }
   }, [conversaAtiva?.id, carregarMensagens])
 
-  // Obter configurações de IA salvas
-  const getIaConfig = (): AssistenteIaConfig => {
-    try {
-      const salvo = localStorage.getItem(STORAGE_ASSISTENTE_IA)
-      if (salvo) return JSON.parse(salvo)
-    } catch {
-      /* intentionally ignored */
-    }
-    return {
-      ativo: true,
-      permitirPreco: true,
-      tomDeVoz: 'profissional',
-      promptSistema: PROMPT_IA_PADRAO,
-    }
-  }
-
-  // Obter configurações de WhatsApp salvas
-  const getWhatsappConfig = () => {
-    try {
-      const salvo = localStorage.getItem(STORAGE_WHATSAPP)
-      if (salvo) return JSON.parse(salvo)
-    } catch {
-      /* intentionally ignored */
-    }
-    return null
-  }
-
-  // 1c & 4) ✨ Sugerir resposta via Skip AI Gateway
+  // 1c & 4) ✨ Sugerir resposta via Skip AI Gateway (configurado e protegido no backend)
   const handleSugerirResposta = async (msgClienteTexto?: string) => {
     if (!conversaAtiva) return
-    const iaConfig = getIaConfig()
-
-    if (!iaConfig.ativo) {
-      toast({
-        variant: 'destructive',
-        title: 'Assistente desativado',
-        description: 'Ative o assistente em Configurações → Integrações → Assistente IA.',
-      })
-      return
-    }
 
     if (limiteAtingido) {
       toast({
@@ -298,15 +255,11 @@ export default function ConversasPage() {
         total_sugestoes: number
         limite_maximo: number
         gerou_tarefa_confirmacao?: boolean
-      }>('/backend/v1/sugerir_resposta_ia', {
+      }>('/backend/v1/ia/sugerir', {
         method: 'POST',
         body: JSON.stringify({
           conversa_id: conversaAtiva.id,
           mensagem_cliente: msgClienteTexto || conversaAtiva.ultima_mensagem || '',
-          prompt_personalizado: iaConfig.promptSistema,
-          permitir_preco: iaConfig.permitirPreco,
-          tom_de_voz: iaConfig.tomDeVoz,
-          ativo: iaConfig.ativo,
         }),
       })
 
@@ -363,28 +316,17 @@ export default function ConversasPage() {
   }
 
   // 5) Envio de mensagem (O vendedor SEMPRE revisa e clica em enviar)
+  // Credenciais do provedor ficam 100% no backend seguro — nenhum token trafega no cliente
   const handleEnviarMensagem = async (e?: React.FormEvent) => {
     if (e) e.preventDefault()
     if (!conversaAtiva || !textoMensagem.trim()) return
-
-    const whatsappCfg = getWhatsappConfig()
-    const estaConfigurado = whatsappCfg && whatsappCfg.token && whatsappCfg.telefone
-
-    if (!estaConfigurado) {
-      toast({
-        variant: 'destructive',
-        title: 'WhatsApp não configurado',
-        description: 'Configure as credenciais do provedor oficial em Configurações → Integrações.',
-      })
-      // Não bloqueia envio simulado se o usuário quiser testar, mas avisa
-    }
 
     try {
       setEnviando(true)
       const res = await pb.send<{
         success: boolean
         mensagem_id: string
-      }>('/backend/v1/enviar_whatsapp', {
+      }>('/backend/v1/whatsapp/enviar', {
         method: 'POST',
         body: JSON.stringify({
           conversa_id: conversaAtiva.id,
@@ -392,7 +334,6 @@ export default function ConversasPage() {
           sugestao_id: rascunhoIa?.id || null,
           usada_ia: Boolean(rascunhoIa),
           editada: editouSugestao,
-          config_whatsapp: whatsappCfg,
         }),
       })
 
@@ -702,10 +643,6 @@ export default function ConversasPage() {
     }
   }
 
-  const whatsappCfg = getWhatsappConfig()
-  const isWhatsappConfigurado = Boolean(whatsappCfg?.token && whatsappCfg?.telefone)
-  const iaConfig = getIaConfig()
-
   return (
     <div className="h-[calc(100vh-140px)] flex flex-col animate-fade-in -m-6 sm:-m-8">
       {/* Barra de avisos rápidos de status de integração */}
@@ -720,39 +657,20 @@ export default function ConversasPage() {
 
           <div className="h-4 w-px bg-slate-200 hidden sm:block" />
 
-          {/* Status WhatsApp */}
+          {/* Status WhatsApp Backend */}
           <div className="flex items-center gap-1 text-[11px]">
             <span className="text-[#64748B]">WhatsApp:</span>
-            {isWhatsappConfigurado ? (
-              <Badge className="bg-emerald-50 text-[#16A34A] border-emerald-200 text-[10px] font-semibold py-0 px-1.5">
-                Conectado
-              </Badge>
-            ) : (
-              <Link
-                to="/integracoes"
-                className="text-amber-600 hover:underline flex items-center gap-0.5 font-semibold"
-              >
-                <span>Configurar</span>
-                <ExternalLink className="w-2.5 h-2.5" />
-              </Link>
-            )}
+            <Badge className="bg-emerald-50 text-[#16A34A] border-emerald-200 text-[10px] font-semibold py-0 px-1.5">
+              Backend Proxy
+            </Badge>
           </div>
 
-          {/* Status IA */}
+          {/* Status IA Assistida */}
           <div className="flex items-center gap-1 text-[11px]">
             <span className="text-[#64748B]">IA Assistida:</span>
-            {iaConfig.ativo ? (
-              <Badge className="bg-purple-50 text-[#7C3AED] border-purple-200 text-[10px] font-semibold py-0 px-1.5">
-                {iaConfig.tomDeVoz}
-              </Badge>
-            ) : (
-              <Link
-                to="/integracoes"
-                className="text-red-600 hover:underline flex items-center gap-0.5 font-semibold"
-              >
-                <span>Desativada</span>
-              </Link>
-            )}
+            <Badge className="bg-purple-50 text-[#7C3AED] border-purple-200 text-[10px] font-semibold py-0 px-1.5">
+              Skip AI Ativo
+            </Badge>
           </div>
         </div>
 
