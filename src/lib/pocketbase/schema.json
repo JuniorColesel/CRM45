@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-28T12:51:32.814Z",
+  "generatedAt": "2026-09-28T14:02:59.133Z",
   "collections": [
     {
       "name": "users",
@@ -1799,7 +1799,14 @@
           "type": "select",
           "required": true,
           "system": false,
-          "selectValues": ["sucesso", "pendente", "rejeitado", "falhou"]
+          "selectValues": [
+            "sucesso",
+            "pendente",
+            "rejeitado",
+            "falhou",
+            "processado",
+            "em_processamento"
+          ]
         },
         {
           "name": "tentativas",
@@ -1832,6 +1839,18 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "proxima_tentativa",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "em_processamento",
+          "type": "bool",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
