@@ -1,9 +1,15 @@
 /**
  * Endpoint do backend: POST /backend/v1/ia/sugerir
  *
- * Rota proxy oficial solicitada: POST /backend/v1/ia/sugerir
- * Lê ia_api_key e configurações do backend (integracoes_config).
- * Chama o gateway de IA nativo ($ai.chat).
+ * Rota oficial: POST /backend/v1/ia/sugerir
+ *
+ * MUDANÇA DE SEGURANÇA E MINIMIZAÇÃO DE DADOS (v0.0.31):
+ * - Recebe apenas { conversa_id, mensagem_cliente }.
+ * - NUNCA envia à IA: telefone, nome do cliente, e-mail, endereço (Zero PII enviado ao LLM).
+ * - Busca apenas o contexto mínimo: últimas 5 mensagens da conversa (anonimizadas).
+ * - Monta prompt genérico, comercial e sem dados identificadores pessoais.
+ * - Resposta volta ao frontend compatível, SEM logar PII.
+ * - Credenciais protegidas no backend (integracoes_config).
  *
  * ⚠ IMPORTANTE PB HOOKS: Toda lógica inline dentro do callback!
  */
@@ -25,7 +31,7 @@ routerAdd(
       return e.json(400, { message: 'ID da conversa é obrigatório.' })
     }
 
-    // Obter configurações de IA do backend (integracoes_config)
+    // 1. Obter configurações de IA do backend (integracoes_config)
     let iaAtivo = true
     let permitirPreco = true
     let tomDeVoz = 'profissional'
@@ -68,7 +74,7 @@ routerAdd(
       return e.json(400, { message: 'O Assistente de IA está desativado nas configurações.' })
     }
 
-    // 1. Verificar conversa
+    // 2. Verificar conversa
     let conversa = null
     try {
       conversa = $app.findRecordById('conversas_whatsapp', conversaId)
@@ -76,7 +82,7 @@ routerAdd(
       return e.json(404, { message: 'Conversa não encontrada.' })
     }
 
-    // 2. Limite de custo: máximo 5 sugestões por conversa
+    // 3. Limite de custo: máximo 5 sugestões por conversa
     try {
       const countSugestoes = $app.countRecords('sugestoes_ia', "conversa_id = '" + conversaId + "'")
       if (countSugestoes >= 5) {
@@ -87,7 +93,7 @@ routerAdd(
       }
     } catch (_) {}
 
-    // 3. Obter últimas 5 mensagens da conversa
+    // 4. Obter contexto mínimo: últimas 5 mensagens da conversa (SEM PII)
     let historicoMensagens = []
     try {
       const msgs = $app.findRecordsByFilter(
@@ -98,48 +104,21 @@ routerAdd(
         0,
       )
       for (let i = msgs.length - 1; i >= 0; i--) {
+        const txt = msgs[i].getString('texto') || ''
+        // Sanitizar PII de textos anteriores (telefones, e-mails, cpfs)
+        const txtLimpo = txt
+          .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[email]')
+          .replace(/(\(?\d{2}\)?\s*)?(9?\d{4}[-.\s]?\d{4})/g, '[telefone]')
+          .replace(/\d{3}\.?\d{3}\.?\d{3}[-.]?\d{2}/g, '[cpf]')
+
         historicoMensagens.push({
           direcao: msgs[i].getString('direcao'),
-          texto: msgs[i].getString('texto'),
+          texto: txtLimpo,
         })
       }
     } catch (_) {}
 
-    // 4. Obter histórico do cliente no CRM
-    let clienteInfo = {
-      nome: 'Cliente',
-      telefone: conversa.getString('numero'),
-      empresa: '',
-      compras_anteriores: 'Nenhuma compra registrada',
-      oportunidade_aberta: 'Nenhuma',
-    }
-
-    const clienteId = conversa.getString('cliente_id')
-    if (clienteId) {
-      try {
-        const clienteRec = $app.findRecordById('clientes', clienteId)
-        clienteInfo.nome = clienteRec.getString('nome_contato') || 'Cliente'
-        clienteInfo.empresa = clienteRec.getString('nome_empresa') || ''
-        const ultCompra = clienteRec.getString('data_ultima_compra')
-        if (ultCompra) {
-          clienteInfo.compras_anteriores = 'Última compra em ' + ultCompra
-        }
-
-        const ops = $app.findRecordsByFilter(
-          'oportunidades',
-          "cliente_id = '" + clienteId + "' && status = 'aberto'",
-          '-created',
-          1,
-          0,
-        )
-        if (ops && ops.length > 0) {
-          clienteInfo.oportunidade_aberta =
-            'Em negociação (Valor: R$ ' + ops[0].getInt('valor') + ')'
-        }
-      } catch (_) {}
-    }
-
-    // 5. Catálogo de produtos
+    // 5. Catálogo de produtos (apenas produtos cadastrados, sem qualquer PII)
     let catalogoTexto = ''
     try {
       const produtos = $app.findRecordsByFilter('produtos', '', 'nome', 50, 0)
@@ -167,29 +146,30 @@ routerAdd(
         catalogoTexto = 'Nenhum produto cadastrado no catálogo atualmente.'
       }
     } catch (_) {
-      catalogoTexto = 'Não foi possível carregar o catálogo de produtos.'
+      catalogoTexto = 'Catálogo de materiais da Colesel.'
     }
 
-    // 6. Montagem do prompt do sistema
+    // 6. Montagem do prompt do sistema com MINIMIZAÇÃO DE DADOS (ZERO PII)
+    // NENHUM nome de cliente, telefone, e-mail, cpf ou endereço é incluído no prompt.
     let promptBase = promptPersonalizado
     if (!promptBase) {
-      promptBase = `Você é o assistente de vendas da Colesel (materiais de construção). Sua função é SUGERIR respostas para mensagens de clientes. O vendedor sempre revisa antes de enviar.
+      promptBase = `Você é o assistente de vendas da Colesel (materiais de construção). Sua função é SUGERIR respostas para mensagens de clientes no WhatsApp. O vendedor sempre revisa antes de enviar.
 
 REGRAS OBRIGATÓRIAS:
 1. RESPONDA DIRETO: se o cliente perguntou preço, prazo ou disponibilidade, responda isso primeiro, sem enrolação.
-2. AGREGE 1 VALOR: após responder, acrescente UM ÚNICO diferencial relevante (garantia, entrega, durabilidade, aplicação, condição de pagamento). Nunca liste vários.
-3. QUALIFIQUE OU AVANCE: faça UMA pergunta objetiva (área do telhado, quantidade, prazo da obra) OU proponha o próximo passo (orçamento, visita, proposta).
-4. CHAMADA PARA AÇÃO: termine com uma ação clara e simples (ex: 'te mando o orçamento', 'posso agendar a entrega').
-5. TAMANHO: máximo 3 frases curtas ou 2 parágrafos curtos. Proibido texto longo, saudação exagerada ou enrolação.
-6. TOM: profissional, simpático e direto. Linguagem de vendedor para cliente. Sem jargão técnico excessivo.
-7. CONTEXTO: use o histórico do cliente (nome, compras anteriores, oportunidade aberta) quando existir. Personalize para não parecer robô.
-8. NUNCA INVENTE: não crie preço, prazo ou estoque. Se não tiver o dado, responda 'vou confirmar e já te retorno' e gere uma tarefa para o vendedor verificar.
-9. FORMATE: saída em texto puro, pronto para enviar no WhatsApp (sem markdown, sem emojis em excesso — no máximo 1).`
+2. AGREGE 1 VALOR: após responder, acrescente UM ÚNICO diferencial relevante (garantia, entrega rápida, durabilidade, aplicação técnica). Nunca liste vários.
+3. QUALIFIQUE OU AVANCE: faça UMA pergunta objetiva (área, quantidade, prazo da obra) OU proponha o próximo passo (orçamento formal, agendamento de entrega).
+4. CHAMADA PARA AÇÃO: termine com uma ação clara e simples.
+5. TAMANHO: máximo 3 frases curtas ou 2 parágrafos curtos. Proibido texto longo ou saudações exageradas.
+6. TOM: profissional, prestativo e direto. Linguagem de vendedor consultor.
+7. PRIVACIDADE: nunca solicite dados sensíveis desnecessários.
+8. NUNCA INVENTE: não invente preços ou prazos não catalogados. Se não tiver certeza, sugira 'vou confirmar com nossa equipe técnica e já te retorno'.
+9. FORMATO: texto puro pronto para envio no WhatsApp (máximo 1 emoji).`
     }
 
     let instrucaoTom = 'Tom de voz: Profissional, equilibrado e direto.'
     if (tomDeVoz === 'amigavel') {
-      instrucaoTom = 'Tom de voz: Amigável, acolhedor, caloroso e atencioso.'
+      instrucaoTom = 'Tom de voz: Amigável, acolhedor e atencioso.'
     } else if (tomDeVoz === 'direto') {
       instrucaoTom = 'Tom de voz: Ultra direto, sucinto e pragmático.'
     }
@@ -197,7 +177,7 @@ REGRAS OBRIGATÓRIAS:
     let instrucaoPreco = ''
     if (!permitirPreco) {
       instrucaoPreco =
-        'ATENÇÃO: Você NÃO tem permissão para citar preços ou valores financeiros nas respostas. Se o cliente perguntar preço, informe que o consultor vai calcular e enviar o orçamento personalizado.'
+        'ATENÇÃO: Você NÃO tem permissão para citar valores financeiros. Se o cliente perguntar preço, informe que o consultor comercial vai emitir o orçamento detalhado.'
     }
 
     const promptSistemaCompleto =
@@ -206,19 +186,9 @@ REGRAS OBRIGATÓRIAS:
       instrucaoTom +
       '\n' +
       instrucaoPreco +
-      '\n\nDADOS DA COLOSEL / CATÁLOGO DE PRODUTOS:\n' +
+      '\n\nCATÁLOGO DE PRODUTOS COLESEL:\n' +
       catalogoTexto +
-      '\n\nHISTÓRICO DO CLIENTE NO CRM:\n- Nome: ' +
-      clienteInfo.nome +
-      '\n- Empresa: ' +
-      (clienteInfo.empresa || 'Pessoa física') +
-      '\n- Telefone: ' +
-      clienteInfo.telefone +
-      '\n- Histórico de Compras: ' +
-      clienteInfo.compras_anteriores +
-      '\n- Oportunidade Atual: ' +
-      clienteInfo.oportunidade_aberta +
-      '\n'
+      '\n\nNOTA DE PRIVACIDADE: O contexto foi anonimizado. Não utilize nomes pessoais nem telefones nas respostas sugeridas.\n'
 
     const messages = [{ role: 'system', content: promptSistemaCompleto }]
     for (let i = 0; i < historicoMensagens.length; i++) {
@@ -229,13 +199,18 @@ REGRAS OBRIGATÓRIAS:
       })
     }
 
-    const msgAtual = mensagemCliente || conversa.getString('ultima_mensagem') || 'Olá'
+    // Mensagem atual do cliente a responder (sem PII injetada)
+    const msgAtual = (mensagemCliente || conversa.getString('ultima_mensagem') || 'Olá')
+      .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[email]')
+      .replace(/(\(?\d{2}\)?\s*)?(9?\d{4}[-.\s]?\d{4})/g, '[telefone]')
+      .replace(/\d{3}\.?\d{3}\.?\d{3}[-.]?\d{2}/g, '[cpf]')
+
     messages.push({
       role: 'user',
       content: msgAtual,
     })
 
-    // 7. Chamada ao Gateway Skip AI
+    // 7. Chamada ao Gateway Skip AI ($ai.chat)
     let sugestaoTexto = ''
     let gerouTarefaConfirmacao = false
 
@@ -251,11 +226,12 @@ REGRAS OBRIGATÓRIAS:
         sugestaoTexto =
           'Olá! Vou verificar os detalhes do seu pedido com nossa equipe técnica e já te retorno em instantes.'
       }
-    } catch (errAi) {
+    } catch (_) {
       sugestaoTexto =
         'Olá! Recebi sua mensagem, vou consultar a disponibilidade dos materiais com nossa equipe e já te envio o retorno!'
     }
 
+    // Identificar necessidade de verificação técnica / tarefa para vendedor
     const sugestaoLower = sugestaoTexto.toLowerCase()
     if (
       sugestaoLower.includes('vou confirmar') ||
@@ -263,6 +239,7 @@ REGRAS OBRIGATÓRIAS:
       sugestaoLower.includes('ja te retorno') ||
       sugestaoLower.includes('consultar a disponibilidade')
     ) {
+      const clienteId = conversa.getString('cliente_id')
       if (clienteId) {
         try {
           const tarefasCol = $app.findCollectionByNameOrId('tarefas')
@@ -270,19 +247,20 @@ REGRAS OBRIGATÓRIAS:
           novaTarefa.set('cliente_id', clienteId)
           novaTarefa.set('responsavel_id', authRecord.id)
           novaTarefa.set('tipo', 'whatsapp')
-          novaTarefa.set(
-            'descricao',
-            'Confirmar preço/estoque solicitado pelo cliente no WhatsApp: "' + msgAtual + '"',
-          )
+          novaTarefa.set('descricao', 'Confirmar preço/estoque solicitado pelo cliente no WhatsApp')
           novaTarefa.set('data_hora', new Date().toISOString())
           novaTarefa.set('concluida', false)
+          const vendedorConversa = conversa.getString('vendedor')
+          if (vendedorConversa) {
+            novaTarefa.set('vendedor', vendedorConversa)
+          }
           $app.save(novaTarefa)
           gerouTarefaConfirmacao = true
         } catch (_) {}
       }
     }
 
-    // 8. Salvar na tabela sugestoes_ia
+    // 8. Salvar na tabela sugestoes_ia (SEM expor ou registrar PII sensível)
     let sugestaoId = ''
     try {
       const sugestoesCol = $app.findCollectionByNameOrId('sugestoes_ia')

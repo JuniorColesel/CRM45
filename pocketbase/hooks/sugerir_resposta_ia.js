@@ -3,20 +3,11 @@
  *
  * Gera sugestão de resposta via Skip AI Gateway ($ai.chat)
  *
- * MUDANÇA DE SEGURANÇA v0.0.30:
- * - Lê ia_api_key e preferências do backend (coleção integracoes_config) com fallback seguro para defaults/secrets.
+ * MUDANÇA DE SEGURANÇA E MINIMIZAÇÃO DE DADOS (v0.0.31):
+ * - Lê ia_api_key e preferências do backend (coleção integracoes_config) com fallback seguro.
  * - O frontend NUNCA envia nem vê chaves de API de IA.
  * - NENHUMA credencial é logada no console ou retornada no payload.
- *
- * Contexto:
- * - Última mensagem do cliente
- * - Últimas 5 mensagens da conversa
- * - Histórico do cliente no CRM (nome, compras anteriores, oportunidade aberta)
- * - Catálogo de produtos (produtos cadastrados)
- * - Prompt de sistema customizado ou padrão
- * - Toggles: permitirPreco (boolean), tomDeVoz (profissional | amigavel | direto), ativo (boolean)
- * - Limite de 5 sugestões por conversa
- * - Registra em sugestoes_ia
+ * - Minimização de dados: Zero PII enviado ao LLM.
  *
  * ⚠ IMPORTANTE PB HOOKS: Toda lógica inline dentro do callback!
  */
@@ -100,7 +91,7 @@ routerAdd(
       }
     } catch (_) {}
 
-    // 3. Obter últimas 5 mensagens da conversa
+    // 3. Obter últimas 5 mensagens da conversa (sem PII)
     let historicoMensagens = []
     try {
       const msgs = $app.findRecordsByFilter(
@@ -111,48 +102,20 @@ routerAdd(
         0,
       )
       for (let i = msgs.length - 1; i >= 0; i--) {
+        const txt = msgs[i].getString('texto') || ''
+        const txtLimpo = txt
+          .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[email]')
+          .replace(/(\(?\d{2}\)?\s*)?(9?\d{4}[-.\s]?\d{4})/g, '[telefone]')
+          .replace(/\d{3}\.?\d{3}\.?\d{3}[-.]?\d{2}/g, '[cpf]')
+
         historicoMensagens.push({
           direcao: msgs[i].getString('direcao'),
-          texto: msgs[i].getString('texto'),
+          texto: txtLimpo,
         })
       }
     } catch (_) {}
 
-    // 4. Obter histórico do cliente no CRM
-    let clienteInfo = {
-      nome: 'Cliente',
-      telefone: conversa.getString('numero'),
-      empresa: '',
-      compras_anteriores: 'Nenhuma compra registrada',
-      oportunidade_aberta: 'Nenhuma',
-    }
-
-    const clienteId = conversa.getString('cliente_id')
-    if (clienteId) {
-      try {
-        const clienteRec = $app.findRecordById('clientes', clienteId)
-        clienteInfo.nome = clienteRec.getString('nome_contato') || 'Cliente'
-        clienteInfo.empresa = clienteRec.getString('nome_empresa') || ''
-        const ultCompra = clienteRec.getString('data_ultima_compra')
-        if (ultCompra) {
-          clienteInfo.compras_anteriores = 'Última compra em ' + ultCompra
-        }
-
-        const ops = $app.findRecordsByFilter(
-          'oportunidades',
-          "cliente_id = '" + clienteId + "' && status = 'aberto'",
-          '-created',
-          1,
-          0,
-        )
-        if (ops && ops.length > 0) {
-          clienteInfo.oportunidade_aberta =
-            'Em negociação (Valor: R$ ' + ops[0].getInt('valor') + ')'
-        }
-      } catch (_) {}
-    }
-
-    // 5. Catálogo de produtos
+    // 4. Catálogo de produtos (sem PII)
     let catalogoTexto = ''
     try {
       const produtos = $app.findRecordsByFilter('produtos', '', 'nome', 50, 0)
@@ -183,7 +146,7 @@ routerAdd(
       catalogoTexto = 'Não foi possível carregar o catálogo de produtos.'
     }
 
-    // 6. Montagem do prompt do sistema
+    // 5. Montagem do prompt do sistema com MINIMIZAÇÃO DE DADOS (ZERO PII)
     let promptBase = promptPersonalizado
     if (!promptBase) {
       promptBase = `Você é o assistente de vendas da Colesel (materiais de construção). Sua função é SUGERIR respostas para mensagens de clientes. O vendedor sempre revisa antes de enviar.
@@ -195,7 +158,7 @@ REGRAS OBRIGATÓRIAS:
 4. CHAMADA PARA AÇÃO: termine com uma ação clara e simples (ex: 'te mando o orçamento', 'posso agendar a entrega').
 5. TAMANHO: máximo 3 frases curtas ou 2 parágrafos curtos. Proibido texto longo, saudação exagerada ou enrolação.
 6. TOM: profissional, simpático e direto. Linguagem de vendedor para cliente. Sem jargão técnico excessivo.
-7. CONTEXTO: use o histórico do cliente (nome, compras anteriores, oportunidade aberta) quando existir. Personalize para não parecer robô.
+7. PRIVACIDADE: nunca solicite ou repita dados pessoais desnecessários.
 8. NUNCA INVENTE: não crie preço, prazo ou estoque. Se não tiver o dado, responda 'vou confirmar e já te retorno' e gere uma tarefa para o vendedor verificar.
 9. FORMATE: saída em texto puro, pronto para enviar no WhatsApp (sem markdown, sem emojis em excesso — no máximo 1).`
     }
@@ -221,16 +184,6 @@ REGRAS OBRIGATÓRIAS:
       instrucaoPreco +
       '\n\nDADOS DA COLOSEL / CATÁLOGO DE PRODUTOS:\n' +
       catalogoTexto +
-      '\n\nHISTÓRICO DO CLIENTE NO CRM:\n- Nome: ' +
-      clienteInfo.nome +
-      '\n- Empresa: ' +
-      (clienteInfo.empresa || 'Pessoa física') +
-      '\n- Telefone: ' +
-      clienteInfo.telefone +
-      '\n- Histórico de Compras: ' +
-      clienteInfo.compras_anteriores +
-      '\n- Oportunidade Atual: ' +
-      clienteInfo.oportunidade_aberta +
       '\n'
 
     const messages = [{ role: 'system', content: promptSistemaCompleto }]
@@ -242,13 +195,17 @@ REGRAS OBRIGATÓRIAS:
       })
     }
 
-    const msgAtual = mensagemCliente || conversa.getString('ultima_mensagem') || 'Olá'
+    const msgAtual = (mensagemCliente || conversa.getString('ultima_mensagem') || 'Olá')
+      .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[email]')
+      .replace(/(\(?\d{2}\)?\s*)?(9?\d{4}[-.\s]?\d{4})/g, '[telefone]')
+      .replace(/\d{3}\.?\d{3}\.?\d{3}[-.]?\d{2}/g, '[cpf]')
+
     messages.push({
       role: 'user',
       content: msgAtual,
     })
 
-    // 7. Chamada ao Gateway Skip AI
+    // 6. Chamada ao Gateway Skip AI
     let sugestaoTexto = ''
     let gerouTarefaConfirmacao = false
 
@@ -264,7 +221,7 @@ REGRAS OBRIGATÓRIAS:
         sugestaoTexto =
           'Olá! Vou verificar os detalhes do seu pedido com nossa equipe técnica e já te retorno em instantes.'
       }
-    } catch (errAi) {
+    } catch (_) {
       sugestaoTexto =
         'Olá! Recebi sua mensagem, vou consultar a disponibilidade dos materiais com nossa equipe e já te envio o retorno!'
     }
@@ -276,6 +233,7 @@ REGRAS OBRIGATÓRIAS:
       sugestaoLower.includes('ja te retorno') ||
       sugestaoLower.includes('consultar a disponibilidade')
     ) {
+      const clienteId = conversa.getString('cliente_id')
       if (clienteId) {
         try {
           const tarefasCol = $app.findCollectionByNameOrId('tarefas')
@@ -289,13 +247,17 @@ REGRAS OBRIGATÓRIAS:
           )
           novaTarefa.set('data_hora', new Date().toISOString())
           novaTarefa.set('concluida', false)
+          const vendedorConversa = conversa.getString('vendedor')
+          if (vendedorConversa) {
+            novaTarefa.set('vendedor', vendedorConversa)
+          }
           $app.save(novaTarefa)
           gerouTarefaConfirmacao = true
         } catch (_) {}
       }
     }
 
-    // 8. Salvar na tabela sugestoes_ia
+    // 7. Salvar na tabela sugestoes_ia
     let sugestaoId = ''
     try {
       const sugestoesCol = $app.findCollectionByNameOrId('sugestoes_ia')

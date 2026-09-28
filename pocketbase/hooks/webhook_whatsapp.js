@@ -6,32 +6,91 @@
  * Especificações:
  * 1. Idempotência: campo "external_id" único em mensagens_whatsapp. Se mensagem com external_id já existe,
  *    retorna 200 { status: 'already_processed', message_id: ... } sem processar ou duplicar.
- * 2. Anti-replay: timestamp na requisição. Rejeitar se a diferença com agora for > 5 minutos (300 segundos).
- * 3. Retry/fila: se o processamento falhar, registrar log como "pendente" e tentar novamente (máx 3 tentativas).
- * 4. Logs: registrar toda requisição (timestamp, external_id, status: sucesso|pendente|rejeitado|falhou, tentativas, erro, payload) em webhook_logs.
+ * 2. Anti-replay: timestamp na requisição. Rejeitar com HTTP 400 se |agora - timestamp| > 5 minutos (300 segundos).
+ * 3. Retry/fila: se o processamento falhar, registrar log como "pendente" em webhook_logs e tentar novamente (máx 3 tentativas).
+ * 4. Logs: registrar toda requisição (timestamp, external_id, status: sucesso|pendente|rejeitado|falhou, tentativas, erro, payload sanitizado) em webhook_logs.
  * 5. Denormalização: ao criar mensagem e conversa, atribuir o campo "vendedor" derivado do cliente ou responsável.
+ *
+ * ⚠ IMPORTANTE PB HOOKS: Toda lógica inline dentro do callback!
  */
 
 routerAdd('POST', '/backend/v1/whatsapp/webhook', (c) => {
   const agora = Date.now()
-  let body = {}
+  let rawBody = {}
 
   try {
-    body = $apis.requestInfo(c).data || {}
-  } catch (err) {
-    return c.json(400, { erro: 'Corpo da requisição inválido (JSON esperado)' })
+    const reqInfo = c.requestInfo ? c.requestInfo() : null
+    if (reqInfo && reqInfo.body) {
+      rawBody = reqInfo.body
+    } else if (typeof $apis !== 'undefined' && $apis.requestInfo) {
+      rawBody = $apis.requestInfo(c).data || {}
+    }
+  } catch (_) {
+    try {
+      rawBody = c.request ? c.request.body : {}
+    } catch (_) {
+      rawBody = {}
+    }
   }
 
+  // Sanitizador de payload inline: remove chaves, tokens, senhas, secrets e mascara dados sensíveis
+  const sanitizarPayload = (obj) => {
+    if (!obj || typeof obj !== 'object') return obj
+    try {
+      const clone = JSON.parse(JSON.stringify(obj))
+      const chavesSensiveis = [
+        'password',
+        'senha',
+        'token',
+        'secret',
+        'api_key',
+        'apikey',
+        'authorization',
+        'auth',
+        'access_token',
+        'refresh_token',
+        'key',
+        'bearer',
+      ]
+
+      const limpar = (target) => {
+        if (!target || typeof target !== 'object') return
+        for (const k of Object.keys(target)) {
+          const kLower = k.toLowerCase()
+          if (chavesSensiveis.some((s) => kLower.includes(s))) {
+            target[k] = '[REDACTED]'
+          } else if (typeof target[k] === 'object' && target[k] !== null) {
+            limpar(target[k])
+          }
+        }
+      }
+
+      limpar(clone)
+      return clone
+    } catch (_) {
+      return { info: 'payload_sanitized' }
+    }
+  }
+
+  const payloadSanitizado = sanitizarPayload(rawBody)
+
   // 1. Extração de campos genéricos
-  // Suporta formatos flexíveis: { external_id, timestamp, de, para, texto, ... } ou { id, created_at, from, to, message: { text } }
-  const externalId = (body.external_id || body.id || body.message_id || body.id_mensagem || '')
+  // Suporta formatos: { external_id, timestamp, de, para, texto, ... } ou { id, created_at, from, to, message: { text } }
+  const externalId = (
+    rawBody.external_id ||
+    rawBody.id ||
+    rawBody.message_id ||
+    rawBody.id_mensagem ||
+    ''
+  )
     .toString()
     .trim()
 
-  const provider = (body.provider || 'generic_whatsapp').toString().trim()
+  const provider = (rawBody.provider || 'generic_whatsapp').toString().trim()
 
   // Timestamp para validação anti-replay (pode vir em milissegundos, segundos ou ISO string)
-  let reqTimestamp = body.timestamp || body.timestamp_req || body.created_at || body.time
+  const reqTimestamp =
+    rawBody.timestamp || rawBody.timestamp_req || rawBody.created_at || rawBody.time
 
   // Helper para salvar log no webhook_logs
   const gravarLog = (status, erroMsg = '', tentativas = 1) => {
@@ -44,11 +103,11 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (c) => {
       logRec.set('status', status) // 'sucesso' | 'pendente' | 'rejeitado' | 'falhou'
       logRec.set('tentativas', tentativas)
       if (erroMsg) logRec.set('erro', String(erroMsg).substring(0, 1000))
-      logRec.set('payload', body)
+      logRec.set('payload', payloadSanitizado)
       $app.save(logRec)
       return logRec.id
     } catch (e) {
-      // Falha defensiva de log não deve quebrar
+      // Falha defensiva de log não interrompe resposta HTTP
       return null
     }
   }
@@ -113,34 +172,50 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (c) => {
         })
       }
     } catch (_) {
-      // Não encontrada: continua processamento
+      // Não encontrada: continua processamento normalmente
     }
   }
 
   // 4. Execução do processamento com Retry / Fila (até 3 tentativas)
-  // Campos da mensagem:
-  // remetente / de / from
-  // destinatario / para / to
-  // texto / text / body
-  const remetenteRaw = (body.remetente || body.de || body.from || body.telefone || '')
+  const remetenteRaw = (
+    rawBody.remetente ||
+    rawBody.de ||
+    rawBody.from ||
+    rawBody.telefone ||
+    rawBody.numero ||
+    ''
+  )
     .toString()
     .trim()
-  const destinatarioRaw = (body.destinatario || body.para || body.to || '').toString().trim()
+  const destinatarioRaw = (rawBody.destinatario || rawBody.para || rawBody.to || '')
+    .toString()
+    .trim()
   const textoMsg = (
-    body.texto ||
-    body.text ||
-    (body.message && body.message.text) ||
-    body.conteudo ||
-    body.body ||
+    rawBody.texto ||
+    rawBody.text ||
+    (rawBody.message && rawBody.message.text) ||
+    rawBody.conteudo ||
+    rawBody.body ||
     ''
   )
     .toString()
     .trim()
 
-  const direcao = (body.direcao || (body.tipo === 'enviada' ? 'enviada' : 'recebida'))
+  const direcao = (
+    rawBody.direcao ||
+    rawBody.direction ||
+    (rawBody.tipo === 'enviada' ? 'enviada' : 'recebida')
+  )
     .toString()
     .trim()
-  const numeroContato = (direcao === 'enviada' ? destinatarioRaw : remetenteRaw).replace(/\D/g, '')
+
+  // Direção normalizada para enum do schema: "entrada" | "saida"
+  const direcaoFinal = direcao === 'enviada' || direcao === 'saida' ? 'saida' : 'entrada'
+
+  const numeroContato = (direcaoFinal === 'saida' ? destinatarioRaw : remetenteRaw).replace(
+    /\D/g,
+    '',
+  )
 
   let tentativas = 0
   let processadoSucesso = false
@@ -156,13 +231,13 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (c) => {
 
       if (numeroContato) {
         try {
-          // Busca cliente por telefone celular ou comercial (ultimos 8 ou 9 digitos)
           const finalNumero = numeroContato.length >= 8 ? numeroContato.slice(-8) : numeroContato
           const clientes = $app.findRecordsByFilter(
             'clientes',
-            `telefone ~ '${finalNumero}' || celular ~ '${finalNumero}' || whatsapp ~ '${finalNumero}'`,
+            `telefone ~ '${finalNumero}'`,
             '-created',
             1,
+            0,
           )
           if (clientes && clientes.length > 0) {
             clienteRecord = clientes[0]
@@ -181,9 +256,10 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (c) => {
           const finalNumero = numeroContato.length >= 8 ? numeroContato.slice(-8) : numeroContato
           const conversasExistentes = $app.findRecordsByFilter(
             'conversas_whatsapp',
-            `telefone_cliente ~ '${finalNumero}'`,
+            `numero ~ '${finalNumero}'`,
             '-updated',
             1,
+            0,
           )
           if (conversasExistentes && conversasExistentes.length > 0) {
             conversaRecord = conversasExistentes[0]
@@ -193,11 +269,8 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (c) => {
 
       if (!conversaRecord) {
         conversaRecord = new Record(conversasCol)
-        conversaRecord.set('telefone_cliente', numeroContato || 'desconhecido')
-        conversaRecord.set(
-          'nome_cliente',
-          (clienteRecord ? clienteRecord.getString('nome') : body.nome) || 'Contato WhatsApp',
-        )
+        conversaRecord.set('numero', numeroContato || 'desconhecido')
+        conversaRecord.set('provedor', provider)
         if (clienteRecord) {
           conversaRecord.set('cliente_id', clienteRecord.id)
         }
@@ -206,7 +279,6 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (c) => {
         }
         conversaRecord.set('status', 'aberta')
         conversaRecord.set('ultima_mensagem', textoMsg || 'Nova mensagem recebida')
-        conversaRecord.set('ultima_mensagem_em', new Date().toISOString())
         $app.save(conversaRecord)
       } else {
         // Atualiza conversa com a última mensagem
@@ -214,7 +286,6 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (c) => {
           'ultima_mensagem',
           textoMsg || conversaRecord.getString('ultima_mensagem'),
         )
-        conversaRecord.set('ultima_mensagem_em', new Date().toISOString())
         if (clienteRecord && !conversaRecord.getString('cliente_id')) {
           conversaRecord.set('cliente_id', clienteRecord.id)
         }
@@ -228,9 +299,8 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (c) => {
       const mensagensCol = $app.findCollectionByNameOrId('mensagens_whatsapp')
       const novaMensagem = new Record(mensagensCol)
       novaMensagem.set('conversa_id', conversaRecord.id)
-      novaMensagem.set('direcao', direcao === 'enviada' ? 'enviada' : 'recebida')
-      novaMensagem.set('conteudo', textoMsg || '(mensagem sem texto)')
-      novaMensagem.set('status', 'recebida')
+      novaMensagem.set('direcao', direcaoFinal)
+      novaMensagem.set('texto', textoMsg || '(mensagem sem texto)')
       if (externalId) {
         novaMensagem.set('external_id', externalId)
       }
@@ -244,7 +314,6 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (c) => {
       processadoSucesso = true
     } catch (err) {
       ultimoErro = err
-      // Se não for a última tentativa, pequeno sleep ou continue
     }
   }
 
