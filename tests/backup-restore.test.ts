@@ -9,6 +9,9 @@ describe('Backup e Restore com Integridade de Contagens (P0-7)', () => {
   it('executa restore completo e valida contagens exatas antes e depois', () => {
     // Mock com dados representativos das coleções essenciais do CRM Colesel
     const mockDb = {
+      users: [
+        { id: 'usr_sys_1', name: 'Admin', avatar: 'avatar_sample.png' },
+      ],
       usuarios: [
         { id: 'u1', email: 'junior.colesel@coleselengenharia.com', perfil: 'ceo_financeiro' },
         { id: 'u2', email: 'alice.paitra@coleselengenharia.com', perfil: 'ceo_financeiro' },
@@ -47,6 +50,7 @@ describe('Backup e Restore com Integridade de Contagens (P0-7)', () => {
 
     // 1. Executar snapshot de backup
     const snapshot = executarBackupSnapshot(mockDb)
+    expect(snapshot.colecoes.users.total).toBe(1)
     expect(snapshot.colecoes.usuarios.total).toBe(5)
     expect(snapshot.colecoes.etapas_funil.total).toBe(5)
     expect(snapshot.colecoes.motivos_perda.total).toBe(5)
@@ -63,9 +67,55 @@ describe('Backup e Restore com Integridade de Contagens (P0-7)', () => {
     expect(Object.keys(resultado.diferencas).length).toBe(0)
 
     // Números antes e depois devem ser idênticos
+    expect(resultado.contagensDepois.users).toBe(resultado.contagensAntes.users)
     expect(resultado.contagensDepois.usuarios).toBe(resultado.contagensAntes.usuarios)
     expect(resultado.contagensDepois.clientes).toBe(resultado.contagensAntes.clientes)
     expect(resultado.contagensDepois.oportunidades).toBe(resultado.contagensAntes.oportunidades)
     expect(resultado.contagensDepois.conversas_whatsapp).toBe(resultado.contagensAntes.conversas_whatsapp)
+  })
+
+  it('valida estrutura dos hooks de backup externo R2, rotas e SigV4', async () => {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+
+    const hookDiario = fs.readFileSync(path.resolve(process.cwd(), 'pocketbase/hooks/backup_diario.js'), 'utf-8')
+    const hookCreate = fs.readFileSync(path.resolve(process.cwd(), 'pocketbase/hooks/backup_create.js'), 'utf-8')
+    const hookList = fs.readFileSync(path.resolve(process.cwd(), 'pocketbase/hooks/backup_list.js'), 'utf-8')
+    const hookRestore = fs.readFileSync(path.resolve(process.cwd(), 'pocketbase/hooks/backup_restore.js'), 'utf-8')
+
+    // Cron diário 06:00 UTC (03:00 Horário de Brasília)
+    expect(hookDiario).toContain("'0 6 * * *'")
+
+    // Credenciais lidas exclusivamente do ambiente ($os.getenv / $secrets.get)
+    for (const hook of [hookDiario, hookCreate, hookList, hookRestore]) {
+      expect(hook).toContain('BACKUP_S3_BUCKET')
+      expect(hook).toContain('BACKUP_S3_ENDPOINT')
+      expect(hook).toContain('BACKUP_S3_KEY')
+      expect(hook).toContain('BACKUP_S3_SECRET')
+      // Nenhuma credencial hardcoded
+      expect(hook).not.toMatch(/BACKUP_S3_KEY\s*=\s*['"][a-zA-Z0-9]{10,}['"]/)
+      expect(hook).not.toMatch(/BACKUP_S3_SECRET\s*=\s*['"][a-zA-Z0-9]{10,}['"]/)
+    }
+
+    // Rotas registradas com autenticação admin
+    expect(hookCreate).toContain("routerAdd(\n  'POST',\n  '/backend/v1/backup/create'")
+    expect(hookCreate).toContain('$apis.requireAuth()')
+
+    expect(hookList).toContain("routerAdd(\n  'GET',\n  '/backend/v1/backup/list'")
+    expect(hookList).toContain('$apis.requireAuth()')
+
+    expect(hookRestore).toContain("routerAdd(\n  'POST',\n  '/backend/v1/backup/restore'")
+    expect(hookRestore).toContain('$apis.requireAuth()')
+
+    // Rotação efetiva com DeleteObject na API S3
+    expect(hookDiario).toContain("method: 'DELETE'")
+    expect(hookCreate).toContain("method: 'DELETE'")
+    expect(hookDiario).toContain('30 * 24 * 60 * 60 * 1000') // Retenção de 30 dias
+
+    // Assinatura AWS SigV4 presente nos hooks
+    expect(hookDiario).toContain('AWS4-HMAC-SHA256')
+    expect(hookCreate).toContain('AWS4-HMAC-SHA256')
+    expect(hookList).toContain('AWS4-HMAC-SHA256')
+    expect(hookRestore).toContain('AWS4-HMAC-SHA256')
   })
 })

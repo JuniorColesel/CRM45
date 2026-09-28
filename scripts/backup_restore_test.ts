@@ -21,6 +21,7 @@ interface SnapshotData {
 
 export function executarBackupSnapshot(dadosMock?: Record<string, any[]>): SnapshotData {
   const colecoesAlvo = [
+    'users',
     'usuarios',
     'etapas_funil',
     'motivos_perda',
@@ -56,11 +57,12 @@ export function executarBackupSnapshot(dadosMock?: Record<string, any[]>): Snaps
   }
 
   return {
-    versao: '0.0.35',
+    versao: '0.0.37',
     timestamp: new Date().toISOString(),
     colecoes: colecoesResultado,
     arquivos: {
-      total: 0,
+      total:
+        (dadosMock && dadosMock.users && dadosMock.users.filter((u: any) => u.avatar).length) || 0,
       lista: [],
     },
   }

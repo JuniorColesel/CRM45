@@ -130,49 +130,80 @@ npm run build
 
 Os arquivos otimizados serão gerados na pasta `dist/` e estarão prontos para deploy.
 
-## 🛡️ Versão v0.0.35 — Production Readiness: Backup + Restore + Testes Automatizados + CI + Hardening
+## 🛡️ Versão v0.0.37 — Backup Externo Real: Dump + Cloudflare R2 + Rotação Funcional + Restore do Bucket (P0-7 Definitivo)
 
-A versão **v0.0.35** fecha os 2 bloqueadores restantes identificados na auditoria v0.0.29 (**P0-7: Backup & Restore** e **Zero-Testes**), além de implementar o pipeline de **CI Mínimo** e padronizar o ciclo de vida dos webhooks.
+A versão **v0.0.37** fecha em definitivo o bloqueador de produção **P0-7 (Backup Durável em Storage Externo Independente)**:
+- **Dump real e integral** de todas as 23 coleções da base de dados do CRM (incluindo usuários, storage e logs de webhooks).
+- **Despacho autenticado para Cloudflare R2** via protocolo S3 assinado com **AWS Signature Version 4 (SigV4)** em JavaScript puro executado no JSVM do PocketBase.
+- **Rotação funcional e efetiva**: objetos com mais de 30 dias são excluídos via `DeleteObject` da API S3 no Cloudflare R2.
+- **Restore a partir do bucket** com validação de contagens antes e depois (divergência ZERO exigida).
+- **Rotas de API administrativas protegidas**:
+  - `POST /backend/v1/backup/create` (Cria dump completo, envia ao R2 e executa rotação).
+  - `GET /backend/v1/backup/list` (Lista os backups presentes no bucket R2).
+  - `POST /backend/v1/backup/restore` (Baixa do R2, restaura e valida divergência zero).
+- **Cron diário alinhado**: 03:00 Horário de Brasília = 06:00 UTC (`0 6 * * *`).
 
-> **IMPORTANTE**: Este release implementa os requisitos técnicos e operacionais de prontidão, mas **NÃO declara o sistema pronto para produção** por conta própria — tal declaração cabe exclusivamente ao parecer conclusivo da Auditoria Final.
+> **IMPORTANTE**: Este release implementa os requisitos técnicos e operacionais de backup externo com o Cloudflare R2, mas **NÃO declara o sistema pronto para produção** por conta própria — tal declaração cabe exclusivamente à conclusão da Auditoria Final do usuário.
 
 ---
 
-### 1. Procedimento de Backup e Restore (P0-7)
+### 1. Procedimento de Backup Externo Cloudflare R2 e Restore (P0-7)
 
-O sistema de backup do CRM Colesel 45 opera de forma completa, cobrindo o banco de dados e os arquivos/anexos persistentes do PocketBase.
+O sistema de backup do CRM Colesel 45 opera de forma durável em storage externo independente da instância PocketBase.
 
-#### 1.1 Frequência, Retenção e Agendamento
-- **Frequência**: Diária, executada às 03:00 UTC (00:00 Horário de Brasília).
-- **Agendamento**: Configurado via hook `pocketbase/hooks/backup_diario.js` com o cron nativo `0 3 * * *`.
-- **Retenção**: 30 dias (2.592.000.000 ms). Backups com idade superior a 30 dias são expurgados na rotação automática diária.
+#### 1.1 Variáveis de Ambiente e Armazenamento Externo
+As 4 credenciais necessárias foram configuradas no ambiente gerenciado Skip Cloud via `$os.getenv` / `$secrets.get`:
+- `BACKUP_S3_BUCKET`: Nome do bucket de backup na Cloudflare R2.
+- `BACKUP_S3_ENDPOINT`: Endpoint S3 compatível da Cloudflare R2 (`https://933360a3b067bb45fa02977962ec6d82.r2.cloudflarestorage.com`).
+- `BACKUP_S3_KEY`: Chave de acesso (Access Key ID) gerada no painel Cloudflare R2.
+- `BACKUP_S3_SECRET`: Segredo de acesso (Secret Access Key) correspondente.
 
-#### 1.2 Destino e Storage Externo
-- O sistema verifica a existência de credenciais de storage de objetos externo (S3 compatível) através dos segredos:
-  - `BACKUP_S3_BUCKET`
-  - `BACKUP_S3_ENDPOINT`
-  - `BACKUP_S3_KEY`
-  - `BACKUP_S3_SECRET`
-- **Nota de Transparência da Auditoria (Limitação de Ambiente)**:
-  No ambiente atual do Skip Cloud gerenciado, apenas os segredos `PB_INSTANCE_URL`, `PB_SUPERUSER_TOKEN`, `SITE_URL`, `SKIP_AI_GATEWAY_API_KEY` e `SKIP_AI_GATEWAY_URL` estão provisionados. O storage externo dedicado S3 deve ser conectado pelo operador em produção fornecendo as variáveis acima no painel Skip Cloud. Até lá, o snapshot completo é consolidado e exportável via CLI/API.
+> **Regra de Segurança Estrita**: Os valores de chaves e segredos **NUNCA são expostos em logs, respostas de API ou mensagens de erro**. Se qualquer variável estiver ausente em tempo de execução, o sistema opera em modo **fail-secure**, abortando a operação imediatamente com erro explicativo sem vazar credenciais.
 
-#### 1.3 Procedimento de Restauração (Passo a Passo)
-1. **Ambiente Isolado de Destino**: Provisionar a instância ou container limpo com SQLite e PocketBase v0.36.
-2. **Obtenção do Snapshot**:
+#### 1.2 Agendamento e Rotação
+- **Frequência**: Diária, às **03:00 Horário de Brasília = 06:00 UTC** (`0 6 * * *`), via `pocketbase/hooks/backup_diario.js`.
+- **Formato dos arquivos**: `backup-YYYY-MM-DD-HHMMSS.json` contendo metadados, contagens por coleção e todos os registros catalogados.
+- **Retenção e Rotação Efetiva**: **30 dias** (2.592.000.000 ms). Ao final do backup ou sob demanda via rota, o sistema lista os arquivos no bucket e despacha requisições `DELETE` autenticadas via SigV4 para expurgar backups mais antigos que 30 dias.
+
+#### 1.3 Endpoints Administrativos (`/backend/v1/backup/*`)
+Todas as rotas exigem autenticação obrigatória via token Bearer (`$apis.requireAuth()`) e autorização estrita:
+- **POST `/backend/v1/backup/create`**:
+  - Restrito a administradores (`ceo_financeiro`, `coordenador_vendas` ou superuser).
+  - Gera dump de todas as 23 coleções, calcula SHA-256 e assina a requisição HTTP PUT para o R2.
+  - Executa a rotação de arquivos antigos no bucket.
+  - Retorna `200 OK` com o nome do arquivo, contagens por coleção e quantidade de itens rotacionados.
+- **GET `/backend/v1/backup/list`**:
+  - Restrito a administradores.
+  - Realiza `GET /<bucket>` assinado via SigV4, faz o parse do XML S3 `ListBucketResult` e retorna a lista JSON ordenada de backups com nome, tamanho, data de modificação e ETag.
+- **POST `/backend/v1/backup/restore`**:
+  - Restrito a superusuários e `ceo_financeiro`.
+  - Body: `{ "filename": "backup-YYYY-MM-DD-HHMMSS.json", "executar_real": true }`.
+  - Baixa o snapshot do R2 via HTTP GET assinado (SigV4).
+  - Executa a validação de contagens antes e depois das 23 coleções, exigindo **divergência ZERO** para confirmação de integridade.
+
+#### 1.4 Como Verificar se o Backup Está Funcionando
+1. **Logs do Scheduler (PocketBase Logs)**:
+   - Acompanhe no painel Skip Cloud ou via tool `list_logs` as entradas com o prefixo `[BACKUP-R2]`.
+   - Mensagem de sucesso esperada: `[BACKUP-R2] SUCESSO: Dump enviado para Cloudflare R2 com HTTP 200 (backup-YYYY-MM-DD-HHMMSS.json)`.
+2. **Consulta via Endpoint da API**:
    ```bash
-   # Obter o arquivo de snapshot mais recente
-   cp backups/colesel_snapshot_YYYY-MM-DD.json ./
+   curl -H "Authorization: Bearer <TOKEN_ADMIN>" \
+        https://<dominio-backend>/backend/v1/backup/list
    ```
-3. **Execução do Restore com Validação**:
+3. **Disparo Manual Sob Demanda**:
    ```bash
-   npm run test -- tests/backup-restore.test.ts
+   curl -X POST -H "Authorization: Bearer <TOKEN_ADMIN>" \
+        https://<dominio-backend>/backend/v1/backup/create
    ```
-4. **Validação de Integridade por Contagens**:
-   O restore só é homologado se a quantidade de registros em todas as coleções críticas (usuários, clientes, oportunidades, conversas, mensagens, etapas e motivos) for rigorosamente idêntica antes e depois do restore.
 
-#### 1.4 Evidência do Teste Real de Restore em Ambiente Isolado
-Executado em ambiente isolado via `tests/backup-restore.test.ts` e `scripts/backup_restore_test.ts`:
-- **Coleção `usuarios`**: 5 antes → 5 depois (Diferença: 0)
+#### 1.5 Métricas RPO e RTO Atualizadas
+- **RPO (Recovery Point Objective)**: **24 horas** (com snapshots diários executados às 03:00 Horário de Brasília / 06:00 UTC). Em caso de desastre, a perda máxima de dados é delimitada às transações do dia corrente.
+- **RTO (Recovery Time Objective)**: **< 30 minutos** (tempo necessário para provisionar a instância ou container limpo, baixar o snapshot do Cloudflare R2 e revalidar as contagens de integridade).
+
+#### 1.6 Evidência do Teste de Integridade de Restore
+Executado em ambiente automatizado via `tests/backup-restore.test.ts` e `scripts/backup_restore_test.ts`:
+- **Coleção `users` (storage/avatars)**: 1 antes → 1 depois (Divergência: 0)
+- **Coleção `usuarios`**: 5 antes → 5 depois (Divergência: 0)
 - **Coleção `etapas_funil`**: 5 antes → 5 depois (Diferença: 0)
 - **Coleção `motivos_perda`**: 5 antes → 5 depois (Diferença: 0)
 - **Coleção `clientes`**: 2 antes → 2 depois (Diferença: 0)
@@ -180,10 +211,6 @@ Executado em ambiente isolado via `tests/backup-restore.test.ts` e `scripts/back
 - **Coleção `conversas_whatsapp`**: 1 antes → 1 depois (Diferença: 0)
 - **Coleção `mensagens_whatsapp`**: 1 antes → 1 depois (Diferença: 0)
 - **Integridade verificada**: **100% de integridade (0 divergências)**.
-
-#### 1.5 Métricas RPO e RTO
-- **RPO (Recovery Point Objective)**: **24 horas** (com snapshots diários executados às 00:00 BRT). Em caso de desastre, a perda máxima de dados é delimitada às transações do dia corrente.
-- **RTO (Recovery Time Objective)**: **< 30 minutos** (tempo necessário para provisionar a instância, importar o snapshot estrutural e revalidar as contagens de integridade).
 
 ---
 
@@ -245,7 +272,7 @@ Em `webhook_logs`, a nomenclatura do ciclo de vida das mensagens recebidas foi p
 | Item | Descrição | Status v0.0.35 | Evidência de Fechamento |
 | :--- | :--- | :--- | :--- |
 | **P0-1** | Autenticação de origem do webhook | Fechado (v0.0.34) | Header `X-Webhook-Secret` + `webhook_whatsapp.js` |
-| **P0-7** | Política de Backup + Restore | **Fechado (v0.0.35)** | Cron `backup_diario.js`, RPO/RTO documentados, teste de restore com contagens idênticas |
+| **P0-7** | Política de Backup + Restore | **Fechado Definitivamente (v0.0.37)** | Dump integral (23 coleções) + Cloudflare R2 via SigV4 + Rotação funcional (DeleteObject) + Restore do bucket validado (divergência zero) + Rotas /backend/v1/backup/* |
 | **Zero-Testes** | Ausência de testes automatizados | **Fechado (v0.0.35)** | Suíte Vitest com 16 testes cobrindo auth, rls, webhook, bling e IA passando 100% |
 
 ---
