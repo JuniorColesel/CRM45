@@ -1,6 +1,16 @@
 import React from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Users, Upload, Radio, Target, Settings, ChevronRight, Lock, Sliders } from 'lucide-react'
+import {
+  Users,
+  Upload,
+  Radio,
+  Target,
+  Settings,
+  ChevronRight,
+  Lock,
+  Sliders,
+  Database,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -80,6 +90,17 @@ const CARDS_CONFIGURACOES: ConfigCardItem[] = [
     icone: Settings,
     corIcone: 'text-[#0F172A]',
     bgIcone: 'bg-slate-100',
+    perfisPermitidos: ['ceo_financeiro', 'coordenador_vendas'],
+  },
+  {
+    id: 'backup-test',
+    titulo: 'Teste de Backup & Restore',
+    descricao:
+      'Painel de teste para criar dumps, consultar snapshots no Cloudflare R2 e validar restore de contagens em modo seguro.',
+    rota: '/admin/backup-test',
+    icone: Database,
+    corIcone: 'text-[#16A34A]',
+    bgIcone: 'bg-emerald-50',
     perfisPermitidos: ['ceo_financeiro', 'coordenador_vendas'],
   },
 ]

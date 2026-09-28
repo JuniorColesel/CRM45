@@ -30,6 +30,7 @@ import IntegracoesPage from './pages/IntegracoesPage'
 import PopTreinamentoPage from './pages/PopTreinamentoPage'
 import ConversasPage from './pages/ConversasPage'
 import CatalogoProdutosPage from './pages/CatalogoProdutosPage'
+import BackupTestPage from './pages/BackupTestPage'
 import { useAuth } from './contexts/AuthContext'
 
 /**
@@ -93,6 +94,7 @@ const App = () => (
                 <Route path="/primeiros-passos" element={<PrimeirosPassosPage />} />
                 <Route path="/metas" element={<MetasPage />} />
                 <Route path="/integracoes" element={<IntegracoesPage />} />
+                <Route path="/admin/backup-test" element={<BackupTestPage />} />
               </Route>
             </Route>
 
