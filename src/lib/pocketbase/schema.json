@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-28T20:13:12.601Z",
+  "generatedAt": "2026-09-28T21:05:36.226Z",
   "collections": [
     {
       "name": "users",
@@ -171,23 +171,23 @@
       "name": "clientes",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && (vendedor.perfil = 'vendedor_1' || vendedor.perfil = 'vendedor_2' || vendedor = @request.auth.id || responsavel_id.perfil = 'vendedor_1' || responsavel_id.perfil = 'vendedor_2' || responsavel_id = @request.auth.id || (vendedor = null && responsavel_id = null))) || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && (vendedor = @request.auth.id || responsavel_id = @request.auth.id)) || (@request.auth.perfil = 'compras_grandes_clientes' && grande_cliente = true))",
-        "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && (vendedor.perfil = 'vendedor_1' || vendedor.perfil = 'vendedor_2' || vendedor = @request.auth.id || responsavel_id.perfil = 'vendedor_1' || responsavel_id.perfil = 'vendedor_2' || responsavel_id = @request.auth.id || (vendedor = null && responsavel_id = null))) || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && (vendedor = @request.auth.id || responsavel_id = @request.auth.id)) || (@request.auth.perfil = 'compras_grandes_clientes' && grande_cliente = true))",
-        "create": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && (vendedor = @request.auth.id || responsavel_id = @request.auth.id || @request.body.vendedor = @request.auth.id || @request.body.responsavel_id = @request.auth.id)))",
-        "update": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && (vendedor.perfil = 'vendedor_1' || vendedor.perfil = 'vendedor_2' || vendedor = @request.auth.id || responsavel_id.perfil = 'vendedor_1' || responsavel_id.perfil = 'vendedor_2' || responsavel_id = @request.auth.id || (vendedor = null && responsavel_id = null))) || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && (vendedor = @request.auth.id || responsavel_id = @request.auth.id)))",
-        "delete": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && (vendedor.perfil = 'vendedor_1' || vendedor.perfil = 'vendedor_2' || vendedor = @request.auth.id || responsavel_id.perfil = 'vendedor_1' || responsavel_id.perfil = 'vendedor_2' || responsavel_id = @request.auth.id || (vendedor = null && responsavel_id = null))) || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && (vendedor = @request.auth.id || responsavel_id = @request.auth.id)))"
+        "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || @request.auth.perfil = 'compras_grandes_clientes' || status_cliente = 'para_reativacao' || responsavel_id = @request.auth.id || (@request.auth.perfil = 'vendedor_1' && (vendedor = 'Karoline (Vendas 1)' || vendedor = 'Alice' || responsavel_id = @request.auth.id)) || (@request.auth.perfil = 'vendedor_2' && (vendedor = 'Vendas 2' || responsavel_id = @request.auth.id)))",
+        "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || @request.auth.perfil = 'compras_grandes_clientes' || status_cliente = 'para_reativacao' || responsavel_id = @request.auth.id || (@request.auth.perfil = 'vendedor_1' && (vendedor = 'Karoline (Vendas 1)' || vendedor = 'Alice' || responsavel_id = @request.auth.id)) || (@request.auth.perfil = 'vendedor_2' && (vendedor = 'Vendas 2' || responsavel_id = @request.auth.id)))",
+        "create": "@request.auth.id != '' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas')",
+        "update": "@request.auth.id != '' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && status_cliente = 'para_reativacao'))",
+        "delete": "@request.auth.id != '' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas')"
       },
       "fields": [
         {
           "name": "nome_contato",
           "type": "text",
-          "required": true,
+          "required": false,
           "system": false
         },
         {
           "name": "nome_empresa",
           "type": "text",
-          "required": false,
+          "required": true,
           "system": false
         },
         {
@@ -292,11 +292,53 @@
           "required": false,
           "system": false,
           "collectionRef": "usuarios"
+        },
+        {
+          "name": "data_primeira_compra",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "valor_total_compras",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "valor_total_vendas",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "estado",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tipo_contato",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["cliente", "fornecedor", "ambos"]
+        },
+        {
+          "name": "status_cliente",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["ativo", "para_reativacao"]
         }
       ],
       "indexes": [
         "CREATE INDEX idx_clientes_responsavel ON clientes (responsavel_id)",
-        "CREATE INDEX idx_clientes_grande_cliente ON clientes (grande_cliente)"
+        "CREATE INDEX idx_clientes_grande_cliente ON clientes (grande_cliente)",
+        "CREATE UNIQUE INDEX `idx_clientes_nome_empresa_unique` ON `clientes` (nome_empresa) WHERE nome_empresa != ''",
+        "CREATE UNIQUE INDEX `idx_clientes_cnpj_cpf_unique` ON `clientes` (cnpj_cpf) WHERE cnpj_cpf != ''",
+        "CREATE INDEX `idx_clientes_status_cliente` ON `clientes` (status_cliente)",
+        "CREATE INDEX `idx_clientes_total_vendas` ON `clientes` (valor_total_vendas)"
       ]
     },
     {

@@ -1,19 +1,33 @@
 import type { RecordModel } from 'pocketbase'
 import type { PerfilUsuario, Usuario } from '@/contexts/AuthContext'
 
+export type VendedorCliente = 'Alice' | 'Renan' | 'Karoline (Vendas 1)' | 'Vendas 2'
+export type TipoContatoCliente = 'cliente' | 'fornecedor' | 'ambos'
+export type StatusCliente = 'ativo' | 'para_reativacao'
+export type GrandeClienteFlag = 'sim' | 'nao'
+
 export interface ClienteModel extends RecordModel {
-  nome_contato: string
-  nome_empresa?: string
-  telefone?: string
-  cidade?: string
-  email?: string
+  nome_empresa: string
+  nome_contato?: string
   cnpj_cpf?: string
+  telefone?: string
+  email?: string
+  cidade?: string
+  estado?: string
+  data_ultima_compra?: string
+  data_primeira_compra?: string
+  valor_total_compras?: number
+  valor_total_vendas?: number
+  grande_cliente?: GrandeClienteFlag | boolean | string
+  tipo_contato?: TipoContatoCliente
+  vendedor?: VendedorCliente | string
+  status_cliente?: StatusCliente
+  // Compatibilidade com campos legados
   data_nascimento?: string
   observacoes?: string
-  grande_cliente?: boolean
   aceita_mensagens?: boolean
   responsavel_id?: string
-  data_ultima_compra?: string
+  status?: string
   criado_em?: string
   atualizado_em?: string
   expand?: {
@@ -164,15 +178,24 @@ export interface MensagemEnviadaModel extends RecordModel {
  * - ceo_financeiro pode editar/excluir qualquer um
  * - outros perfis (vendedores, etc.) só podem editar/excluir se forem o responsável (responsavel_id === user.id)
  */
-export function podeEditarCliente(user: Usuario | null, cliente: ClienteModel): boolean {
+export function podeEditarCliente(user: Usuario | null, cliente?: ClienteModel | null): boolean {
   if (!user) return false
   if (user.perfil === 'estoque') return false
-  if (user.perfil === 'ceo_financeiro') return true
-  return cliente.responsavel_id === user.id
+  if (user.perfil === 'ceo_financeiro' || user.perfil === 'coordenador_vendas') return true
+  // Vendedores podem editar se forem o responsável ou se o cliente estiver para reativação
+  if (cliente && cliente.status_cliente === 'para_reativacao') return true
+  return Boolean(cliente && cliente.responsavel_id === user.id)
 }
 
-export function podeExcluirCliente(user: Usuario | null, cliente: ClienteModel): boolean {
-  return podeEditarCliente(user, cliente)
+export function podeExcluirCliente(user: Usuario | null, cliente?: ClienteModel | null): boolean {
+  if (!user) return false
+  if (user.perfil === 'ceo_financeiro' || user.perfil === 'coordenador_vendas') return true
+  return false
+}
+
+export function podeCriarCliente(user: Usuario | null): boolean {
+  if (!user) return false
+  return user.perfil === 'ceo_financeiro' || user.perfil === 'coordenador_vendas'
 }
 
 /**

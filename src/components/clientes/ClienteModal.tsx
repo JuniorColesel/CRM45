@@ -10,8 +10,6 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { Switch } from '@/components/ui/switch'
 import {
   Select,
   SelectContent,
@@ -19,10 +17,26 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Loader2, User, Building, Phone, Mail, MapPin, Calendar, FileText } from 'lucide-react'
+import {
+  Loader2,
+  User,
+  Building,
+  Phone,
+  Mail,
+  MapPin,
+  Calendar,
+  FileText,
+  DollarSign,
+} from 'lucide-react'
 import pb from '@/lib/pocketbase/client'
 import { useAuth, type Usuario } from '@/contexts/AuthContext'
-import type { ClienteModel } from '@/types/clientes'
+import type {
+  ClienteModel,
+  VendedorCliente,
+  TipoContatoCliente,
+  StatusCliente,
+  GrandeClienteFlag,
+} from '@/types/clientes'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/pocketbase/errors'
 
@@ -38,80 +52,97 @@ export default function ClienteModal({
   open,
   onOpenChange,
   cliente,
-  usuarios,
+  usuarios: _usuarios,
   onSuccess,
 }: ClienteModalProps) {
   const { user } = useAuth()
   const isEditing = Boolean(cliente)
 
-  // Determinar o responsável inicial:
-  // Se for edição, mantém o do cliente; se for criação:
-  // vendedores têm fixo eles mesmos. ceo/coordenador pode escolher qualquer um (iniciando por ele mesmo se existir).
-  const defaultResponsavel = () => {
-    if (cliente?.responsavel_id) return cliente.responsavel_id
-    if (user?.id) return user.id
-    return usuarios[0]?.id || ''
-  }
-
-  const [nomeContato, setNomeContato] = useState('')
   const [nomeEmpresa, setNomeEmpresa] = useState('')
-  const [telefone, setTelefone] = useState('')
-  const [cidade, setCidade] = useState('')
-  const [email, setEmail] = useState('')
+  const [nomeContato, setNomeContato] = useState('')
   const [cnpjCpf, setCnpjCpf] = useState('')
-  const [dataNascimento, setDataNascimento] = useState('')
-  const [observacoes, setObservacoes] = useState('')
-  const [grandeCliente, setGrandeCliente] = useState(false)
-  const [aceitaMensagens, setAceitaMensagens] = useState(true)
-  const [responsavelId, setResponsavelId] = useState('')
+  const [telefone, setTelefone] = useState('')
+  const [email, setEmail] = useState('')
+  const [cidade, setCidade] = useState('')
+  const [estado, setEstado] = useState('')
+  const [vendedor, setVendedor] = useState<VendedorCliente>('Alice')
+  const [tipoContato, setTipoContato] = useState<TipoContatoCliente>('cliente')
+  const [statusCliente, setStatusCliente] = useState<StatusCliente>('ativo')
+  const [grandeCliente, setGrandeCliente] = useState<GrandeClienteFlag>('nao')
+  const [valorTotalVendas, setValorTotalVendas] = useState<string>('0')
+  const [valorTotalCompras, setValorTotalCompras] = useState<string>('0')
+  const [dataUltimaCompra, setDataUltimaCompra] = useState('')
+  const [dataPrimeiraCompra, setDataPrimeiraCompra] = useState('')
+
   const [saving, setSaving] = useState(false)
   const [erros, setErros] = useState<Record<string, string>>({})
+
+  // Determinar vendedor default baseado no usuário logado
+  const obterVendedorPadrao = (): VendedorCliente => {
+    if (!user) return 'Alice'
+    if (user.perfil === 'vendedor_1') return 'Karoline (Vendas 1)'
+    if (user.perfil === 'vendedor_2') return 'Vendas 2'
+    if (user.nome?.toLowerCase().includes('renan') || user.email?.includes('renan')) return 'Renan'
+    if (user.nome?.toLowerCase().includes('alice') || user.email?.includes('alice')) return 'Alice'
+    return 'Alice'
+  }
 
   // Sincronizar campos quando o modal abre ou cliente muda
   React.useEffect(() => {
     if (open) {
       if (cliente) {
+        setNomeEmpresa(cliente.nome_empresa || cliente.nome_contato || '')
         setNomeContato(cliente.nome_contato || '')
-        setNomeEmpresa(cliente.nome_empresa || '')
-        setTelefone(cliente.telefone || '')
-        setCidade(cliente.cidade || '')
-        setEmail(cliente.email || '')
         setCnpjCpf(cliente.cnpj_cpf || '')
-        setDataNascimento(cliente.data_nascimento ? cliente.data_nascimento.substring(0, 10) : '')
-        setObservacoes(cliente.observacoes || '')
-        setGrandeCliente(Boolean(cliente.grande_cliente))
-        setAceitaMensagens(cliente.aceita_mensagens !== false)
-        setResponsavelId(cliente.responsavel_id || user?.id || '')
+        setTelefone(cliente.telefone || '')
+        setEmail(cliente.email || '')
+        setCidade(cliente.cidade || '')
+        setEstado(cliente.estado || '')
+        setVendedor((cliente.vendedor as VendedorCliente) || obterVendedorPadrao())
+        setTipoContato((cliente.tipo_contato as TipoContatoCliente) || 'cliente')
+        setStatusCliente((cliente.status_cliente as StatusCliente) || 'ativo')
+        setGrandeCliente(
+          cliente.grande_cliente === 'sim' || cliente.grande_cliente === true ? 'sim' : 'nao',
+        )
+        setValorTotalVendas(String(cliente.valor_total_vendas || 0))
+        setValorTotalCompras(String(cliente.valor_total_compras || 0))
+        setDataUltimaCompra(
+          cliente.data_ultima_compra ? cliente.data_ultima_compra.substring(0, 10) : '',
+        )
+        setDataPrimeiraCompra(
+          cliente.data_primeira_compra ? cliente.data_primeira_compra.substring(0, 10) : '',
+        )
       } else {
-        setNomeContato('')
         setNomeEmpresa('')
-        setTelefone('')
-        setCidade('')
-        setEmail('')
+        setNomeContato('')
         setCnpjCpf('')
-        setDataNascimento('')
-        setObservacoes('')
-        setGrandeCliente(false)
-        setAceitaMensagens(true)
-        setResponsavelId(defaultResponsavel())
+        setTelefone('')
+        setEmail('')
+        setCidade('')
+        setEstado('')
+        setVendedor(obterVendedorPadrao())
+        setTipoContato('cliente')
+        setStatusCliente('ativo')
+        setGrandeCliente('nao')
+        setValorTotalVendas('0')
+        setValorTotalCompras('0')
+        setDataUltimaCompra('')
+        setDataPrimeiraCompra('')
       }
       setErros({})
     }
   }, [open, cliente])
 
-  // Regra de bloqueio do seletor de responsável:
-  // vendedores (vendedor_1, vendedor_2) vêm preenchidos automaticamente com eles mesmos e não podem alterar para outro usuário.
-  // ceo_financeiro e coordenador_vendas podem escolher livremente.
-  const podeEscolherResponsavel =
-    user?.perfil === 'ceo_financeiro' || user?.perfil === 'coordenador_vendas'
-
   const validar = (): boolean => {
     const novosErros: Record<string, string> = {}
-    if (!nomeContato.trim()) {
-      novosErros.nome_contato = 'O nome do contato é obrigatório.'
+    if (!nomeEmpresa.trim()) {
+      novosErros.nome_empresa = 'O nome da empresa é obrigatório.'
     }
     if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       novosErros.email = 'E-mail inválido.'
+    }
+    if (estado.trim() && estado.trim().length > 2) {
+      novosErros.estado = 'O estado deve conter no máximo 2 letras (UF).'
     }
     setErros(novosErros)
     return Object.keys(novosErros).length === 0
@@ -124,35 +155,42 @@ export default function ClienteModal({
     setSaving(true)
     try {
       const payload: Record<string, unknown> = {
-        nome_contato: nomeContato.trim(),
-        nome_empresa: nomeEmpresa.trim() || '',
-        telefone: telefone.trim() || '',
-        cidade: cidade.trim() || '',
-        email: email.trim() || '',
+        nome_empresa: nomeEmpresa.trim(),
+        nome_contato: nomeContato.trim() || nomeEmpresa.trim(),
         cnpj_cpf: cnpjCpf.trim() || '',
-        data_nascimento: dataNascimento ? new Date(dataNascimento).toISOString() : null,
-        observacoes: observacoes.trim() || '',
+        telefone: telefone.trim() || '',
+        email: email.trim() || '',
+        cidade: cidade.trim() || '',
+        estado: estado.trim().toUpperCase() || '',
+        vendedor,
+        tipo_contato: tipoContato,
+        status_cliente: statusCliente,
         grande_cliente: grandeCliente,
-        aceita_mensagens: aceitaMensagens,
-        responsavel_id: podeEscolherResponsavel ? responsavelId || user?.id : user?.id,
+        valor_total_vendas: parseFloat(valorTotalVendas) || 0,
+        valor_total_compras: parseFloat(valorTotalCompras) || 0,
+        data_ultima_compra: dataUltimaCompra ? new Date(dataUltimaCompra).toISOString() : null,
+        data_primeira_compra: dataPrimeiraCompra
+          ? new Date(dataPrimeiraCompra).toISOString()
+          : null,
+        // sincronia para campos legados
+        responsavel_id: user?.id || null,
+        status: statusCliente === 'ativo' ? 'ativo' : 'rascunho',
       }
 
       let savedRecord: ClienteModel
       if (isEditing && cliente) {
         savedRecord = (await pb
           .collection('clientes')
-          .update(cliente.id, payload, { expand: 'responsavel_id' })) as unknown as ClienteModel
+          .update(cliente.id, payload)) as unknown as ClienteModel
         toast({
           title: 'Cliente atualizado',
-          description: `Os dados de "${savedRecord.nome_contato}" foram salvos com sucesso.`,
+          description: `Os dados de "${savedRecord.nome_empresa}" foram salvos com sucesso.`,
         })
       } else {
-        savedRecord = (await pb
-          .collection('clientes')
-          .create(payload, { expand: 'responsavel_id' })) as unknown as ClienteModel
+        savedRecord = (await pb.collection('clientes').create(payload)) as unknown as ClienteModel
         toast({
           title: 'Cliente cadastrado',
-          description: `Cliente "${savedRecord.nome_contato}" criado com sucesso.`,
+          description: `Cliente "${savedRecord.nome_empresa}" criado com sucesso.`,
         })
       }
 
@@ -166,7 +204,8 @@ export default function ClienteModal({
         description:
           msg.includes('permissão') || msg.includes('permission')
             ? 'Você não tem permissão para realizar esta operação.'
-            : msg || 'Ocorreu um erro ao salvar o cliente. Verifique os dados.',
+            : msg ||
+              'Ocorreu um erro ao salvar o cliente. Verifique se o nome da empresa ou CNPJ já existem.',
       })
     } finally {
       setSaving(false)
@@ -178,114 +217,58 @@ export default function ClienteModal({
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-xl font-bold text-[#0F172A] flex items-center gap-2">
-            <User className="w-5 h-5 text-[#16A34A]" />
+            <Building className="w-5 h-5 text-[#16A34A]" />
             {isEditing ? 'Editar Cliente' : 'Novo Cliente'}
           </DialogTitle>
           <DialogDescription className="text-sm text-[#64748B]">
             {isEditing
-              ? 'Atualize as informações do cliente cadastrado.'
-              : 'Preencha os dados abaixo para cadastrar um novo cliente na sua base.'}
+              ? 'Atualize as informações do cliente cadastrado na base comercial.'
+              : 'Preencha os dados abaixo para cadastrar um novo cliente.'}
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4 pt-2">
-          {/* Linha 1: Nome do Contato (obrigatório) e Nome da Empresa */}
+          {/* Linha 1: Nome da Empresa (obrigatório, único) e Nome do Contato */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label htmlFor="nome_contato" className="text-xs font-semibold text-[#0F172A]">
-                Nome do Contato <span className="text-[#DC2626]">*</span>
-              </Label>
-              <div className="relative">
-                <User className="absolute left-3 top-2.5 h-4 w-4 text-[#64748B]" />
-                <Input
-                  id="nome_contato"
-                  value={nomeContato}
-                  onChange={(e) => {
-                    setNomeContato(e.target.value)
-                    if (erros.nome_contato) setErros({ ...erros, nome_contato: '' })
-                  }}
-                  placeholder="Ex: Carlos Eduardo"
-                  className={`pl-9 ${erros.nome_contato ? 'border-[#DC2626] focus-visible:ring-[#DC2626]' : ''}`}
-                />
-              </div>
-              {erros.nome_contato && <p className="text-xs text-[#DC2626]">{erros.nome_contato}</p>}
-            </div>
-
-            <div className="space-y-1.5">
               <Label htmlFor="nome_empresa" className="text-xs font-semibold text-[#0F172A]">
-                Nome da Empresa
+                Nome da Empresa / Razão Social <span className="text-[#DC2626]">*</span>
               </Label>
               <div className="relative">
                 <Building className="absolute left-3 top-2.5 h-4 w-4 text-[#64748B]" />
                 <Input
                   id="nome_empresa"
                   value={nomeEmpresa}
-                  onChange={(e) => setNomeEmpresa(e.target.value)}
-                  placeholder="Ex: Construtora Horizonte Ltda"
-                  className="pl-9"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Linha 2: Telefone e E-mail */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="telefone" className="text-xs font-semibold text-[#0F172A]">
-                Telefone / WhatsApp
-              </Label>
-              <div className="relative">
-                <Phone className="absolute left-3 top-2.5 h-4 w-4 text-[#64748B]" />
-                <Input
-                  id="telefone"
-                  value={telefone}
-                  onChange={(e) => setTelefone(e.target.value)}
-                  placeholder="(11) 98765-4321"
-                  className="pl-9"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="email" className="text-xs font-semibold text-[#0F172A]">
-                E-mail
-              </Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-2.5 h-4 w-4 text-[#64748B]" />
-                <Input
-                  id="email"
-                  type="email"
-                  value={email}
                   onChange={(e) => {
-                    setEmail(e.target.value)
-                    if (erros.email) setErros({ ...erros, email: '' })
+                    setNomeEmpresa(e.target.value)
+                    if (erros.nome_empresa) setErros({ ...erros, nome_empresa: '' })
                   }}
-                  placeholder="contato@empresa.com.br"
-                  className={`pl-9 ${erros.email ? 'border-[#DC2626] focus-visible:ring-[#DC2626]' : ''}`}
+                  placeholder="Ex: Construtora Horizonte LTDA"
+                  className={`pl-9 ${erros.nome_empresa ? 'border-[#DC2626] focus-visible:ring-[#DC2626]' : ''}`}
                 />
               </div>
-              {erros.email && <p className="text-xs text-[#DC2626]">{erros.email}</p>}
+              {erros.nome_empresa && <p className="text-xs text-[#DC2626]">{erros.nome_empresa}</p>}
             </div>
-          </div>
 
-          {/* Linha 3: Cidade e CNPJ/CPF */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label htmlFor="cidade" className="text-xs font-semibold text-[#0F172A]">
-                Cidade / UF
+              <Label htmlFor="nome_contato" className="text-xs font-semibold text-[#0F172A]">
+                Nome do Contato
               </Label>
               <div className="relative">
-                <MapPin className="absolute left-3 top-2.5 h-4 w-4 text-[#64748B]" />
+                <User className="absolute left-3 top-2.5 h-4 w-4 text-[#64748B]" />
                 <Input
-                  id="cidade"
-                  value={cidade}
-                  onChange={(e) => setCidade(e.target.value)}
-                  placeholder="São Paulo, SP"
+                  id="nome_contato"
+                  value={nomeContato}
+                  onChange={(e) => setNomeContato(e.target.value)}
+                  placeholder="Ex: Carlos Eduardo"
                   className="pl-9"
                 />
               </div>
             </div>
+          </div>
 
+          {/* Linha 2: CNPJ/CPF e Telefone */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="cnpj_cpf" className="text-xs font-semibold text-[#0F172A]">
                 CNPJ / CPF
@@ -301,118 +284,223 @@ export default function ClienteModal({
                 />
               </div>
             </div>
-          </div>
 
-          {/* Linha 4: Data de Nascimento e Responsável */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label htmlFor="data_nascimento" className="text-xs font-semibold text-[#0F172A]">
-                Data de Nascimento / Fundação
+              <Label htmlFor="telefone" className="text-xs font-semibold text-[#0F172A]">
+                Telefone / WhatsApp
               </Label>
               <div className="relative">
-                <Calendar className="absolute left-3 top-2.5 h-4 w-4 text-[#64748B]" />
+                <Phone className="absolute left-3 top-2.5 h-4 w-4 text-[#64748B]" />
                 <Input
-                  id="data_nascimento"
-                  type="date"
-                  value={dataNascimento}
-                  onChange={(e) => setDataNascimento(e.target.value)}
+                  id="telefone"
+                  value={telefone}
+                  onChange={(e) => setTelefone(e.target.value)}
+                  placeholder="(42) 99999-9999"
+                  className="pl-9"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Linha 3: E-mail, Cidade e Estado */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="space-y-1.5 sm:col-span-1">
+              <Label htmlFor="email" className="text-xs font-semibold text-[#0F172A]">
+                E-mail
+              </Label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-2.5 h-4 w-4 text-[#64748B]" />
+                <Input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value)
+                    if (erros.email) setErros({ ...erros, email: '' })
+                  }}
+                  placeholder="comercial@empresa.com.br"
+                  className={`pl-9 ${erros.email ? 'border-[#DC2626]' : ''}`}
+                />
+              </div>
+              {erros.email && <p className="text-xs text-[#DC2626]">{erros.email}</p>}
+            </div>
+
+            <div className="space-y-1.5 sm:col-span-1">
+              <Label htmlFor="cidade" className="text-xs font-semibold text-[#0F172A]">
+                Cidade
+              </Label>
+              <div className="relative">
+                <MapPin className="absolute left-3 top-2.5 h-4 w-4 text-[#64748B]" />
+                <Input
+                  id="cidade"
+                  value={cidade}
+                  onChange={(e) => setCidade(e.target.value)}
+                  placeholder="Irati"
+                  className="pl-9"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5 sm:col-span-1">
+              <Label htmlFor="estado" className="text-xs font-semibold text-[#0F172A]">
+                Estado (UF - 2 caracteres)
+              </Label>
+              <Input
+                id="estado"
+                maxLength={2}
+                value={estado}
+                onChange={(e) => {
+                  setEstado(e.target.value.toUpperCase())
+                  if (erros.estado) setErros({ ...erros, estado: '' })
+                }}
+                placeholder="PR"
+                className={`uppercase ${erros.estado ? 'border-[#DC2626]' : ''}`}
+              />
+              {erros.estado && <p className="text-xs text-[#DC2626]">{erros.estado}</p>}
+            </div>
+          </div>
+
+          {/* Linha 4: Vendedor, Tipo Contato, Status Cliente, Grande Cliente */}
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-[#0F172A]">
+                Vendedor <span className="text-[#DC2626]">*</span>
+              </Label>
+              <Select value={vendedor} onValueChange={(val: VendedorCliente) => setVendedor(val)}>
+                <SelectTrigger className="bg-white">
+                  <SelectValue placeholder="Vendedor" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Alice">Alice</SelectItem>
+                  <SelectItem value="Renan">Renan</SelectItem>
+                  <SelectItem value="Karoline (Vendas 1)">Karoline (Vendas 1)</SelectItem>
+                  <SelectItem value="Vendas 2">Vendas 2</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-[#0F172A]">
+                Tipo de Contato <span className="text-[#DC2626]">*</span>
+              </Label>
+              <Select
+                value={tipoContato}
+                onValueChange={(val: TipoContatoCliente) => setTipoContato(val)}
+              >
+                <SelectTrigger className="bg-white">
+                  <SelectValue placeholder="Tipo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cliente">Cliente</SelectItem>
+                  <SelectItem value="fornecedor">Fornecedor</SelectItem>
+                  <SelectItem value="ambos">Ambos</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-[#0F172A]">Status do Cliente</Label>
+              <Select
+                value={statusCliente}
+                onValueChange={(val: StatusCliente) => setStatusCliente(val)}
+              >
+                <SelectTrigger className="bg-white">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ativo">Ativo</SelectItem>
+                  <SelectItem value="para_reativacao">Para Reativação</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-[#0F172A]">Grande Cliente?</Label>
+              <Select
+                value={grandeCliente}
+                onValueChange={(val: GrandeClienteFlag) => setGrandeCliente(val)}
+              >
+                <SelectTrigger className="bg-white">
+                  <SelectValue placeholder="Grande Cliente" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="sim">Sim (VIP)</SelectItem>
+                  <SelectItem value="nao">Não</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* Linha 5: Valores Financeiros e Datas de Compra */}
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="valor_total_vendas" className="text-xs font-semibold text-[#0F172A]">
+                Total de Vendas (R$)
+              </Label>
+              <div className="relative">
+                <DollarSign className="absolute left-3 top-2.5 h-4 w-4 text-[#16A34A]" />
+                <Input
+                  id="valor_total_vendas"
+                  type="number"
+                  step="0.01"
+                  value={valorTotalVendas}
+                  onChange={(e) => setValorTotalVendas(e.target.value)}
                   className="pl-9"
                 />
               </div>
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="responsavel_id" className="text-xs font-semibold text-[#0F172A]">
-                Responsável
+              <Label htmlFor="valor_total_compras" className="text-xs font-semibold text-[#0F172A]">
+                Total de Compras (R$)
               </Label>
-              {podeEscolherResponsavel ? (
-                <Select value={responsavelId} onValueChange={setResponsavelId}>
-                  <SelectTrigger id="responsavel_id" className="w-full">
-                    <SelectValue placeholder="Selecione o responsável" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {usuarios.length > 0 ? (
-                      usuarios.map((u) => (
-                        <SelectItem key={u.id} value={u.id}>
-                          {u.nome} ({u.perfil})
-                        </SelectItem>
-                      ))
-                    ) : (
-                      <SelectItem value={user?.id || 'none'}>
-                        {user?.nome || 'Usuário Atual'}
-                      </SelectItem>
-                    )}
-                  </SelectContent>
-                </Select>
-              ) : (
+              <div className="relative">
+                <DollarSign className="absolute left-3 top-2.5 h-4 w-4 text-[#64748B]" />
                 <Input
-                  value={user?.nome ? `${user.nome} (Você)` : 'Você'}
-                  disabled
-                  className="bg-slate-100 text-[#64748B] cursor-not-allowed"
+                  id="valor_total_compras"
+                  type="number"
+                  step="0.01"
+                  value={valorTotalCompras}
+                  onChange={(e) => setValorTotalCompras(e.target.value)}
+                  className="pl-9"
                 />
-              )}
-              {!podeEscolherResponsavel && (
-                <p className="text-[11px] text-[#64748B]">
-                  Preenchido automaticamente com seu usuário.
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Linha 5: Toggles (Grande Cliente e Aceita Mensagens) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1 border-t border-[#E2E8F0]">
-            <div className="flex items-center justify-between p-3 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC]">
-              <div className="space-y-0.5">
-                <Label
-                  htmlFor="grande_cliente"
-                  className="text-xs font-semibold text-[#0F172A] cursor-pointer"
-                >
-                  Grande Cliente
-                </Label>
-                <p className="text-[11px] text-[#64748B]">
-                  Classifica como conta VIP / estratégica
-                </p>
               </div>
-              <Switch
-                id="grande_cliente"
-                checked={grandeCliente}
-                onCheckedChange={setGrandeCliente}
-              />
             </div>
 
-            <div className="flex items-center justify-between p-3 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC]">
-              <div className="space-y-0.5">
-                <Label
-                  htmlFor="aceita_mensagens"
-                  className="text-xs font-semibold text-[#0F172A] cursor-pointer"
-                >
-                  Aceita Mensagens
-                </Label>
-                <p className="text-[11px] text-[#64748B]">
-                  Autoriza recebimento via WhatsApp/E-mail
-                </p>
+            <div className="space-y-1.5">
+              <Label
+                htmlFor="data_primeira_compra"
+                className="text-xs font-semibold text-[#0F172A]"
+              >
+                Primeira Compra
+              </Label>
+              <div className="relative">
+                <Calendar className="absolute left-3 top-2.5 h-4 w-4 text-[#64748B]" />
+                <Input
+                  id="data_primeira_compra"
+                  type="date"
+                  value={dataPrimeiraCompra}
+                  onChange={(e) => setDataPrimeiraCompra(e.target.value)}
+                  className="pl-9"
+                />
               </div>
-              <Switch
-                id="aceita_mensagens"
-                checked={aceitaMensagens}
-                onCheckedChange={setAceitaMensagens}
-              />
             </div>
-          </div>
 
-          {/* Linha 6: Observações */}
-          <div className="space-y-1.5">
-            <Label htmlFor="observacoes" className="text-xs font-semibold text-[#0F172A]">
-              Observações
-            </Label>
-            <Textarea
-              id="observacoes"
-              rows={3}
-              value={observacoes}
-              onChange={(e) => setObservacoes(e.target.value)}
-              placeholder="Informações adicionais, preferências, histórico ou notas comerciais..."
-              className="resize-none"
-            />
+            <div className="space-y-1.5">
+              <Label htmlFor="data_ultima_compra" className="text-xs font-semibold text-[#0F172A]">
+                Última Compra
+              </Label>
+              <div className="relative">
+                <Calendar className="absolute left-3 top-2.5 h-4 w-4 text-[#16A34A]" />
+                <Input
+                  id="data_ultima_compra"
+                  type="date"
+                  value={dataUltimaCompra}
+                  onChange={(e) => setDataUltimaCompra(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+            </div>
           </div>
 
           <DialogFooter className="pt-3 gap-2 border-t border-[#E2E8F0]">
@@ -427,7 +515,7 @@ export default function ClienteModal({
             <Button
               type="submit"
               disabled={saving}
-              className="bg-[#16A34A] hover:bg-[#15803D] text-white"
+              className="bg-[#16A34A] hover:bg-[#15803D] text-white font-semibold"
             >
               {saving ? (
                 <>

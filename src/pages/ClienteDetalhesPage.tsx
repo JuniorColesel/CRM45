@@ -35,7 +35,12 @@ import {
 import pb from '@/lib/pocketbase/client'
 import { useAuth, type Usuario } from '@/contexts/AuthContext'
 import type { ClienteModel } from '@/types/clientes'
-import { podeEditarCliente, podeExcluirCliente, formatarData } from '@/types/clientes'
+import {
+  podeEditarCliente,
+  podeExcluirCliente,
+  formatarData,
+  formatarMoeda,
+} from '@/types/clientes'
 import ClienteModal from '@/components/clientes/ClienteModal'
 import AbaOportunidades from '@/components/clientes/AbaOportunidades'
 import AbaTarefas from '@/components/clientes/AbaTarefas'
@@ -161,41 +166,47 @@ export default function ClienteDetalhesPage() {
           {/* Avatar + Nome + Tags */}
           <div className="flex items-start gap-4">
             <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#16A34A] to-[#2563EB] text-white font-extrabold text-xl flex items-center justify-center shadow-md flex-shrink-0">
-              {cliente.nome_contato.charAt(0).toUpperCase()}
+              {(cliente.nome_empresa || cliente.nome_contato || 'C').charAt(0).toUpperCase()}
             </div>
 
             <div className="space-y-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-2xl sm:text-3xl font-bold text-[#0F172A] tracking-tight">
-                  {cliente.nome_contato}
+                  {cliente.nome_empresa || cliente.nome_contato}
                 </h1>
-                {cliente.grande_cliente && (
+                {cliente.status_cliente === 'para_reativacao' ? (
+                  <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-xs font-semibold">
+                    Para Reativação
+                  </Badge>
+                ) : (
+                  <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-xs font-semibold">
+                    Ativo
+                  </Badge>
+                )}
+                {(cliente.grande_cliente === 'sim' || cliente.grande_cliente === true) && (
                   <Badge className="bg-purple-100 text-[#7C3AED] border-purple-200 text-xs font-semibold gap-1">
                     <Sparkles className="w-3 h-3 text-[#7C3AED]" />
                     Grande Cliente (VIP)
                   </Badge>
                 )}
-                {cliente.aceita_mensagens ? (
-                  <Badge className="bg-emerald-50 text-[#16A34A] border-emerald-200 text-xs gap-1">
-                    <MessageCircle className="w-3 h-3" />
-                    Aceita Mensagens
-                  </Badge>
-                ) : (
-                  <Badge variant="outline" className="text-slate-500 border-slate-300 text-xs">
-                    Não aceita mensagens
+                {cliente.tipo_contato && (
+                  <Badge
+                    variant="outline"
+                    className="text-slate-600 border-slate-300 text-xs uppercase"
+                  >
+                    {cliente.tipo_contato}
                   </Badge>
                 )}
               </div>
 
-              {cliente.nome_empresa && (
+              {cliente.nome_contato && cliente.nome_contato !== cliente.nome_empresa && (
                 <div className="flex items-center gap-1.5 text-sm font-medium text-[#64748B]">
-                  <Building className="w-4 h-4 text-[#94A3B8]" />
-                  <span>{cliente.nome_empresa}</span>
+                  <User className="w-4 h-4 text-[#94A3B8]" />
+                  <span>Contato: {cliente.nome_contato}</span>
                 </div>
               )}
             </div>
           </div>
-
           {/* Botões de Ação */}
           <div className="flex items-center gap-2 self-start">
             {podeEditar && (
@@ -258,17 +269,47 @@ export default function ClienteDetalhesPage() {
             </p>
           </div>
 
-          {/* Responsável Comercial */}
+          {/* Vendedor Comercial */}
           <div className="p-3 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] space-y-1">
             <span className="text-[#64748B] flex items-center gap-1">
               <User className="w-3.5 h-3.5 text-[#0F172A]" />
-              Responsável Comercial
+              Vendedor
             </span>
-            <p className="font-semibold text-[#0F172A] text-sm truncate">{responsavelNome}</p>
+            <p className="font-semibold text-[#0F172A] text-sm truncate">
+              {cliente.vendedor || responsavelNome || 'Não atribuído'}
+            </p>
           </div>
         </div>
 
-        {/* Segunda Linha de Metadados: CNPJ, Nascimento, Última Compra */}
+        {/* Linha de Totais Financeiros e Metadados */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs pt-1 border-t border-[#F1F5F9]">
+          <div className="p-3 rounded-xl bg-emerald-50/50 border border-emerald-100">
+            <span className="text-[#64748B] block">Total de Vendas Realizadas</span>
+            <span className="text-base font-bold text-[#16A34A]">
+              {formatarMoeda(cliente.valor_total_vendas)}
+            </span>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+            <span className="text-[#64748B] block">Total de Compras</span>
+            <span className="text-base font-bold text-[#0F172A]">
+              {formatarMoeda(cliente.valor_total_compras)}
+            </span>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+            <span className="text-[#64748B] block">Primeira Compra</span>
+            <span className="text-sm font-semibold text-[#0F172A]">
+              {cliente.data_primeira_compra ? formatarData(cliente.data_primeira_compra) : '-'}
+            </span>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+            <span className="text-[#64748B] block">Última Compra</span>
+            <span className="text-sm font-semibold text-[#0F172A]">
+              {cliente.data_ultima_compra ? formatarData(cliente.data_ultima_compra) : '-'}
+            </span>
+          </div>
+        </div>
+
+        {/* Segunda Linha de Metadados: CNPJ, UF, Cadastro */}
         <div className="flex flex-wrap items-center gap-4 text-xs text-[#64748B] pt-1 border-t border-[#F1F5F9]">
           {cliente.cnpj_cpf && (
             <span className="flex items-center gap-1">
@@ -276,18 +317,10 @@ export default function ClienteDetalhesPage() {
               CNPJ/CPF: <strong className="text-[#0F172A]">{cliente.cnpj_cpf}</strong>
             </span>
           )}
-          {cliente.data_nascimento && (
+          {cliente.estado && (
             <span className="flex items-center gap-1">
-              <Calendar className="w-3.5 h-3.5 text-[#94A3B8]" />
-              Nasc./Fundação:{' '}
-              <strong className="text-[#0F172A]">{formatarData(cliente.data_nascimento)}</strong>
-            </span>
-          )}
-          {cliente.data_ultima_compra && (
-            <span className="flex items-center gap-1">
-              <Calendar className="w-3.5 h-3.5 text-[#94A3B8]" />
-              Última Compra:{' '}
-              <strong className="text-[#0F172A]">{formatarData(cliente.data_ultima_compra)}</strong>
+              <MapPin className="w-3.5 h-3.5 text-[#94A3B8]" />
+              UF: <strong className="text-[#0F172A]">{cliente.estado}</strong>
             </span>
           )}
           {cliente.created && (
