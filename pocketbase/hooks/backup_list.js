@@ -12,7 +12,21 @@ routerAdd(
   (e) => {
     // 1. Autenticação e Autorização Admin
     const authRecord = e.auth
-    const isSuperuser = e.hasSuperuserAuth ? e.hasSuperuserAuth() : false
+    let isSuperuser = e.hasSuperuserAuth ? e.hasSuperuserAuth() : false
+
+    // Validação alternativa via secret PB_SUPERUSER_TOKEN no Authorization header (sem desabilitar auth)
+    if (!isSuperuser && !authRecord) {
+      try {
+        const expectedSuperToken = ($os.getenv && $os.getenv('PB_SUPERUSER_TOKEN')) || ''
+        const reqHeaders = e.requestInfo().headers || {}
+        const rawAuth = reqHeaders['authorization'] || reqHeaders['Authorization'] || ''
+        const bearerMatch = rawAuth.match(/^Bearer\s+(.+)$/i)
+        const tokenSent = bearerMatch ? bearerMatch[1].trim() : rawAuth.trim()
+        if (expectedSuperToken && tokenSent && tokenSent === expectedSuperToken) {
+          isSuperuser = true
+        }
+      } catch (_) {}
+    }
 
     if (!authRecord && !isSuperuser) {
       return e.json(401, { message: 'Autenticação necessária.' })
@@ -29,7 +43,6 @@ routerAdd(
     if (!isAdmin) {
       return e.json(403, { message: 'Acesso negado. Apenas administradores podem listar backups.' })
     }
-
     // 2. Leitura Segura de Credenciais do R2
     let bucket = ''
     let endpoint = ''
@@ -40,8 +53,9 @@ routerAdd(
       if (typeof $os !== 'undefined' && $os.getenv) {
         bucket = $os.getenv('BACKUP_S3_BUCKET') || ''
         endpoint = $os.getenv('BACKUP_S3_ENDPOINT') || ''
-        accessKey = $os.getenv('BACKUP_S3_KEY') || ''
-        secretKey = $os.getenv('BACKUP_S3_SECRET') || ''
+        accessKey = $os.getenv('BACKUP_S3_ACCESS_KEY_ID') || $os.getenv('BACKUP_S3_KEY') || ''
+        secretKey =
+          $os.getenv('BACKUP_S3_SECRET_ACCESS_KEY') || $os.getenv('BACKUP_S3_SECRET') || ''
       }
     } catch (_) {}
 
@@ -50,8 +64,12 @@ routerAdd(
         if (typeof $secrets !== 'undefined' && $secrets.get) {
           if (!bucket) bucket = $secrets.get('BACKUP_S3_BUCKET') || ''
           if (!endpoint) endpoint = $secrets.get('BACKUP_S3_ENDPOINT') || ''
-          if (!accessKey) accessKey = $secrets.get('BACKUP_S3_KEY') || ''
-          if (!secretKey) secretKey = $secrets.get('BACKUP_S3_SECRET') || ''
+          if (!accessKey)
+            accessKey =
+              $secrets.get('BACKUP_S3_ACCESS_KEY_ID') || $secrets.get('BACKUP_S3_KEY') || ''
+          if (!secretKey)
+            secretKey =
+              $secrets.get('BACKUP_S3_SECRET_ACCESS_KEY') || $secrets.get('BACKUP_S3_SECRET') || ''
         }
       } catch (_) {}
     }
@@ -59,8 +77,8 @@ routerAdd(
     const faltantes = []
     if (!bucket) faltantes.push('BACKUP_S3_BUCKET')
     if (!endpoint) faltantes.push('BACKUP_S3_ENDPOINT')
-    if (!accessKey) faltantes.push('BACKUP_S3_KEY')
-    if (!secretKey) faltantes.push('BACKUP_S3_SECRET')
+    if (!accessKey) faltantes.push('BACKUP_S3_ACCESS_KEY_ID')
+    if (!secretKey) faltantes.push('BACKUP_S3_SECRET_ACCESS_KEY')
 
     if (faltantes.length > 0) {
       return e.json(500, {

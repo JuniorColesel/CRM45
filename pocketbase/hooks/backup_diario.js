@@ -34,8 +34,8 @@ cronAdd('executar_backup_diario_persistente', '0 6 * * *', () => {
     if (typeof $os !== 'undefined' && $os.getenv) {
       bucket = $os.getenv('BACKUP_S3_BUCKET') || ''
       endpoint = $os.getenv('BACKUP_S3_ENDPOINT') || ''
-      accessKey = $os.getenv('BACKUP_S3_KEY') || ''
-      secretKey = $os.getenv('BACKUP_S3_SECRET') || ''
+      accessKey = $os.getenv('BACKUP_S3_ACCESS_KEY_ID') || $os.getenv('BACKUP_S3_KEY') || ''
+      secretKey = $os.getenv('BACKUP_S3_SECRET_ACCESS_KEY') || $os.getenv('BACKUP_S3_SECRET') || ''
     }
   } catch (_) {}
 
@@ -44,8 +44,11 @@ cronAdd('executar_backup_diario_persistente', '0 6 * * *', () => {
       if (typeof $secrets !== 'undefined' && $secrets.get) {
         if (!bucket) bucket = $secrets.get('BACKUP_S3_BUCKET') || ''
         if (!endpoint) endpoint = $secrets.get('BACKUP_S3_ENDPOINT') || ''
-        if (!accessKey) accessKey = $secrets.get('BACKUP_S3_KEY') || ''
-        if (!secretKey) secretKey = $secrets.get('BACKUP_S3_SECRET') || ''
+        if (!accessKey)
+          accessKey = $secrets.get('BACKUP_S3_ACCESS_KEY_ID') || $secrets.get('BACKUP_S3_KEY') || ''
+        if (!secretKey)
+          secretKey =
+            $secrets.get('BACKUP_S3_SECRET_ACCESS_KEY') || $secrets.get('BACKUP_S3_SECRET') || ''
       }
     } catch (_) {}
   }
@@ -53,8 +56,8 @@ cronAdd('executar_backup_diario_persistente', '0 6 * * *', () => {
   const faltantes = []
   if (!bucket) faltantes.push('BACKUP_S3_BUCKET')
   if (!endpoint) faltantes.push('BACKUP_S3_ENDPOINT')
-  if (!accessKey) faltantes.push('BACKUP_S3_KEY')
-  if (!secretKey) faltantes.push('BACKUP_S3_SECRET')
+  if (!accessKey) faltantes.push('BACKUP_S3_ACCESS_KEY_ID')
+  if (!secretKey) faltantes.push('BACKUP_S3_SECRET_ACCESS_KEY')
 
   if (faltantes.length > 0) {
     const msgErro =
