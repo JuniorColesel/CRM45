@@ -97,6 +97,18 @@ describe('Backup e Restore com Integridade de Contagens (P0-7)', () => {
       expect(hook).not.toMatch(/BACKUP_S3_SECRET\s*=\s*['"][a-zA-Z0-9]{10,}['"]/)
     }
 
+    // Pré-voo de conexão e tratamento de erros do Cloudflare R2
+    expect(hookCreate).toContain('parseR2Error')
+    expect(hookCreate).toContain('Credenciais inválidas para o R2')
+    expect(hookCreate).toContain('Bucket não encontrado')
+    expect(hookCreate).toContain('list-type=2&max-keys=1')
+
+    expect(hookList).toContain('parseR2Error')
+    expect(hookList).toContain('Credenciais inválidas para o R2')
+
+    expect(hookRestore).toContain('parseR2Error')
+    expect(hookRestore).toContain('Credenciais inválidas para o R2')
+
     // Rotas registradas com autenticação admin
     expect(hookCreate).toContain("routerAdd(\n  'POST',\n  '/backend/v1/backup/create'")
     expect(hookCreate).toContain('$apis.requireAuth()')
