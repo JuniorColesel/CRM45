@@ -1,352 +1,274 @@
 /**
- * Webhook de entrada de WhatsApp (Zenvia, Twilio, 360dialog, Infobip, etc.)
- * POST /backend/v1/webhook_whatsapp
+ * Webhook Genérico de WhatsApp (v0.0.31)
  *
- * Requisitos:
- * - Endpoint público que recebe mensagem nova do provedor
- * - Cria/atualiza a conversa vinculando pelo número de telefone
- * - Se o número não existir em clientes, cria CLIENTE RASCUNHO (status: "rascunho")
- * - Detecta intenção: ALTA (compra), MÉDIA (qualificação), BAIXA (info)
- * - ALTA: abre oportunidade em etapa "Prospecção" vinculada ao cliente (se não tiver aberta - anti-duplicata), e cria follow-up (ligação tipo "mensagem")
- * - MÉDIA: cria SÓ o follow-up
- * - BAIXA: não cria nada, só registra conversa
- * - Toda movimentação automática fica auditável
+ * Endpoint: /backend/v1/whatsapp/webhook
  *
- * ⚠ IMPORTANTE PB HOOKS: Toda lógica inline dentro do callback!
+ * Especificações:
+ * 1. Idempotência: campo "external_id" único em mensagens_whatsapp. Se mensagem com external_id já existe,
+ *    retorna 200 { status: 'already_processed', message_id: ... } sem processar ou duplicar.
+ * 2. Anti-replay: timestamp na requisição. Rejeitar se a diferença com agora for > 5 minutos (300 segundos).
+ * 3. Retry/fila: se o processamento falhar, registrar log como "pendente" e tentar novamente (máx 3 tentativas).
+ * 4. Logs: registrar toda requisição (timestamp, external_id, status: sucesso|pendente|rejeitado|falhou, tentativas, erro, payload) em webhook_logs.
+ * 5. Denormalização: ao criar mensagem e conversa, atribuir o campo "vendedor" derivado do cliente ou responsável.
  */
 
-routerAdd('POST', '/backend/v1/webhook_whatsapp', (e) => {
-  const body = e.requestInfo().body || {}
-
-  // Extração flexível para suportar múltiplos provedores (Zenvia, Twilio, 360dialog, genérico)
-  let numeroRaw = body.from || body.From || body.numero || body.sender || body.phone || ''
-  let texto =
-    body.text ||
-    body.Body ||
-    body.message ||
-    body.texto ||
-    (body.message && body.message.text) ||
-    ''
-  let nomeRemetente =
-    body.name || body.profileName || body.sender_name || body.nome || 'Lead WhatsApp'
-  let provedor = (body.provider || body.provedor || 'whatsapp').toString().toLowerCase()
-
-  if (typeof texto !== 'string') {
-    texto = JSON.stringify(texto)
-  }
-  texto = texto.trim()
-
-  // Normalização do número de telefone (remover caracteres especiais)
-  let numeroLimpo = (numeroRaw + '').replace(/\D/g, '')
-  if (!numeroLimpo && body.contacts && body.contacts[0]) {
-    numeroLimpo = (body.contacts[0].wa_id || '').replace(/\D/g, '')
-    if (body.contacts[0].profile && body.contacts[0].profile.name) {
-      nomeRemetente = body.contacts[0].profile.name
-    }
-  }
-
-  if (!numeroLimpo) {
-    return e.json(400, { error: 'Número de telefone não informado' })
-  }
-
-  // 1. Procurar cliente com este número
-  const clientesCol = $app.findCollectionByNameOrId('clientes')
-  let clienteId = null
-  let clienteNome = nomeRemetente
-  let clienteResponsavelId = null
+routerAdd('POST', '/backend/v1/whatsapp/webhook', (c) => {
+  const agora = Date.now()
+  let body = {}
 
   try {
-    // Busca flexível: telefone contendo o número limpo ou os últimos 8/9 dígitos
-    const ultimosDigitos = numeroLimpo.length >= 8 ? numeroLimpo.slice(-8) : numeroLimpo
-    const cRecords = $app.findRecordsByFilter(
-      'clientes',
-      "telefone ~ '" + ultimosDigitos + "'",
-      '-created',
-      1,
-      0,
-    )
-    if (cRecords && cRecords.length > 0) {
-      clienteId = cRecords[0].id
-      clienteNome = cRecords[0].getString('nome_contato') || nomeRemetente
-      clienteResponsavelId = cRecords[0].getString('responsavel_id') || null
-    }
+    body = $apis.requestInfo(c).data || {}
   } catch (err) {
-    console.log('Erro ao buscar cliente por telefone:', err)
+    return c.json(400, { erro: 'Corpo da requisição inválido (JSON esperado)' })
   }
 
-  // Se cliente não existe, criar CLIENTE RASCUNHO (status: "rascunho")
-  if (!clienteId) {
+  // 1. Extração de campos genéricos
+  // Suporta formatos flexíveis: { external_id, timestamp, de, para, texto, ... } ou { id, created_at, from, to, message: { text } }
+  const externalId = (body.external_id || body.id || body.message_id || body.id_mensagem || '')
+    .toString()
+    .trim()
+
+  const provider = (body.provider || 'generic_whatsapp').toString().trim()
+
+  // Timestamp para validação anti-replay (pode vir em milissegundos, segundos ou ISO string)
+  let reqTimestamp = body.timestamp || body.timestamp_req || body.created_at || body.time
+
+  // Helper para salvar log no webhook_logs
+  const gravarLog = (status, erroMsg = '', tentativas = 1) => {
     try {
-      const novoCliente = new Record(clientesCol)
-      novoCliente.set('nome_contato', nomeRemetente)
-      novoCliente.set('telefone', '+' + numeroLimpo)
-      novoCliente.set('status', 'rascunho')
-      novoCliente.set('observacoes', 'Criado automaticamente via mensagem WhatsApp (Rascunho).')
-      $app.save(novoCliente)
-      clienteId = novoCliente.id
-    } catch (err) {
-      console.log('Erro ao criar cliente rascunho:', err)
+      const logsCol = $app.findCollectionByNameOrId('webhook_logs')
+      const logRec = new Record(logsCol)
+      logRec.set('external_id', externalId)
+      logRec.set('provider', provider)
+      logRec.set('timestamp_req', reqTimestamp ? String(reqTimestamp) : String(agora))
+      logRec.set('status', status) // 'sucesso' | 'pendente' | 'rejeitado' | 'falhou'
+      logRec.set('tentativas', tentativas)
+      if (erroMsg) logRec.set('erro', String(erroMsg).substring(0, 1000))
+      logRec.set('payload', body)
+      $app.save(logRec)
+      return logRec.id
+    } catch (e) {
+      // Falha defensiva de log não deve quebrar
+      return null
     }
   }
 
-  // 2. Classificação de Intenção por keywords/contexto
-  const textoLower = texto.toLowerCase()
-  let intencao = 'baixa'
-
-  const keywordsAlta = [
-    'quanto custa',
-    'orcamento',
-    'orçamento',
-    'preco',
-    'preço',
-    'pedido',
-    'quero comprar',
-    'faz entrega',
-    'ta disponivel',
-    'tá disponível',
-    'tem disponivel',
-    'tem disponível',
-    'tenho interesse',
-    'pode reservar',
-    'reserva',
-    'comprar',
-    'cotacao',
-    'cotação',
-    'valor',
-    'quanto fica',
-  ]
-
-  const keywordsMedia = [
-    'qual a diferenca',
-    'qual a diferença',
-    'tem garantia',
-    'em quanto tempo entrega',
-    'prazo de entrega',
-    'tem de outra cor',
-    'outro modelo',
-    'qual marca',
-    'funciona para',
-    'serve para',
-    'especificacao',
-    'especificação',
-  ]
-
-  const keywordsBaixa = [
-    'qual o endereco',
-    'qual o endereço',
-    'horario de funcionamento',
-    'horário de funcionamento',
-    'horario',
-    'atendem em',
-    'onde fica',
-    'bom dia',
-    'boa tarde',
-    'boa noite',
-    'ola',
-    'olá',
-  ]
-
-  let detectouAlta = false
-  for (let i = 0; i < keywordsAlta.length; i++) {
-    if (textoLower.includes(keywordsAlta[i])) {
-      detectouAlta = true
-      break
-    }
+  // 2. Anti-replay: timestamp obrigatório e validação de janela de 5 minutos (300.000 ms)
+  if (!reqTimestamp) {
+    gravarLog('rejeitado', 'Anti-replay: timestamp da requisição é obrigatório', 1)
+    return c.json(400, {
+      erro: 'Anti-replay: campo timestamp obrigatório para validação de segurança.',
+    })
   }
 
-  if (detectouAlta) {
-    intencao = 'alta'
-  } else {
-    let detectouMedia = false
-    for (let i = 0; i < keywordsMedia.length; i++) {
-      if (textoLower.includes(keywordsMedia[i])) {
-        detectouMedia = true
-        break
-      }
+  let tsMs = Number(reqTimestamp)
+  if (isNaN(tsMs)) {
+    // Tenta interpretar como ISO date
+    const parsed = Date.parse(String(reqTimestamp))
+    if (!isNaN(parsed)) {
+      tsMs = parsed
     }
-    if (detectouMedia) {
-      intencao = 'media'
-    } else {
-      intencao = 'baixa'
-    }
+  } else if (tsMs < 10000000000) {
+    // Timestamp em segundos (Unix Epoch)
+    tsMs = tsMs * 1000
   }
 
-  // 3. Localizar ou criar conversa_whatsapp
-  const conversasCol = $app.findCollectionByNameOrId('conversas_whatsapp')
-  let conversa = null
+  if (isNaN(tsMs)) {
+    gravarLog('rejeitado', 'Anti-replay: formato de timestamp inválido', 1)
+    return c.json(400, {
+      erro: 'Anti-replay: formato de timestamp inválido.',
+    })
+  }
 
-  try {
-    const conversasExistentes = $app.findRecordsByFilter(
-      'conversas_whatsapp',
-      "numero ~ '" + numeroLimpo.slice(-8) + "'",
-      '-created',
+  const diferencaMs = Math.abs(agora - tsMs)
+  const MAX_DRIFT_MS = 5 * 60 * 1000 // 5 minutos = 300.000 ms
+
+  if (diferencaMs > MAX_DRIFT_MS) {
+    gravarLog(
+      'rejeitado',
+      `Anti-replay: requisição expirada (drift de ${Math.round(diferencaMs / 1000)}s > 300s)`,
       1,
-      0,
     )
-    if (conversasExistentes && conversasExistentes.length > 0) {
-      conversa = conversasExistentes[0]
-    }
-  } catch (_) {}
-
-  if (!conversa) {
-    conversa = new Record(conversasCol)
-    conversa.set('numero', '+' + numeroLimpo)
-    conversa.set('status', 'aberta')
+    return c.json(400, {
+      erro: 'Anti-replay: requisição rejeitada (diferença de tempo superior a 5 minutos).',
+      drift_segundos: Math.round(diferencaMs / 1000),
+    })
   }
 
-  if (clienteId) {
-    conversa.set('cliente_id', clienteId)
-  }
-  conversa.set('provedor', provedor)
-  conversa.set('ultima_mensagem', texto)
-  conversa.set('ultima_intencao', intencao)
-  $app.save(conversa)
-
-  // 4. Salvar mensagem_whatsapp
-  const mensagensCol = $app.findCollectionByNameOrId('mensagens_whatsapp')
-  const msgRecord = new Record(mensagensCol)
-  msgRecord.set('conversa_id', conversa.id)
-  msgRecord.set('direcao', 'entrada')
-  msgRecord.set('texto', texto)
-  msgRecord.set('intencao_detectada', intencao)
-  $app.save(msgRecord)
-
-  // 5. Automações de CRM baseadas na intenção
-  let auditoria = {
-    intencao_detectada: intencao,
-    oportunidade_criada: false,
-    oportunidade_existente_id: null,
-    follow_up_criado: false,
-    resumo: '',
-  }
-
-  // Atribuição de responsável padrão para tarefas e oportunidades se o cliente não tiver
-  let responsavelFinalId = clienteResponsavelId
-  if (!responsavelFinalId) {
+  // 3. Idempotência: verificar se external_id já foi processado
+  if (externalId) {
     try {
-      const uVend = $app.findRecordsByFilter(
-        'usuarios',
-        "ativo = true && (perfil = 'vendedor_1' || perfil = 'vendedor_2' || perfil = 'coordenador_vendas')",
-        'created',
-        1,
-        0,
+      const msgExistente = $app.findFirstRecordByData(
+        'mensagens_whatsapp',
+        'external_id',
+        externalId,
       )
-      if (uVend && uVend.length > 0) {
-        responsavelFinalId = uVend[0].id
+      if (msgExistente) {
+        gravarLog('sucesso', 'Idempotência: external_id já processado previamente', 1)
+        return c.json(200, {
+          status: 'already_processed',
+          mensagem: 'Mensagem já processada anteriormente (idempotência atendida).',
+          id: msgExistente.id,
+          external_id: externalId,
+        })
       }
-    } catch (_) {}
+    } catch (_) {
+      // Não encontrada: continua processamento
+    }
   }
 
-  if (intencao === 'alta') {
-    // Regra anti-duplicata: se cliente já tem oportunidade aberta, NÃO criar outra
-    let opAbertaId = null
-    if (clienteId) {
-      try {
-        const ops = $app.findRecordsByFilter(
-          'oportunidades',
-          "cliente_id = '" + clienteId + "' && status = 'aberto'",
-          '-created',
-          1,
-          0,
-        )
-        if (ops && ops.length > 0) {
-          opAbertaId = ops[0].id
-        }
-      } catch (_) {}
-    }
+  // 4. Execução do processamento com Retry / Fila (até 3 tentativas)
+  // Campos da mensagem:
+  // remetente / de / from
+  // destinatario / para / to
+  // texto / text / body
+  const remetenteRaw = (body.remetente || body.de || body.from || body.telefone || '')
+    .toString()
+    .trim()
+  const destinatarioRaw = (body.destinatario || body.para || body.to || '').toString().trim()
+  const textoMsg = (
+    body.texto ||
+    body.text ||
+    (body.message && body.message.text) ||
+    body.conteudo ||
+    body.body ||
+    ''
+  )
+    .toString()
+    .trim()
 
-    if (!opAbertaId && clienteId) {
-      // Obter etapa Prospecção (menor ordem)
-      let etapaId = ''
-      try {
-        const etapas = $app.findRecordsByFilter('etapas_funil', '', 'ordem', 1, 0)
-        if (etapas && etapas.length > 0) {
-          etapaId = etapas[0].id
-        }
-      } catch (_) {}
+  const direcao = (body.direcao || (body.tipo === 'enviada' ? 'enviada' : 'recebida'))
+    .toString()
+    .trim()
+  const numeroContato = (direcao === 'enviada' ? destinatarioRaw : remetenteRaw).replace(/\D/g, '')
 
-      if (etapaId && responsavelFinalId) {
+  let tentativas = 0
+  let processadoSucesso = false
+  let ultimoErro = null
+  let mensagemCriadaId = null
+
+  while (tentativas < 3 && !processadoSucesso) {
+    tentativas++
+    try {
+      // Localizar cliente correspondente pelo telefone para vincular e herdar vendedor
+      let clienteRecord = null
+      let vendedorId = ''
+
+      if (numeroContato) {
         try {
-          const opsCol = $app.findCollectionByNameOrId('oportunidades')
-          const novaOp = new Record(opsCol)
-          novaOp.set('cliente_id', clienteId)
-          novaOp.set('etapa_id', etapaId)
-          novaOp.set('responsavel_id', responsavelFinalId)
-          novaOp.set('status', 'aberto')
-          novaOp.set('valor', 0)
-          novaOp.set('observacoes', 'Oportunidade aberta via IA (Intenção Alta WhatsApp): ' + texto)
-          $app.save(novaOp)
-          auditoria.oportunidade_criada = true
-          auditoria.oportunidade_id = novaOp.id
-        } catch (err) {
-          console.log('Erro ao criar oportunidade automática:', err)
+          // Busca cliente por telefone celular ou comercial (ultimos 8 ou 9 digitos)
+          const finalNumero = numeroContato.length >= 8 ? numeroContato.slice(-8) : numeroContato
+          const clientes = $app.findRecordsByFilter(
+            'clientes',
+            `telefone ~ '${finalNumero}' || celular ~ '${finalNumero}' || whatsapp ~ '${finalNumero}'`,
+            '-created',
+            1,
+          )
+          if (clientes && clientes.length > 0) {
+            clienteRecord = clientes[0]
+            vendedorId =
+              clienteRecord.getString('vendedor') || clienteRecord.getString('responsavel_id') || ''
+          }
+        } catch (_) {}
+      }
+
+      // Localizar ou criar a conversa_whatsapp vinculada
+      const conversasCol = $app.findCollectionByNameOrId('conversas_whatsapp')
+      let conversaRecord = null
+
+      if (numeroContato) {
+        try {
+          const finalNumero = numeroContato.length >= 8 ? numeroContato.slice(-8) : numeroContato
+          const conversasExistentes = $app.findRecordsByFilter(
+            'conversas_whatsapp',
+            `telefone_cliente ~ '${finalNumero}'`,
+            '-updated',
+            1,
+          )
+          if (conversasExistentes && conversasExistentes.length > 0) {
+            conversaRecord = conversasExistentes[0]
+          }
+        } catch (_) {}
+      }
+
+      if (!conversaRecord) {
+        conversaRecord = new Record(conversasCol)
+        conversaRecord.set('telefone_cliente', numeroContato || 'desconhecido')
+        conversaRecord.set(
+          'nome_cliente',
+          (clienteRecord ? clienteRecord.getString('nome') : body.nome) || 'Contato WhatsApp',
+        )
+        if (clienteRecord) {
+          conversaRecord.set('cliente_id', clienteRecord.id)
         }
-      }
-    } else {
-      auditoria.oportunidade_existente_id = opAbertaId
-    }
-
-    // Criar registro de follow-up (ligação com tipo "entrada", resultado "atendeu")
-    if (clienteId && responsavelFinalId) {
-      try {
-        const ligacoesCol = $app.findCollectionByNameOrId('ligacoes')
-        const novoFollowUp = new Record(ligacoesCol)
-        novoFollowUp.set('cliente_id', clienteId)
-        novoFollowUp.set('responsavel_id', responsavelFinalId)
-        novoFollowUp.set('data_hora', new Date().toISOString())
-        novoFollowUp.set('tipo', 'entrada')
-        novoFollowUp.set('resultado', 'atendeu')
-        novoFollowUp.set(
-          'observacoes',
-          'Cliente demonstrou interesse via WhatsApp (Alta intenção). Assunto: ' + texto,
+        if (vendedorId) {
+          conversaRecord.set('vendedor', vendedorId)
+        }
+        conversaRecord.set('status', 'aberta')
+        conversaRecord.set('ultima_mensagem', textoMsg || 'Nova mensagem recebida')
+        conversaRecord.set('ultima_mensagem_em', new Date().toISOString())
+        $app.save(conversaRecord)
+      } else {
+        // Atualiza conversa com a última mensagem
+        conversaRecord.set(
+          'ultima_mensagem',
+          textoMsg || conversaRecord.getString('ultima_mensagem'),
         )
-        novoFollowUp.set('proxima_acao', 'Responder cotação/pedido no WhatsApp')
-        $app.save(novoFollowUp)
-        auditoria.follow_up_criado = true
-      } catch (err) {
-        console.log('Erro ao criar follow-up (alta intenção):', err)
+        conversaRecord.set('ultima_mensagem_em', new Date().toISOString())
+        if (clienteRecord && !conversaRecord.getString('cliente_id')) {
+          conversaRecord.set('cliente_id', clienteRecord.id)
+        }
+        if (vendedorId && !conversaRecord.getString('vendedor')) {
+          conversaRecord.set('vendedor', vendedorId)
+        }
+        $app.save(conversaRecord)
       }
-    }
 
-    auditoria.resumo =
-      'Intenção Alta detectada: ' +
-      (auditoria.oportunidade_criada
-        ? 'Oportunidade aberta e follow-up registrado.'
-        : 'Follow-up adicionado à oportunidade aberta existente.')
-  } else if (intencao === 'media') {
-    // Intenção MÉDIA: cria SÓ o follow-up (sem oportunidade)
-    if (clienteId && responsavelFinalId) {
-      try {
-        const ligacoesCol = $app.findCollectionByNameOrId('ligacoes')
-        const novoFollowUp = new Record(ligacoesCol)
-        novoFollowUp.set('cliente_id', clienteId)
-        novoFollowUp.set('responsavel_id', responsavelFinalId)
-        novoFollowUp.set('data_hora', new Date().toISOString())
-        novoFollowUp.set('tipo', 'entrada')
-        novoFollowUp.set('resultado', 'atendeu')
-        novoFollowUp.set(
-          'observacoes',
-          'Dúvida de produto/qualificação via WhatsApp (Média intenção). Assunto: ' + texto,
-        )
-        novoFollowUp.set('proxima_acao', 'Esclarecer dúvidas técnicas e prazos')
-        $app.save(novoFollowUp)
-        auditoria.follow_up_criado = true
-      } catch (err) {
-        console.log('Erro ao criar follow-up (média intenção):', err)
+      // Criar o registro na coleção mensagens_whatsapp
+      const mensagensCol = $app.findCollectionByNameOrId('mensagens_whatsapp')
+      const novaMensagem = new Record(mensagensCol)
+      novaMensagem.set('conversa_id', conversaRecord.id)
+      novaMensagem.set('direcao', direcao === 'enviada' ? 'enviada' : 'recebida')
+      novaMensagem.set('conteudo', textoMsg || '(mensagem sem texto)')
+      novaMensagem.set('status', 'recebida')
+      if (externalId) {
+        novaMensagem.set('external_id', externalId)
       }
+      const vendedorFinal = vendedorId || conversaRecord.getString('vendedor') || ''
+      if (vendedorFinal) {
+        novaMensagem.set('vendedor', vendedorFinal)
+      }
+
+      $app.save(novaMensagem)
+      mensagemCriadaId = novaMensagem.id
+      processadoSucesso = true
+    } catch (err) {
+      ultimoErro = err
+      // Se não for a última tentativa, pequeno sleep ou continue
     }
-    auditoria.resumo =
-      'Intenção Média detectada: Follow-up registrado para o vendedor responder dúvidas.'
-  } else {
-    auditoria.resumo =
-      'Intenção Baixa detectada: Conversa registrada sem criação de oportunidade ou follow-up.'
   }
 
-  return e.json(200, {
-    success: true,
-    conversa_id: conversa.id,
-    cliente_id: clienteId,
-    mensagem_id: msgRecord.id,
-    auditoria: auditoria,
-  })
+  // 5. Verificação do resultado após tentativas
+  if (processadoSucesso) {
+    gravarLog('sucesso', '', tentativas)
+    return c.json(200, {
+      status: 'sucesso',
+      external_id: externalId,
+      mensagem_id: mensagemCriadaId,
+      tentativas: tentativas,
+    })
+  } else {
+    // Falha em todas as tentativas: marcar como "pendente" para fila/reprocessamento
+    const erroDesc = ultimoErro
+      ? ultimoErro.message || String(ultimoErro)
+      : 'Erro desconhecido no processamento'
+    gravarLog('pendente', erroDesc, tentativas)
+
+    return c.json(500, {
+      status: 'pendente',
+      erro: 'Falha temporária no processamento após tentativas. Marcado como pendente para reprocessamento.',
+      tentativas: tentativas,
+      detalhe: erroDesc,
+    })
+  }
 })
