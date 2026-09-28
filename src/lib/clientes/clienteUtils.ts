@@ -25,6 +25,21 @@ export interface ClienteImportItem {
   status_cliente: 'ativo' | 'para_reativacao'
 }
 
+export interface AgrupamentoResultado {
+  clientes: ClienteImportItem[]
+  totalLinhasOriginais: number
+  totalGruposFormados: number
+  linhasAgrupadas: number
+  gruposComMaisDeUmRegistro: Array<{
+    chave: string
+    nomeFinal: string
+    totalItens: number
+    nomesOriginais: string[]
+    valorTotalVendas: number
+    valorTotalCompras: number
+  }>
+}
+
 /**
  * Normaliza o nome da empresa para detecção de duplicatas e sufixos societários.
  * Converte para maiúsculas, remove pontuações, normaliza espaços,
@@ -45,19 +60,17 @@ export function normalizarChaveEmpresa(nome: string): string {
   // Remove caracteres pontuais comuns que não alteram a identidade
   n = n.replace(/[.,\-/\\#()[\]]/g, ' ')
 
-  // Lista de sufixos societários comuns no Brasil para remover do final da razão social
-  // Ex: "LTDA", "LTD", "LT", "LDTA", "EIRELI", "EPP", "ME", "S A", "SA", "CIA", "SOCIEDADE ANONIMA", "SS"
-  const sufixos = [
-    /\b(LTDA|LTD|LT|LDTA)\b/gi,
-    /\b(EIRELI|EPP|ME)\b/gi,
-    /\b(S\s*A|SA|SOCIEDADE\s*ANONIMA)\b/gi,
-    /\b(CIA|COMPANHIA)\b/gi,
-    /\b(SS|S\/S)\b/gi,
-    /\b(MICROEMPRESA)\b/gi,
-  ]
+  // Lista de sufixos societários comuns no Brasil para remover
+  // Ex: "LTDA", "LTD", "LT", "LDTA", "EIRELI", "EPP", "ME", "S/A", "S.A", "S A", "SA", "CIA", "SOCIEDADE ANONIMA", "SS", "EPP"
+  // Remove repetidamente do final enquanto houver combinações como "LTDA - ME", "LTDA EPP", "S/A", etc.
+  const regexSufixosFim =
+    /\b(LTDA|LTD|LT|LDTA|EIRELI|EPP|ME|SA|S\s*A|SOCIEDADE\s*ANONIMA|CIA|COMPANHIA|SS|S\s*\/\s*S|MICROEMPRESA)\b\s*$/i
 
-  for (const suf of sufixos) {
-    n = n.replace(suf, ' ')
+  let mudou = true
+  while (mudou) {
+    const anterior = n
+    n = n.replace(regexSufixosFim, '').trim()
+    mudou = n !== anterior
   }
 
   // Remove espaços múltiplos e apara
@@ -148,7 +161,11 @@ export function normalizarTipoContato(val?: string): 'cliente' | 'fornecedor' | 
  * Mantém dados de contato mais completos (ex.: telefone, email, cnpj_cpf).
  */
 export function agruparEDeduplicarClientes(itens: ClienteImportItem[]): ClienteImportItem[] {
-  const mapa = new Map<string, ClienteImportItem>()
+  return processarAgrupamentoClientes(itens).clientes
+}
+
+export function processarAgrupamentoClientes(itens: ClienteImportItem[]): AgrupamentoResultado {
+  const mapa = new Map<string, { cliente: ClienteImportItem; nomesOriginais: string[] }>()
 
   for (const item of itens) {
     const nomeLimpo = (item.nome_empresa || item.nome_contato || '').trim()
@@ -159,13 +176,17 @@ export function agruparEDeduplicarClientes(itens: ClienteImportItem[]): ClienteI
 
     if (!mapa.has(chaveNormalizada)) {
       mapa.set(chaveNormalizada, {
-        ...item,
-        nome_empresa: item.nome_empresa || item.nome_contato || '',
-        valor_total_compras: Number(item.valor_total_compras) || 0,
-        valor_total_vendas: Number(item.valor_total_vendas) || 0,
+        cliente: {
+          ...item,
+          nome_empresa: item.nome_empresa || item.nome_contato || '',
+          valor_total_compras: Number(item.valor_total_compras) || 0,
+          valor_total_vendas: Number(item.valor_total_vendas) || 0,
+        },
+        nomesOriginais: [nomeLimpo],
       })
     } else {
-      const existente = mapa.get(chaveNormalizada)!
+      const entrada = mapa.get(chaveNormalizada)!
+      const existente = entrada.cliente
 
       // Se um dos registros for mais completo no nome (ex: termina em LTDA em vez de apenas LT), prefere o mais completo
       const nomePreferido =
@@ -193,7 +214,7 @@ export function agruparEDeduplicarClientes(itens: ClienteImportItem[]): ClienteI
       const grande =
         existente.grande_cliente === 'sim' || item.grande_cliente === 'sim' ? 'sim' : 'nao'
 
-      // Status: se algum estiver 'ativo', mantém 'ativo' (compra recente reativa)
+      // Status: se qualquer linha do grupo for 'ativo', o status consolidado é 'ativo'
       const statusFinal =
         existente.status_cliente === 'ativo' || item.status_cliente === 'ativo'
           ? 'ativo'
@@ -206,8 +227,9 @@ export function agruparEDeduplicarClientes(itens: ClienteImportItem[]): ClienteI
       const cidadeFinal = existente.cidade || item.cidade || ''
       const estadoFinal = existente.estado || item.estado || ''
       const contatoFinal = existente.nome_contato || item.nome_contato || ''
+      const vendedorFinal = existente.vendedor || item.vendedor
 
-      mapa.set(chaveNormalizada, {
+      entrada.cliente = {
         ...existente,
         nome_empresa: nomePreferido,
         nome_contato: contatoFinal,
@@ -216,15 +238,45 @@ export function agruparEDeduplicarClientes(itens: ClienteImportItem[]): ClienteI
         email: emailFinal,
         cidade: cidadeFinal,
         estado: estadoFinal,
+        vendedor: vendedorFinal,
         valor_total_compras: Number(novoTotalCompras.toFixed(2)),
         valor_total_vendas: Number(novoTotalVendas.toFixed(2)),
         data_ultima_compra: ultimaCompra,
         data_primeira_compra: primeiraCompra,
         grande_cliente: grande,
         status_cliente: statusFinal,
+      }
+
+      if (!entrada.nomesOriginais.includes(nomeLimpo)) {
+        entrada.nomesOriginais.push(nomeLimpo)
+      }
+    }
+  }
+
+  const clientes: ClienteImportItem[] = []
+  const gruposComMaisDeUmRegistro: AgrupamentoResultado['gruposComMaisDeUmRegistro'] = []
+  let linhasAgrupadas = 0
+
+  for (const [chave, entrada] of mapa.entries()) {
+    clientes.push(entrada.cliente)
+    if (entrada.nomesOriginais.length > 1) {
+      linhasAgrupadas += entrada.nomesOriginais.length - 1
+      gruposComMaisDeUmRegistro.push({
+        chave,
+        nomeFinal: entrada.cliente.nome_empresa,
+        totalItens: entrada.nomesOriginais.length,
+        nomesOriginais: entrada.nomesOriginais,
+        valorTotalVendas: entrada.cliente.valor_total_vendas,
+        valorTotalCompras: entrada.cliente.valor_total_compras,
       })
     }
   }
 
-  return Array.from(mapa.values())
+  return {
+    clientes,
+    totalLinhasOriginais: itens.length,
+    totalGruposFormados: clientes.length,
+    linhasAgrupadas,
+    gruposComMaisDeUmRegistro,
+  }
 }

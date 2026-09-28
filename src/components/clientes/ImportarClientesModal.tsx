@@ -15,12 +15,13 @@ import pb from '@/lib/pocketbase/client'
 import { toast } from '@/hooks/use-toast'
 import { parseCSV, normalizarNomeColuna } from '@/lib/importacao/csvUtils'
 import {
-  agruparEDeduplicarClientes,
+  processarAgrupamentoClientes,
   normalizarVendedor,
   normalizarStatusCliente,
   normalizarGrandeCliente,
   normalizarTipoContato,
   type ClienteImportItem,
+  type AgrupamentoResultado,
 } from '@/lib/clientes/clienteUtils'
 import { formatarMoeda } from '@/types/clientes'
 
@@ -38,6 +39,9 @@ export default function ImportarClientesModal({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [arquivo, setArquivo] = useState<File | null>(null)
   const [clientesAgrupados, setClientesAgrupados] = useState<ClienteImportItem[]>([])
+  const [resultadoAgrupamento, setResultadoAgrupamento] = useState<AgrupamentoResultado | null>(
+    null,
+  )
   const [totalLinhasArquivo, setTotalLinhasArquivo] = useState(0)
   const [importando, setImportando] = useState(false)
   const [progresso, setProgresso] = useState(0)
@@ -51,6 +55,7 @@ export default function ImportarClientesModal({
     if (!open) {
       setArquivo(null)
       setClientesAgrupados([])
+      setResultadoAgrupamento(null)
       setTotalLinhasArquivo(0)
       setProgresso(0)
       setResultado(null)
@@ -158,14 +163,15 @@ export default function ImportarClientesModal({
         }
 
         // Deduplicação e agrupamento por sufixo societário somando valores numéricos
-        const agrupados = agruparEDeduplicarClientes(itensBrutos)
+        const agrupamento = processarAgrupamentoClientes(itensBrutos)
 
         setTotalLinhasArquivo(rawRows.length)
-        setClientesAgrupados(agrupados)
+        setClientesAgrupados(agrupamento.clientes)
+        setResultadoAgrupamento(agrupamento)
 
         toast({
           title: 'Arquivo processado com sucesso',
-          description: `${rawRows.length} linhas lidas e agrupadas em ${agrupados.length} clientes únicos (valores somados).`,
+          description: `${rawRows.length} linhas lidas e agrupadas em ${agrupamento.clientes.length} clientes únicos (valores somados).`,
         })
       } catch (err: unknown) {
         toast({
@@ -208,6 +214,12 @@ export default function ImportarClientesModal({
       const item = clientesAgrupados[i]
       const chaveExistente = existentesNoBanco[item.nome_empresa.trim().toLowerCase()]
 
+      const formatarDataIso = (dStr?: string) => {
+        if (!dStr) return null
+        if (dStr.includes('T')) return dStr
+        return `${dStr} 12:00:00.000Z`
+      }
+
       const payload: Record<string, unknown> = {
         nome_empresa: item.nome_empresa,
         nome_contato: item.nome_contato || item.nome_empresa,
@@ -222,12 +234,8 @@ export default function ImportarClientesModal({
         grande_cliente: item.grande_cliente,
         valor_total_vendas: item.valor_total_vendas,
         valor_total_compras: item.valor_total_compras,
-        data_ultima_compra: item.data_ultima_compra
-          ? new Date(item.data_ultima_compra).toISOString()
-          : null,
-        data_primeira_compra: item.data_primeira_compra
-          ? new Date(item.data_primeira_compra).toISOString()
-          : null,
+        data_ultima_compra: formatarDataIso(item.data_ultima_compra),
+        data_primeira_compra: formatarDataIso(item.data_primeira_compra),
         status: item.status_cliente === 'ativo' ? 'ativo' : 'rascunho',
       }
 
@@ -327,13 +335,35 @@ export default function ImportarClientesModal({
               </div>
 
               {totalLinhasArquivo > clientesAgrupados.length && (
-                <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200">
-                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                  <span>
-                    {totalLinhasArquivo - clientesAgrupados.length} registros com sufixos
-                    societários semelhantes foram agrupados e tiveram seus valores financeiros
-                    somados.
-                  </span>
+                <div className="space-y-2 text-xs text-amber-800 bg-amber-50/80 p-3 rounded-lg border border-amber-200">
+                  <div className="flex items-center gap-1.5 font-semibold text-amber-900">
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0 text-amber-600" />
+                    <span>
+                      {totalLinhasArquivo - clientesAgrupados.length} linhas agrupadas por variação
+                      societária (valores de vendas e compras somados).
+                    </span>
+                  </div>
+                  {resultadoAgrupamento &&
+                    resultadoAgrupamento.gruposComMaisDeUmRegistro.length > 0 && (
+                      <div className="space-y-1 pt-1 text-[11px]">
+                        <p className="font-medium text-amber-950">
+                          Exemplos de variações unificadas:
+                        </p>
+                        <div className="max-h-24 overflow-y-auto space-y-1">
+                          {resultadoAgrupamento.gruposComMaisDeUmRegistro
+                            .slice(0, 4)
+                            .map((g, idx) => (
+                              <div
+                                key={idx}
+                                className="bg-white/70 p-1.5 rounded border border-amber-200/60 text-slate-700"
+                              >
+                                <span className="font-semibold text-slate-900">{g.nomeFinal}</span>:{' '}
+                                {g.nomesOriginais.join(' + ')}
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    )}
                 </div>
               )}
 

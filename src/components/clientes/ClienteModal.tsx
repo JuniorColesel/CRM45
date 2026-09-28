@@ -168,10 +168,8 @@ export default function ClienteModal({
         grande_cliente: grandeCliente,
         valor_total_vendas: parseFloat(valorTotalVendas) || 0,
         valor_total_compras: parseFloat(valorTotalCompras) || 0,
-        data_ultima_compra: dataUltimaCompra ? new Date(dataUltimaCompra).toISOString() : null,
-        data_primeira_compra: dataPrimeiraCompra
-          ? new Date(dataPrimeiraCompra).toISOString()
-          : null,
+        data_ultima_compra: dataUltimaCompra ? `${dataUltimaCompra} 12:00:00.000Z` : null,
+        data_primeira_compra: dataPrimeiraCompra ? `${dataPrimeiraCompra} 12:00:00.000Z` : null,
         // sincronia para campos legados
         responsavel_id: user?.id || null,
         status: statusCliente === 'ativo' ? 'ativo' : 'rascunho',

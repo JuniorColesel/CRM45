@@ -142,16 +142,22 @@ export default function ClientesPage() {
   }, [abaAtiva, filtroStatusCliente, filtroVendedor, filtroTipoContato, filtroGrandeCliente, busca])
 
   // Carrega lista de clientes com paginação server-side respeitando ordenação padrão por valor_total_vendas DESC
+  // Na aba "reativacao": ordenação por valor_total_vendas decrescente priorizando grandes clientes
   const carregarClientes = useCallback(async () => {
     try {
       setLoading(true)
       const filter = construirFiltro()
 
-      // Ordenação padrão solicitada: por valor_total_vendas (decrescente)
+      // Ordenação: se aba reativação, prioriza grandes clientes e depois maior valor de vendas
+      const sortExpr =
+        abaAtiva === 'reativacao'
+          ? '-grande_cliente,-valor_total_vendas,-created'
+          : '-valor_total_vendas,-created'
+
       const result = await pb
         .collection('clientes')
         .getList<ClienteModel>(paginaAtual, itensPorPagina, {
-          sort: '-valor_total_vendas,-created',
+          sort: sortExpr,
           filter: filter || undefined,
           requestKey: null,
         })
@@ -212,11 +218,13 @@ export default function ClientesPage() {
   // Ação "Assumir cliente" para prospectar: atribui o cliente ao vendedor logado e muda status para "ativo"
   const handleAssumirCliente = async (cliente: ClienteModel) => {
     const novoVendedor = mapearNomeVendedorUsuario()
+    const hojeStr = new Date().toISOString().substring(0, 10)
     setAssumindoId(cliente.id)
     try {
       await pb.collection('clientes').update(cliente.id, {
         vendedor: novoVendedor,
         status_cliente: 'ativo',
+        data_ultima_compra: `${hojeStr} 12:00:00.000Z`,
         responsavel_id: user?.id || null,
         status: 'ativo',
       })

@@ -126,6 +126,18 @@ export default function AbaOportunidades({ clienteId }: AbaOportunidadesProps) {
         expand: 'etapa_id,responsavel_id',
       })
 
+      // Regra de negócio: se fizer nova compra ou nova oportunidade fechada/aberta, status volta para 'ativo'
+      if (clienteId) {
+        try {
+          await pb.collection('clientes').update(clienteId, {
+            status_cliente: 'ativo',
+            status: 'ativo',
+          })
+        } catch {
+          // Mantém integridade mesmo se usuário não tiver permissão de update no cliente
+        }
+      }
+
       setOportunidades((prev) => [nova, ...prev])
       toast({
         title: 'Oportunidade criada',
