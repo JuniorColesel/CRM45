@@ -1,0 +1,36 @@
+name: CI CRM Colesel 45
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  qualidade-e-testes:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Análise Estática / Lint (oxlint)
+        run: npm run lint
+
+      - name: Checagem de Tipos TypeScript (tsc)
+        run: npx tsc --noEmit
+
+      - name: Executar Testes Automatizados (Vitest 15/15)
+        run: npm test
+
+      - name: Build de Produção (Vite)
+        run: npm run build

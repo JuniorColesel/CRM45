@@ -302,6 +302,8 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (c) => {
 // 2. WORKER AGENDADO (CRON): Processamento de Webhooks Pendentes
 // =========================================================================
 // Executa a cada minuto via cronAdd nativo do PocketBase
+// Ciclo de status v0.0.35: pendente -> processando -> processado
+// Após 3 falhas -> falha_definitiva
 cronAdd('processar_webhooks_whatsapp_pendentes', '* * * * *', () => {
   const agora = Date.now()
 
@@ -344,9 +346,10 @@ cronAdd('processar_webhooks_whatsapp_pendentes', '* * * * *', () => {
       continue
     }
 
-    // LOCK: Marcar como em_processamento para evitar que outro tick do cron dispute o registro
+    // LOCK: Marcar como em_processamento e status = 'processando'
     try {
       logRec.set('em_processamento', true)
+      logRec.set('status', 'processando')
       $app.save(logRec)
     } catch (_) {
       // Se falhar o lock concorrente, pula para o próximo registro
@@ -619,10 +622,11 @@ cronAdd('processar_webhooks_whatsapp_pendentes', '* * * * *', () => {
             delaysPorTentativa[tentativasAtuais] ||
             delaysPorTentativa[delaysPorTentativa.length - 1]
           logRec.set('proxima_tentativa', Date.now() + delayProximo)
-          logRec.set('status', 'pendente') // Mantém pendente para próxima tentativa
+          logRec.set('status', 'pendente') // Volta para pendente para próxima tentativa
         } else {
-          // REQUISITO: Falha nas 3 tentativas -> MANTÉM status "pendente" (para retry manual ou investigação; NÃO deletar)
-          logRec.set('status', 'pendente')
+          // REQUISITO 4 (v0.0.35): Falha nas 3 tentativas -> falha_definitiva (em vez de manter 'pendente')
+          // Mantém registro para auditoria e histórico de falhas
+          logRec.set('status', 'falha_definitiva')
           logRec.set('proxima_tentativa', 0) // Sem mais retentativas automáticas
         }
       }

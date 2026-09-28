@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-28T14:02:59.133Z",
+  "generatedAt": "2026-09-28T14:43:36.149Z",
   "collections": [
     {
       "name": "users",
@@ -1802,9 +1802,11 @@
           "selectValues": [
             "sucesso",
             "pendente",
+            "processando",
+            "processado",
+            "falha_definitiva",
             "rejeitado",
             "falhou",
-            "processado",
             "em_processamento"
           ]
         },
