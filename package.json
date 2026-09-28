@@ -16,8 +16,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "ci": "npm run lint && tsc --noEmit && npm run test && npm run build",
-    "backup:exec": "tsx scripts/exec_backup_ciclo.ts"
+    "ci": "npm run lint && tsc --noEmit && npm run test && npm run build"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
