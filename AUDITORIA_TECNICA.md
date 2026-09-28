@@ -1,396 +1,566 @@
-# Relatório de Auditoria Técnica Completa — CRM Comercial Colesel 45
+# Auditoria Técnica e Arquitetural do CRM Colesel 45
 
-**Data da Auditoria:** 24 de Maio de 2025  
-**Versão da Aplicação:** v0.0.18  
-**Destinatário:** IA Executora de Correções / Equipe de Engenharia  
-**Escopo:** Auditoria estática e diagnóstica de ponta a ponta (Banco de Dados, Migrações, RLS, Backend/Hooks, Autenticação, Rotas, Páginas, Regras de Negócio, Performance, Infraestrutura e Segurança).  
-**Finalidade:** Diagnóstico exaustivo e acionável. Nenhuma correção foi aplicada nesta execução; cada item possui localização exata, impacto e prescrição técnica autocontida para aplicação direta.
-
----
-
-## 1. Resumo Executivo
-
-O CRM Comercial **Colesel 45** é uma aplicação corporativa moderna construída em React 19 + TypeScript + Vite + Tailwind CSS/shadcn com backend PocketBase na infraestrutura Skip Cloud. A aplicação atende a fluxos críticos de vendas B2B: gestão de clientes, funil kanban, registro telefônico, automação multicanal, marketing institucional e metas financeiras.
-
-A auditoria revelou que a aplicação possui uma base visual e conceitual sólida, porém com **vulnerabilidades de segurança graves, incoerências severas de regras de acesso (RLS) e riscos de integridade operacional** que devem ser sanados antes do uso em produção:
-
-1. **Gestão de Usuários e Autenticação (Crítico):** A coleção nativa `usuarios` não possui `createRule` nem `deleteRule` no PocketBase (`null`). Como resultado, qualquer tentativa de cadastrar ou excluir usuários pelo frontend em `/usuarios` falhará com erro `403 Forbidden` para qualquer usuário que não seja superusuário do banco. Além disso, há uma senha mestre hardcoded no código client-side (`Skip@Pass45#`) e um `useEffect` no client que tenta auto-provisionar contas de diretores caso não existam.
-2. **Brecha de Integridade em Metas (Crítico):** A `updateRule` da coleção `metas` contém a cláusula `@request.auth.id = usuario_id`, permitindo que vendedores alterem arbitrariamente seus próprios alvos de faturamento e metas de propostas ganhas.
-3. **Incompatibilidade Hierárquica em RLS (Alto):** O perfil `coordenador_vendas` não possui permissão de escrita/exclusão em `clientes`, `oportunidades`, `tarefas` e `ligacoes` de sua equipe, pois as regras de API exigem estritamente `responsavel_id = @request.auth.id` ou `perfil = 'ceo_financeiro'`.
-4. **Desconexão de Estado no Backend Hook (Alto):** O hook PocketBase `fechamento_oportunidade.js` preenche `data_fechamento` quando o status vira `ganho` ou `perdido`, mas **não limpa** o campo se a oportunidade for reaberta (`status = 'aberto'`), poluindo os relatórios e distorcendo a taxa de conversão.
-5. **Decisões de Produto Respeitadas:** As rotas administrativas (`/usuarios`, `/importacao`, `/metas`, `/primeiros-passos`) não constam no menu lateral principal por decisão deliberada do produto. Os módulos `/painel` e `/configuracoes` permanecem como telas de planejamento (`ModulePlaceholder`), o que é decisão consciente do roadmap e não deve ser modificado.
+**Data da Auditoria:** Outubro de 2026 (Atualizado pós-v0.0.26)  
+**Versão do Sistema Avaliado:** CRM Colesel 45 (pós-v0.0.26)  
+**Escopo:** Documento de auditoria técnica para transferência, homologação e auditoria por outro aplicativo / time de engenharia externo.  
+**Auditor Responsável:** Engenharia de Software e Segurança da Informação
 
 ---
 
-## 2. Banco de Dados e Migrações
+## 1. Visão Geral
 
-### 2.1 Análise das Migrações Existentes (0001 a 0008)
+### 1.1 O que é o CRM Colesel 45
 
-O projeto possui 8 migrações em `pocketbase/migrations/`:
+O **CRM Colesel 45** é uma aplicação corporativa desenvolvida sob medida para a equipe comercial e de vendas da construtora **Colesel 45**. O sistema gerencia o ciclo completo de prospecção, qualificação, negociação de obras/empreendimentos, relacionamento pós-venda, automação de comunicação e acompanhamento de metas financeiras e volumétricas da equipe.
 
-- `0001_create_usuarios.js`: Coleção do tipo `auth` (`usuarios`), campos `nome` (text), `perfil` (select), `ativo` (bool).
-- `0002_seed_usuario_ceo.js`: Seed do primeiro usuário administrador (`junior.colesel@coleselengenharia.com`).
-- `0003_create_tabelas_principais.js`: Coleções `etapas_funil` e `motivos_perda`.
-- `0004_create_clientes.js`: Coleção `clientes` com dados cadastrais, responsável e campos de controle.
-- `0005_create_oportunidades_tarefas_ligacoes.js`: Coleções centrais da esteira comercial (`oportunidades`, `tarefas`, `ligacoes`).
-- `0006_create_automacoes_mensagens_canais.js`: Coleções do ecossistema de réguas e canais (`canais_marketing`, `automacoes`, `mensagens_enviadas`).
-- `0007_create_campanhas_conteudos_publicacoes_aprovacoes.js`: Módulos de marketing (`campanhas`, `conteudos_gerados`, `publicacoes`, `aprovacoes_pendentes`).
-- `0008_create_metas.js`: Coleção `metas` com index único composto `idx_metas_usuario_ano_mes`.
+### 1.2 Stack Tecnológica
 
-### 2.2 Inventário de Achados de Banco de Dados
+- **Frontend Core:** React 18 com TypeScript, compilado e empacotado via Vite.
+- **Roteamento:** React Router DOM (v6) com controle centralizado via `App.tsx` e proteção de rotas com `ProtectedRoute.tsx`.
+- **Estilização e Design System:** Tailwind CSS integrado com os componentes do Shadcn/UI (Radix UI primitives).
+- **Backend as a Service (BaaS):** PocketBase executado sobre a nuvem gerenciada Skip Cloud, fornecendo banco de dados SQLite embarcado com suporte nativo a migrações em JavaScript, triggers de eventos em JavaScript (`pb_hooks`), autenticação baseada em tokens JWT e regras de segurança RLS (_Row-Level Security_).
+- **Gerenciamento de Estado:** Context API do React (`AuthContext.tsx` e `PeriodoContext.tsx`), cache em memória local por tempo de expiração (`painelService.ts`) e `localStorage` para persistência de integrações e configurações de usuário.
 
-#### [BD-01 CRÍTICO] Ausência de `createRule` e `deleteRule` na coleção `usuarios`
+### 1.3 Rota Inicial Pós-Login
 
-- **Localização:** `pocketbase/migrations/0001_create_usuarios.js`, linhas 63–66.
-- **Descrição:** A coleção `usuarios` foi configurada com:
-  ```javascript
-  collection.listRule = "@request.auth.id != ''"
-  collection.viewRule = "@request.auth.id != ''"
-  collection.updateRule = "@request.auth.perfil = 'ceo_financeiro' || @request.auth.id = id"
-  collection.deleteRule = null
-  // createRule não declarada -> padrão do PocketBase é null
-  ```
-- **Impacto:** Como `createRule` e `deleteRule` são `null`, **somente superusuários do PocketBase (Admin Dashboard)** podem criar ou deletar registros via API REST. A página `/usuarios`, destinada ao `ceo_financeiro`, falha com HTTP `403 Forbidden` ao submeter um novo colaborador ou ao tentar excluir um colaborador desligado.
-- **Correção Proposta:** Criar nova migração `0009_fix_usuarios_rules.js`:
-  ```javascript
-  migrate(
-    (app) => {
-      const col = app.findCollectionByNameOrId('usuarios')
-      col.createRule = "@request.auth.perfil = 'ceo_financeiro'"
-      col.deleteRule = "@request.auth.perfil = 'ceo_financeiro' && @request.auth.id != id"
-      app.save(col)
-    },
-    (app) => {
-      const col = app.findCollectionByNameOrId('usuarios')
-      col.createRule = null
-      col.deleteRule = null
-      app.save(col)
-    },
+A rota inicial padrão para qualquer usuário autenticado após a validação de credenciais em `/login` (implementada em `Index.tsx`) é **`/painel`** (Painel Geral de Vendas). O sistema redireciona automaticamente o usuário autenticado para `/painel`, exceto quando o usuário não concluiu o treinamento obrigatório de primeiro acesso (situação em que é retido em `/pop-treinamento?treinamento=obrigatorio`).
+
+---
+
+## 2. Mapa Completo de Telas e Rotas
+
+Abaixo está o mapeamento detalhado de cada rota declarada no `App.tsx`, suas responsabilidades funcionais, permissões de acesso, componentes principais, estados vazios, estratégia de paginação e capacidade de exportação.
+
+| Rota                | Nome da Tela             | Componentes Principais                                                                                                                                                                                                    | Perfis Autorizados                                                                                                                   | Estado Vazio                                                                              | Paginação                                                                           | Exportação CSV                              |
+| :------------------ | :----------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | :----------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------- | :------------------------------------------ |
+| `/login`            | Login                    | `Index.tsx`, `Input`, `Button`, `Lock`, `Mail`                                                                                                                                                                            | Público (redireciona para `/painel` se logado)                                                                                       | N/A                                                                                       | N/A                                                                                 | Não                                         |
+| `/painel`           | Painel Geral             | `PainelPage.tsx`, `PainelKpiCards.tsx`, `PainelGraficos.tsx`, `PainelAcoesAlertas.tsx`, `SeletorDePeriodo.tsx`                                                                                                            | Todos autenticados                                                                                                                   | Cards zerados com mensagem contextual                                                     | N/A (Dashboard Agregado)                                                            | Não                                         |
+| `/clientes`         | Base de Clientes         | `ClientesPage.tsx`, `ClienteModal.tsx`, `PaginacaoControles.tsx`                                                                                                                                                          | Todos autenticados (com escopo RLS)                                                                                                  | Mensagem com ícone `Users` e botão "Cadastrar Primeiro Cliente" ou "Limpar filtros"       | Server-side (`getList(p, limit)`), limit 50 (opções 25/50/100)                      | Não (individual na tela)                    |
+| `/clientes/:id`     | Visão 360° do Cliente    | `ClienteDetalhesPage.tsx`, `AbaOportunidades.tsx`, `AbaTarefas.tsx`, `AbaLigacoes.tsx`, `AbaMensagens.tsx`                                                                                                                | Todos autenticados (RLS no registro)                                                                                                 | Alerta amigável e redirecionamento caso não exista                                        | N/A (listas completas das abas filtradas por cliente)                               | Não                                         |
+| `/funil`            | Funil de Vendas (Kanban) | `FunilPage.tsx`, `KanbanBoard.tsx`, `KanbanColumn.tsx`, `KanbanCard.tsx`, `OportunidadeModal.tsx`, `OportunidadeDetalhesSheet.tsx`, `FunilResumoCards.tsx`, `FunilFiltros.tsx`, `SeletorDePeriodo.tsx`                    | Todos autenticados (RLS no registro)                                                                                                 | Colunas vazias com dropzone habilitado                                                    | Server-side (`getList(p, limit)`), padrão 50 itens                                  | Não                                         |
+| `/prospectos`       | Prospecção e Tarefas     | `ProspeccaoPage.tsx`, `TarefaModal.tsx`                                                                                                                                                                                   | Todos autenticados (RLS no registro)                                                                                                 | Cards explicativos vazios para "Tarefas de Hoje" e "Tarefas Vencidas"                     | Client-side sobre lista filtrada                                                    | Não                                         |
+| `/followup`         | Follow-up Ativo          | `FollowUpPage.tsx`, `TarefaModal.tsx`, `PaginacaoControles.tsx`                                                                                                                                                           | Todos autenticados (RLS no registro)                                                                                                 | Aviso específico por coluna: sem contato, propostas paradas, aniversariantes e reativação | Server-side na coleção `clientes` (padrão 50 itens)                                 | Não                                         |
+| `/ligacoes`         | Ligações Telefônicas     | `LigacoesPage.tsx`, abas `Registrar Ligação` e `Histórico`                                                                                                                                                                | Todos autenticados (RLS no registro)                                                                                                 | "Nenhuma ligação encontrada"                                                              | Client-side na listagem histórica                                                   | Não                                         |
+| `/automacoes`       | Automações e Mensagens   | `AutomacoesPage.tsx`, `AbaAutomacoes.tsx`, `AbaHistoricoMensagens.tsx`, `AbaCanaisMarketing.tsx`, `AutomacaoModal.tsx`, `CanalModal.tsx`                                                                                  | `ceo_financeiro`, `coordenador_vendas`, `vendedor_1`, `vendedor_2`, `compras_grandes_clientes` (Estoque bloqueado via RLS/UI)        | Alertas vazios com botão de criação                                                       | Client-side por aba                                                                 | Não                                         |
+| `/marketing`        | Marketing e Campanhas    | `MarketingPage.tsx`, `AbaCampanhas.tsx`, `AbaAprovacoesPendentes.tsx`, `AbaDashboardMarketing.tsx`, `VisaoCampanhaDetalhes.tsx`                                                                                           | `ceo_financeiro`, `coordenador_vendas`, `vendedor_1`, `vendedor_2`, `compras_grandes_clientes` (Estoque bloqueado com tela de aviso) | "Nenhuma campanha cadastrada"                                                             | Client-side                                                                         | Não                                         |
+| `/relatorios`       | Relatórios e BI          | `RelatoriosPage.tsx`, `AbaPainelRelatorios.tsx`, `AbaRelatoriosDetalhados.tsx`, `SubAbaOportunidades.tsx`, `SubAbaLigacoes.tsx`, `SubAbaTarefas.tsx`, `SubAbaClientes.tsx`, `SubAbaCampanhas.tsx`, `SeletorDePeriodo.tsx` | Todos autenticados                                                                                                                   | Telas de aviso e tabelas vazias                                                           | Server-side nas sub-abas detalhadas via `PaginacaoControles` (25/50/100, padrão 50) | **Sim (todas as 5 sub-abas)** com BOM UTF-8 |
+| `/configuracoes`    | Hub de Configurações     | `ConfiguracoesPage.tsx`                                                                                                                                                                                                   | `ceo_financeiro`, `coordenador_vendas` (outros veem aviso de cadeado "Acesso restrito")                                              | Aviso de tela bloqueada com cadeado para vendedores/estoque                               | N/A                                                                                 | Não                                         |
+| `/usuarios`         | Gestão de Colaboradores  | `UsuariosPage.tsx`, `PaginacaoControles.tsx`, modal de senha e edição                                                                                                                                                     | **Exclusivo `ceo_financeiro`**                                                                                                       | Aviso com cadeado "Acesso restrito" se perfil não for CEO                                 | Client-side com componente `PaginacaoControles` (padrão 50)                         | Não                                         |
+| `/importacao`       | Importador Bling ERP     | `ImportacaoPage.tsx`, `csvUtils.ts`, parser CSV/TXT                                                                                                                                                                       | **Exclusivo `ceo_financeiro`**                                                                                                       | Aviso com cadeado "Acesso restrito" se perfil não for CEO                                 | N/A (histórico das últimas 10 importações em `localStorage`)                        | Não (Download de templates CSV modelo)      |
+| `/integracoes`      | Credenciais de APIs      | `IntegracoesPage.tsx`                                                                                                                                                                                                     | `ceo_financeiro`, `coordenador_vendas`                                                                                               | Aviso com cadeado se perfil não autorizado                                                | N/A                                                                                 | Não                                         |
+| `/metas`            | Gestão de Metas          | `MetasPage.tsx`                                                                                                                                                                                                           | `ceo_financeiro`, `coordenador_vendas`                                                                                               | Aviso com cadeado se vendedor/estoque tentar acesso                                       | N/A (grade mensal por vendedor do ano selecionado)                                  | Não                                         |
+| `/primeiros-passos` | Checklist de Onboarding  | `PrimeirosPassosPage.tsx`                                                                                                                                                                                                 | Todos autenticados (CEO/Coordenador com visão completa)                                                                              | Cards com progresso dinâmico                                                              | N/A                                                                                 | Não                                         |
+| `/pop-treinamento`  | POPs e Treinamento       | `PopTreinamentoPage.tsx`, `GuiaRapido.tsx`, `AbaTreinamento.tsx`, `AbaProcedimentos.tsx`, `popTreinamentoData.ts`                                                                                                         | **Acesso Universal** (inclusive público via login para estudo)                                                                       | N/A (conteúdo institucional estático)                                                     | N/A (10 POPs e 18 Slides em carrossel)                                              | Não (Impressão A4/PDF nativa)               |
+
+---
+
+## 3. Modelo de Dados Completo e Regras RLS
+
+O banco de dados PocketBase é constituído por 16 coleções. Todas as regras de segurança RLS (_Row-Level Security_) foram extraídas diretamente dos schemas e migrações aplicadas no backend (`pocketbase/migrations/` e `src/lib/pocketbase/schema.json`).
+
+### 3.1 Coleção `_pb_users_auth_` (`usuarios`)
+
+- **Tipo:** `auth`
+- **Campos Principais:**
+  - `id` (PK, string 15 chars)
+  - `email` (string, único)
+  - `nome` (string)
+  - `perfil` (select enum: `'ceo_financeiro'`, `'coordenador_vendas'`, `'vendedor_1'`, `'vendedor_2'`, `'compras_grandes_clientes'`, `'estoque'`)
+  - `telefone` (string)
+  - `ativo` (bool)
+  - `password`, `passwordConfirm`
+- **Regras RLS:**
+  - **List/Search:** `@request.auth.id != ""` (qualquer usuário logado pode listar usuários ativos para compor dropdowns de responsáveis).
+  - **View:** `@request.auth.id != ""`
+  - **Create:** Regra fechada no endpoint padrão (`null` ou restrita a admin); novos usuários são criados via hook seguro `POST /api/colesel/criar-usuario` com verificação de perfil CEO.
+  - **Update:** `@request.auth.id = id || @request.auth.perfil = 'ceo_financeiro'` (o próprio usuário ou o CEO financeiro).
+  - **Delete:** `@request.auth.perfil = 'ceo_financeiro'`
+
+### 3.2 Coleção `clientes`
+
+- **Campos:** `nome_contato` (req), `nome_empresa`, `telefone`, `cidade`, `email`, `cnpj_cpf`, `data_nascimento` (date), `observacoes`, `grande_cliente` (bool), `aceita_mensagens` (bool), `responsavel_id` (relation `usuarios`), `data_ultima_compra` (date).
+- **Índices:** `idx_clientes_cnpj_cpf` (unique, nullable), `idx_clientes_email`, `idx_clientes_responsavel`.
+- **Regras RLS:**
+  - **List/Search:** `@request.auth.id != "" && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || @request.auth.perfil = 'compras_grandes_clientes' || @request.auth.id = responsavel_id)`
+  - **View:** Mesma regra da listagem.
+  - **Create:** `@request.auth.id != "" && @request.auth.perfil != 'estoque'`
+  - **Update:** `@request.auth.perfil = 'ceo_financeiro' || @request.auth.id = responsavel_id`
+  - **Delete:** `@request.auth.perfil = 'ceo_financeiro' || @request.auth.id = responsavel_id`
+
+### 3.3 Coleção `etapas_funil`
+
+- **Campos:** `nome` (req, ex: Prospecção, Primeiro Contato, Proposta Enviada, Negociação, Ganho, Perdido), `ordem` (number), `cor` (string hex).
+- **Regras RLS:**
+  - **List / View:** `@request.auth.id != ""`
+  - **Create / Update / Delete:** `@request.auth.perfil = 'ceo_financeiro'`
+
+### 3.4 Coleção `motivos_perda`
+
+- **Campos:** `descricao` (req, string).
+- **Regras RLS:**
+  - **List / View:** `@request.auth.id != ""`
+  - **Create / Update / Delete:** `@request.auth.perfil = 'ceo_financeiro'`
+
+### 3.5 Coleção `oportunidades`
+
+- **Campos:** `cliente_id` (relation, req), `valor` (number, req), `etapa_id` (relation, req), `responsavel_id` (relation `usuarios`, req), `motivo_perda_id` (relation `motivos_perda`), `data_prevista_fechamento` (date), `data_fechamento` (date), `status` (select: `'aberto'`, `'ganho'`, `'perdido'`), `observacoes` (text).
+- **Índices:** `idx_oportunidades_status_resp`, `idx_oportunidades_cliente`.
+- **Regras RLS:**
+  - **List/Search:** `@request.auth.id != "" && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || @request.auth.perfil = 'compras_grandes_clientes' || @request.auth.id = responsavel_id)`
+  - **View:** Mesma regra da listagem.
+  - **Create:** `@request.auth.id != "" && @request.auth.perfil != 'estoque'`
+  - **Update:** `@request.auth.perfil = 'ceo_financeiro' || @request.auth.id = responsavel_id`
+  - **Delete:** `@request.auth.perfil = 'ceo_financeiro' || @request.auth.id = responsavel_id`
+
+### 3.6 Coleção `tarefas`
+
+- **Campos:** `cliente_id` (relation, req), `responsavel_id` (relation `usuarios`, req), `tipo` (select: `'ligacao'`, `'visita'`, `'email'`, `'whatsapp'`, `'reuniao'`, `'outro'`), `descricao` (req), `data_hora` (date, req), `concluida` (bool), `data_conclusao` (date).
+- **Regras RLS:**
+  - **List/Search:** `@request.auth.id != "" && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || @request.auth.id = responsavel_id)`
+  - **View:** Mesma regra da listagem.
+  - **Create:** `@request.auth.id != "" && @request.auth.perfil != 'estoque'`
+  - **Update:** `@request.auth.perfil = 'ceo_financeiro' || @request.auth.id = responsavel_id`
+  - **Delete:** `@request.auth.perfil = 'ceo_financeiro' || @request.auth.id = responsavel_id`
+
+### 3.7 Coleção `ligacoes`
+
+- **Campos:** `cliente_id` (relation, req), `responsavel_id` (relation `usuarios`, req), `data_hora` (date, req), `duracao_segundos` (number), `tipo` (select: `'entrada'`, `'saida'`, `'perdida'`), `resultado` (select: `'atendeu'`, `'nao_atendeu'`, `'caixa_postal'`, `'ocupado'`, `'desligou'`), `observacoes` (text), `proxima_acao` (text), `data_proxima_acao` (date).
+- **Regras RLS:**
+  - **List/Search:** `@request.auth.id != "" && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || @request.auth.id = responsavel_id)`
+  - **View:** Mesma regra da listagem.
+  - **Create:** `@request.auth.id != "" && @request.auth.perfil != 'estoque'`
+  - **Update:** `@request.auth.perfil = 'ceo_financeiro' || @request.auth.id = responsavel_id`
+  - **Delete:** `@request.auth.perfil = 'ceo_financeiro' || @request.auth.id = responsavel_id`
+
+### 3.8 Coleção `canais_marketing`
+
+- **Campos:** `nome` (req), `tipo` (select: `'whatsapp'`, `'email'`, `'sms'`), `configuracao` (json), `ativo` (bool).
+- **Regras RLS:**
+  - **List / View:** `@request.auth.id != "" && (@request.auth.perfil = 'ceo_financeiro' || ativo = true)`
+  - **Create / Update / Delete:** `@request.auth.perfil = 'ceo_financeiro'`
+
+### 3.9 Coleção `automacoes`
+
+- **Campos:** `nome` (req), `descricao` (text), `gatilho` (select: `'novo_cliente'`, `'nova_oportunidade'`, `'mudanca_etapa'`, `'tarefa_vencida'`, `'sem_contato_dias'`, `'aniversario'`, `'inativo_dias'`), `parametro_gatilho` (string), `acao` (select: `'enviar_whatsapp'`, `'enviar_email'`, `'criar_tarefa'`, `'mover_etapa'`, `'enviar_sms'`), `canal_id` (relation `canais_marketing`), `mensagem_modelo` (text), `responsavel_id` (relation `usuarios`), `ativa` (bool).
+- **Regras RLS:**
+  - **List / View:** `@request.auth.id != "" && @request.auth.perfil != 'estoque'`
+  - **Create / Update / Delete:** `@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas'`
+
+### 3.10 Coleção `mensagens_enviadas`
+
+- **Campos:** `automacao_id` (relation `automacoes`), `cliente_id` (relation `clientes`, req), `canal` (select: `'whatsapp'`, `'email'`, `'sms'`), `conteudo` (text, req), `status` (select: `'pendente'`, `'enviada'`, `'entregue'`, `'lida'`, `'falhou'`), `data_envio` (date), `data_leitura` (date), `erro` (text).
+- **Regras RLS:**
+  - **List / View:** `@request.auth.id != "" && @request.auth.perfil != 'estoque'`
+  - **Create:** `@request.auth.id != "" && @request.auth.perfil != 'estoque'`
+  - **Update / Delete:** `@request.auth.perfil = 'ceo_financeiro'`
+
+### 3.11 Coleção `campanhas`
+
+- **Campos:** `nome` (req), `descricao` (text), `tipo` (select: `'email'`, `'whatsapp'`, `'sms'`, `'mista'`), `canal_id` (relation `canais_marketing`), `responsavel_id` (relation `usuarios`, req), `data_inicio` (date), `data_fim` (date), `status` (select: `'rascunho'`, `'ativa'`, `'pausada'`, `'finalizada'`), `publico_alvo` (json), `orcamento` (number).
+- **Regras RLS:**
+  - **List / View:** `@request.auth.id != "" && @request.auth.perfil != 'estoque'`
+  - **Create:** `@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas'`
+  - **Update:** `@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && responsavel_id = @request.auth.id)`
+  - **Delete:** `@request.auth.perfil = 'ceo_financeiro'`
+
+### 3.12 Coleção `conteudos_gerados`
+
+- **Campos:** `campanha_id` (relation `campanhas`, req), `tipo` (select: `'texto'`, `'imagem'`, `'video'`, `'audio'`), `conteudo` (text, req), `prompt_ia` (text), `status` (select: `'gerado'`, `'aprovado'`, `'rejeitado'`).
+- **Regras RLS:**
+  - **List / View:** `@request.auth.id != "" && @request.auth.perfil != 'estoque'`
+  - **Create:** `@request.auth.id != "" && @request.auth.perfil != 'estoque'`
+  - **Update:** `@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas'`
+  - **Delete:** `@request.auth.perfil = 'ceo_financeiro'`
+
+### 3.13 Coleção `publicacoes`
+
+- **Campos:** `campanha_id` (relation `campanhas`, req), `cliente_id` (relation `clientes`, req), `conteudo_id` (relation `conteudos_gerados`, req), `canal` (select: `'whatsapp'`, `'email'`, `'sms'`), `status` (select: `'agendada'`, `'enviada'`, `'entregue'`, `'lida'`, `'falhou'`), `data_agendada` (date, req), `data_envio` (date).
+- **Regras RLS:**
+  - **List / View:** `@request.auth.id != "" && @request.auth.perfil != 'estoque'`
+  - **Create / Update:** `@request.auth.id != "" && @request.auth.perfil != 'estoque'`
+  - **Delete:** `@request.auth.perfil = 'ceo_financeiro'`
+
+### 3.14 Coleção `aprovacoes_pendentes`
+
+- **Campos:** `conteudo_id` (relation `conteudos_gerados`, req), `aprovador_id` (relation `usuarios`, req), `status` (select: `'pendente'`, `'aprovado'`, `'rejeitado'`), `comentario` (text), `decidido_em` (date).
+- **Regras RLS:**
+  - **List / View:** `@request.auth.id != "" && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.id = aprovador_id)`
+  - **Create:** `@request.auth.id != "" && @request.auth.perfil != 'estoque'`
+  - **Update:** `@request.auth.perfil = 'ceo_financeiro' || @request.auth.id = aprovador_id`
+  - **Delete:** `@request.auth.perfil = 'ceo_financeiro'`
+
+### 3.15 Coleção `metas`
+
+- **Campos:** `usuario_id` (relation `usuarios`, req), `ano` (number, req), `mes` (number, req), `valor_meta` (number, req), `meta_oportunidades` (number, req).
+- **Índices:** `idx_metas_usuario_periodo` (unique em `usuario_id` + `ano` + `mes`).
+- **Regras RLS:**
+  - **List / View:** `@request.auth.id != "" && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || @request.auth.id = usuario_id)`
+  - **Create / Update / Delete:** `@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas'`
+
+### 3.16 Coleção `treinamento_concluido`
+
+- **Campos:**
+  - `usuario_id` (relation `usuarios`, req)
+  - `versao` (number, req, padrão `1`)
+  - `concluido_em` (date, req)
+  - `pontuacao_quiz` (number, req, range 0 a 5)
+  - `total_questoes` (number, req, fixo 5)
+- **Índices:** `idx_treinamento_usuario_versao` (unique em `usuario_id` + `versao`).
+- **Regras RLS:**
+  - **List / View:** `@request.auth.id != "" && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.id = usuario_id)`
+  - **Create:** `@request.auth.id != "" && @request.auth.id = usuario_id`
+  - **Update / Delete:** `@request.auth.perfil = 'ceo_financeiro'`
+
+---
+
+## 4. Motor de Permissões ("O Motor de Atuação")
+
+O motor de permissões do CRM Colesel 45 opera em dupla camada: **Camada RLS do Banco de Dados** (impossível de burlar pelo browser) + **Camada de Visibilidade e Filtros no Frontend**.
+
+### 4.1 Perfis do Sistema e Escopo de Visibilidade
+
+1. **`ceo_financeiro` (Direção Executiva e Financeira):**
+   - **Escopo:** Visão Global irrestrita.
+   - **Permissões:** Acesso total de leitura, escrita, edição e deleção em todas as coleções. Pode criar/inativar usuários, redefinir senhas de qualquer pessoa, importar arquivos do Bling, gerenciar canais de mensageria, definir metas de todos os vendedores e ignorar restrições de onboarding.
+2. **`coordenador_vendas` (Gestão Comercial):**
+   - **Escopo:** Equipe de Vendas + Próprio.
+   - **Permissões:** Enxerga todos os clientes, propostas e tarefas dos vendedores e de si mesmo. Pode definir metas para o time (`/metas`) e gerenciar canais e automações (`/automacoes`), além de configurar integrações (`/integracoes`). Bloqueado em `/usuarios` e `/importacao`.
+3. **`vendedor_1` e `vendedor_2` (Consultores de Vendas):**
+   - **Escopo:** Estritamente Próprio (`responsavel_id = user.id`).
+   - **Permissões:** Só podem ler, criar e alterar clientes, oportunidades, tarefas e chamadas que estejam atribuídas ao seu próprio `id`. No painel e relatórios, os gráficos e KPIs refletem unicamente sua carteira.
+4. **`compras_grandes_clientes` (Suprimentos e Contas-Chave):**
+   - **Escopo:** Acompanhamento de Clientes Estratégicos.
+   - **Permissões:** Pode visualizar clientes e oportunidades (RLS permite leitura), acompanhar indicadores do funil e do painel, mas não edita dados comerciais alheios nem acessa configurações gerenciais.
+5. **`estoque` (Operações e Logística):**
+   - **Escopo:** Restrito Operacional.
+   - **Permissões:** Acesso aos dados do painel geral de volume, mas bloqueado em módulos de marketing, campanhas e disparos de automação.
+
+### 4.2 Como o Escopo é Aplicado no Código
+
+#### Aplicação no Frontend (`src/services/painelService.ts` e páginas de listagem):
+
+A função utilitária `construirFiltroEscopo` intercepta as chamadas e injeta dinamicamente o filtro na query string do PocketBase:
+
+```typescript
+export function construirFiltroEscopo(
+  user: Usuario | null,
+  campoResponsavel = 'responsavel_id',
+): string | null {
+  if (!user) return null
+  if (user.perfil === 'ceo_financeiro') return null // Sem restrição
+  if (user.perfil === 'coordenador_vendas') return null // Vê time
+  if (user.perfil === 'vendedor_1' || user.perfil === 'vendedor_2') {
+    return `${campoResponsavel} = '${user.id}'` // Injeta filtro estrito
+  }
+  return null
+}
+```
+
+#### Aplicação no Backend (RLS PocketBase):
+
+Se um vendedor malicioso tentar fazer uma chamada HTTP direta à API do PocketBase para visualizar ou atualizar uma oportunidade com `responsavel_id` diferente do seu token JWT, o banco retorna **HTTP 404 (Not Found)** ou **HTTP 403 (Forbidden)** nativamente.
+
+### 4.3 Telas Restritas e o Componente de Aviso com Cadeado
+
+Quando um usuário com perfil não autorizado acessa uma tela ou aba restrita (por exemplo, um vendedor tentando acessar `/usuarios`, `/importacao`, `/integracoes` ou `/metas`), o sistema não causa travamento ou tela em branco: ele renderiza um componente padronizado com ícone de cadeado âmbar (`Lock`), o título **"Acesso restrito"**, explicação textual e um badge com o perfil mínimo requerido.
+
+Exemplo de proteção declarativa em `Layout.tsx` e nas páginas:
+
+- Menu lateral: oculta dinamicamente os itens que o perfil não pode acessar.
+- Páginas com guard de renderização:
+
+```tsx
+if (user?.perfil !== 'ceo_financeiro') {
+  return (
+    <div className="bg-white p-8 rounded-2xl border border-[#E2E8F0] shadow-sm space-y-4 text-center">
+      <div className="w-14 h-14 bg-amber-50 rounded-2xl flex items-center justify-center mx-auto border border-amber-200">
+        <Lock className="w-7 h-7 text-amber-600" />
+      </div>
+      <h3 className="text-lg font-bold text-[#0F172A]">Acesso restrito</h3>
+      <p className="text-sm text-[#64748B]">Este módulo requer privilégios de Administrador.</p>
+      <Badge variant="outline" className="text-amber-700 bg-amber-50 border-amber-200">
+        Permissão requerida: ceo_financeiro
+      </Badge>
+    </div>
   )
-  ```
-
-#### [BD-02 MÉDIO] Duplicação de colunas de timestamp (`criado_em` / `atualizado_em` vs `created` / `updated`)
-
-- **Localização:** Todas as migrações (0003 a 0008) e interfaces em `src/types/clientes.ts`.
-- **Descrição:** As coleções definem campos de texto explícitos `criado_em` e `atualizado_em`, enquanto o PocketBase já gera e mantém de forma automática e imutável os campos nativos `created` e `updated` (em UTC ISO 8601). Em muitos pontos do frontend, os desenvolvedores populam manualmente `criado_em: new Date().toISOString()`, havendo concorrência e divergência de fusos.
-- **Impacto:** Desperdício de payload de rede, risco de inconsistência quando atualizações ocorrem via backend ou integrações futuras que não preenchem os campos customizados.
-- **Decisão / Prescrição:** _Decisão de Produto:_ Não remover os campos existentes para evitar breaking changes em registros legados já persistidos. Contudo, deve-se padronizar o frontend para usar `record.created` e `record.updated` como fontes de verdade primárias, tratando `criado_em` como fallback retrocompatível.
-
-#### [BD-03 BAIXO] Inconsistência de gênero nos campos de data da coleção `automacoes`
-
-- **Localização:** `pocketbase/migrations/0006_create_automacoes_mensagens_canais.js`, linhas 67–75.
-- **Descrição:** Enquanto todas as outras coleções usam `criado_em` e `atualizado_em`, a coleção `automacoes` declarou `criada_em` e `atualizada_em` (flexionados no feminino).
-- **Impacto:** Erros de tipagem sutil ao manipular records de automações dinamicamente ou em relatórios unificados.
-- **Correção Proposta:** Manter o campo no backend por retrocompatibilidade ou criar migração que renomeie os campos, ajustando a interface `AutomacaoModel` em `src/types/clientes.ts`.
-
-#### [BD-04 ALTO] Granularidade do campo `oportunidades.data_fechamento` como tipo `date`
-
-- **Localização:** `pocketbase/migrations/0005_create_oportunidades_tarefas_ligacoes.js`, linha 34.
-- **Descrição:** O campo `data_fechamento` está declarado como campo de data sem hora (`new Field({ name: 'data_fechamento', type: 'date' })`). No entanto, o hook `pocketbase/hooks/fechamento_oportunidade.js` insere `new Date().toISOString()`, que é uma string de data-hora completa (`2025-05-24T18:30:00.000Z`).
-- **Impacto:** O PocketBase trunca a informação para `YYYY-MM-DD 00:00:00.000Z`, perdendo a hora exata da conversão comercial e dificultando relatórios intradiários ou auditorias de fechamento por turno.
-- **Correção Proposta:** Se a aplicação necessitar de precisão temporal, alterar o tipo do campo para texto ISO ou registrar a data respeitando a formatação estrita `YYYY-MM-DD` para evitar distorções de fuso horário.
+}
+```
 
 ---
 
-## 3. Matriz de RLS (Segurança de Acesso e Permissões)
+## 5. Motor de Autenticação e Onboarding
 
-### 3.1 Matriz Requerida pelo Modelo de Negócio vs Implementada
+### 5.1 Fluxo de Login e Sessão
 
-| Coleção         | Ação            | Regra de Negócio Exigida                                   | Regra Implementada no Banco                                                                                                            | Status               |
-| :-------------- | :-------------- | :--------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------- | :------------------- |
-| `usuarios`      | list / view     | Qualquer usuário logado                                    | `@request.auth.id != ''`                                                                                                               | **OK**               |
-| `usuarios`      | create          | Apenas `ceo_financeiro`                                    | `null` (bloqueado na API)                                                                                                              | **CRÍTICO [BD-01]**  |
-| `usuarios`      | update          | `ceo_financeiro` ou o próprio usuário                      | `@request.auth.perfil = 'ceo_financeiro' \|\| @request.auth.id = id`                                                                   | **OK**               |
-| `usuarios`      | delete          | Apenas `ceo_financeiro` (exceto ele mesmo)                 | `null` (bloqueado na API)                                                                                                              | **CRÍTICO [BD-01]**  |
-| `clientes`      | list / view     | Vendedores veem os seus; CEO/Coord veem todos              | `@request.auth.perfil = 'ceo_financeiro' \|\| @request.auth.perfil = 'coordenador_vendas' \|\| responsavel_id = @request.auth.id`      | **OK**               |
-| `clientes`      | create          | Usuários de vendas e compras                               | `@request.auth.id != ''`                                                                                                               | **OK**               |
-| `clientes`      | update          | CEO/Coord qualquer; Vendedor só o seu; Estoque NUNCA       | `@request.auth.perfil = 'ceo_financeiro' \|\| responsavel_id = @request.auth.id`                                                       | **ALTO [RLS-02]**    |
-| `clientes`      | delete          | CEO/Coord qualquer; Vendedor só o seu; Estoque NUNCA       | `@request.auth.perfil = 'ceo_financeiro' \|\| responsavel_id = @request.auth.id`                                                       | **ALTO [RLS-02]**    |
-| `oportunidades` | update / delete | CEO/Coord qualquer; Vendedor só a sua                      | `@request.auth.perfil = 'ceo_financeiro' \|\| responsavel_id = @request.auth.id`                                                       | **ALTO [RLS-02]**    |
-| `tarefas`       | update / delete | CEO/Coord qualquer; Vendedor só a sua                      | `@request.auth.perfil = 'ceo_financeiro' \|\| responsavel_id = @request.auth.id`                                                       | **ALTO [RLS-02]**    |
-| `ligacoes`      | update / delete | CEO/Coord qualquer; Vendedor só a sua                      | `@request.auth.perfil = 'ceo_financeiro' \|\| responsavel_id = @request.auth.id`                                                       | **ALTO [RLS-02]**    |
-| `metas`         | list / view     | Vendedor vê a sua; CEO/Coord veem todas; Demais bloqueados | `@request.auth.perfil = 'ceo_financeiro' \|\| @request.auth.perfil = 'coordenador_vendas' \|\| usuario_id = @request.auth.id`          | **OK**               |
-| `metas`         | create          | CEO e Coordenador                                          | `@request.auth.perfil = 'ceo_financeiro' \|\| (@request.auth.perfil = 'coordenador_vendas' && ...)`                                    | **OK**               |
-| `metas`         | update          | CEO e Coordenador; **Vendedores NUNCA**                    | `@request.auth.perfil = 'ceo_financeiro' \|\| (@request.auth.perfil = 'coordenador_vendas' && ...) \|\| usuario_id = @request.auth.id` | **CRÍTICO [RLS-01]** |
-| `metas`         | delete          | CEO e Coordenador; **Vendedores NUNCA**                    | `@request.auth.perfil = 'ceo_financeiro' \|\| (@request.auth.perfil = 'coordenador_vendas' && ...)`                                    | **OK**               |
+1. O usuário submete `email` e `password` no formulário de login (`/login`).
+2. A chamada é feita via `pb.collection('usuarios').authWithPassword(email, password)`.
+3. O token JWT retornado é persistido no cookie/localStorage pelo SDK oficial do PocketBase.
+4. O `AuthContext.tsx` escuta a mudança de auth, mapeia os campos do usuário (incluindo `perfil`, `nome`, `ativo`) e define `isAuthenticated = true`.
 
-### 3.2 Achados de RLS Detalhados
+### 5.2 Provisionamento Seguro de Usuários
 
-#### [RLS-01 CRÍTICO] Vendedor pode adulterar a própria meta (`metas.updateRule`)
+Novos usuários não podem ser criados via endpoint público padrão da coleção. O sistema utiliza um endpoint dedicado executado no servidor (`pocketbase/hooks/criar_usuario.js`):
 
-- **Localização:** `pocketbase/migrations/0008_create_metas.js`, linhas 54–57.
-- **Código Atual:**
-  ```javascript
-  collection.updateRule =
-    "@request.auth.perfil = 'ceo_financeiro' || " +
-    "(@request.auth.perfil = 'coordenador_vendas' && (@request.data.usuario_id.perfil = 'vendedor_1' || @request.data.usuario_id.perfil = 'vendedor_2')) || " +
-    'usuario_id = @request.auth.id'
-  ```
-- **Impacto:** A cláusula final `usuario_id = @request.auth.id` autoriza qualquer vendedor a enviar requisições `PATCH /api/collections/metas/records/:id` alterando `valor_meta` e `meta_oportunidades`. Isso compromete totalmente a confiabilidade da remuneração variável e dos indicadores gerenciais.
-- **Correção Proposta:** Criar migração retirando a cláusula `usuario_id = @request.auth.id` da `updateRule`:
-  ```javascript
-  col.updateRule =
-    "@request.auth.perfil = 'ceo_financeiro' || " +
-    "(@request.auth.perfil = 'coordenador_vendas' && (@request.data.usuario_id.perfil = 'vendedor_1' || @request.data.usuario_id.perfil = 'vendedor_2'))"
-  ```
+- **Endpoint:** `POST /api/colesel/criar-usuario`
+- **Validação:** Checa se o cabeçalho `Authorization` pertence a um usuário autenticado com perfil `ceo_financeiro`.
+- **Execução:** O hook utiliza privilégios internos de administrador (`$app.dao().saveRecord`) para criar a conta com senha inicial, forçando integridade cadastral e evitando vazamento de endpoints públicos.
+- **Provisionamento automático de CEOs:** O hook `pocketbase/hooks/provisionar_ceos.js` roda na inicialização do backend e garante a existência dos usuários diretivos padrão caso não existam no banco.
 
-#### [RLS-02 ALTO] Coordenador de Vendas bloqueado em operações de escrita na equipe
+### 5.3 Troca e Redefinição de Senhas
 
-- **Localização:** `pocketbase/migrations/0004_create_clientes.js` e `pocketbase/migrations/0005_create_oportunidades_tarefas_ligacoes.js`.
-- **Descrição:** Nas coleções `clientes`, `oportunidades`, `tarefas` e `ligacoes`, a `listRule` contempla o coordenador (`@request.auth.perfil = 'coordenador_vendas'`), mas a `updateRule` e `deleteRule` foram escritas apenas como:
-  `@request.auth.perfil = 'ceo_financeiro' || responsavel_id = @request.auth.id`.
-- **Impacto:** O Coordenador de Vendas consegue visualizar os clientes e oportunidades dos seus vendedores no funil e nos relatórios, mas **não consegue reatribuir clientes, editar propostas nem excluir tarefas obsoletas** de seus subordinados, recebendo erro `403`.
-- **Correção Proposta:** Criar migração adicionando `@request.auth.perfil = 'coordenador_vendas'` nas `updateRule` e `deleteRule` de `clientes`, `oportunidades`, `tarefas` e `ligacoes`.
+- Em `/usuarios`, o CEO financeiro possui um modal direto de troca de senha para qualquer colaborador, disparando atualização com confirmação.
+- O próprio usuário logado pode atualizar sua credencial pessoal.
 
----
+### 5.4 Mecanismo de Primeiro Acesso Obrigatório (Onboarding Guard)
 
-## 4. Autenticação e Gestão de Usuários
+O CRM Colesel 45 implementa uma política rigorosa de treinamento operacional para novos vendedores e colaboradores:
 
-#### [SEC-01 CRÍTICO] Senha mestre padrão hardcoded no código client-side
-
-- **Localização:** `src/pages/UsuariosPage.tsx`, linhas 219–220 e 431–432.
-- **Código Atual:**
-  ```typescript
-  password: 'Skip@Pass45#',
-  passwordConfirm: 'Skip@Pass45#',
-  ```
-- **Impacto:** A senha mestre fica exposta no bundle JavaScript estático baixado por qualquer navegador (`dev-dist` ou `dist`). Qualquer usuário ou invasor que inspecione os arquivos compilados descobre a credencial padrão atribuída a novas contas.
-- **Correção Proposta:**
-  1. No formulário de criação de usuário em `UsuariosPage.tsx`, gerar uma senha temporária aleatória de alta entropia (ex: `crypto.randomUUID().slice(0, 12) + '!A9'`) e exibi-la em um modal seguro com botão "Copiar credenciais temporárias" para que o administrador a envie ao colaborador.
-  2. Em seguida, disparar a solicitação de redefinição de senha nativa do PocketBase via `pb.collection('usuarios').requestPasswordReset(formEmail)`.
-
-#### [SEC-02 CRÍTICO] Auto-provisionamento de CEOs executado em hook de ciclo de vida do componente
-
-- **Localização:** `src/pages/UsuariosPage.tsx`, linhas 92–105 e 191–262.
-- **Descrição:** O componente `UsuariosPage` possui uma lista `USUARIOS_INICIAIS` contendo Junior Colesel e Alice Paitra. Ao ser renderizado por um CEO, um `useEffect` varre o banco e tenta criar os usuários via REST caso não existam.
-- **Impacto:**
-  1. Criação de usuários do sistema não é atribuição de uma tela de frontend; deve residir em migrações de backend (`seed`).
-  2. Cria requisições redundantes de busca e criação a cada abertura da tela por um CEO.
-  3. Se a `createRule` estiver bloqueada (como está hoje), lança erros no console do navegador e exibe toasts de falha.
-- **Correção Proposta:** Transferir o seed de usuários definitivos para uma migração PocketBase (`pocketbase/migrations/0009_seed_usuarios_diretoria.js`) e remover completamente o array `USUARIOS_INICIAIS` e o bloco de inicialização automática de `UsuariosPage.tsx`.
+1. **Tabela `treinamento_concluido`:**
+   Armazena o registro de aprovação de cada usuário por versão do treinamento (`versao = 1`).
+2. **Serviço de Verificação (`src/services/treinamentoService.ts`):**
+   - Ao carregar a sessão, verifica se há registro em `treinamento_concluido` com `usuario_id = user.id && versao = 1`.
+   - **Fallback de Alta Resiliência:** Caso o PocketBase esteja momentaneamente inacessível por instabilidade de rede ou a tabela ainda não tenha sido sincronizada, consulta o `localStorage` sob a chave `treinamento_concluido_${usuario_id}`.
+3. **Guard de Rotas (`ProtectedRoute.tsx`):**
+   - Se o usuário autenticado for **`ceo_financeiro`**, o treinamento **NUNCA é bloqueante** (`isExemptFromTreinamento = true`), permitindo que a diretoria acesse qualquer área sem restrições.
+   - Para os demais perfis (vendedores, estoquistas, coordenadores): se o treinamento não estiver concluído, qualquer tentativa de navegar para rotas do sistema força o redirecionamento imediato para:
+     ```
+     /pop-treinamento?treinamento=obrigatorio
+     ```
+4. **Bloqueio do Menu Lateral (`Layout.tsx`):**
+   Quando `bloqueioTreinamento === true`, todos os itens de navegação lateral (Painel, Clientes, Funil, etc.) são desabilitados e ocultados visualmente. Um banner vermelho/âmbar no topo informa que o acesso está travado até a realização do treinamento. O único botão funcional no menu é o de **Sair da Conta (Logout)**.
+5. **Pré-requisito do Quiz Interativo de 5 Perguntas:**
+   - Na aba "Treinamento" (`AbaTreinamento.tsx`), o usuário percorre os 18 slides didáticos.
+   - Ao final, é apresentado um quiz obrigatório com 5 questões de múltipla escolha sobre procedimentos comerciais da Colesel 45.
+   - **Critério de Aprovação:** O usuário deve acertar no mínimo 4 das 5 perguntas (80% de aproveitamento). Se tirar menos de 4, o sistema bloqueia a conclusão e exige nova tentativa.
+6. **Liberação Pós-Conclusão:**
+   Ao atingir 4 ou 5 acertos e clicar em "Concluir Treinamento":
+   - É gravado um registro na coleção `treinamento_concluido` via `pb.collection('treinamento_concluido').create()`.
+   - É gravado o fallback `localStorage.setItem('treinamento_concluido_' + user.id, 'true')`.
+   - O `ProtectedRoute` atualiza o estado em memória e libera imediatamente todo o menu e o acesso a `/painel`.
+7. **Link Público de Estudo no Login:**
+   Na tela `/login`, há o link "Ver treinamento operacional", permitindo que novos candidatos ou colaboradores leiam os POPs e os slides antes mesmo de realizar o login.
 
 ---
 
-## 5. Hooks do Backend (PocketBase / pb_hooks)
+## 6. Fluxos de Negócio Detalhados
 
-#### [HOOK-01 ALTO] Hook não limpa `data_fechamento` ao reabrir oportunidade
+### 6.1 Funil de Vendas (Kanban Comercial)
 
-- **Localização:** `pocketbase/hooks/fechamento_oportunidade.js`, linhas 6–13.
-- **Código Atual:**
-  ```javascript
-  onRecordUpdate((e) => {
-    const status = e.record.get('status')
-    const oldRecord = e.record.original()
-    const oldStatus = oldRecord ? oldRecord.get('status') : ''
-    if ((status === 'ganho' || status === 'perdido') && oldStatus !== status) {
-      e.record.set('data_fechamento', new Date().toISOString())
-    }
-    e.next()
-  }, 'oportunidades')
-  ```
-- **Impacto:** Se um vendedor ou coordenador mover acidentalmente uma oportunidade para "Ganho" e depois devolvê-la para o estágio de "Negociação" (`status = 'aberto'`), o campo `data_fechamento` **permanece preenchido** com a data antiga. Em `src/pages/RelatoriosPage.tsx` e `src/pages/FunilPage.tsx`, os cálculos de conversão filtram propostas por `data_fechamento`, fazendo com que oportunidades reabertas continuem sendo computadas como finalizadas.
-- **Correção Proposta:** Atualizar o hook para limpar explicitamente `data_fechamento` quando o status retornar para `'aberto'`:
+- **Estrutura de 6 Etapas:**
+  1. _Prospecção_ (cor slate/cinza)
+  2. _Primeiro Contato_ (cor azul)
+  3. _Proposta Enviada_ (cor roxa)
+  4. _Negociação_ (cor âmbar)
+  5. _Ganho_ (cor verde)
+  6. _Perdido_ (cor vermelha)
+- **Regras de Fechamento Automático:**
+  - O backend possui um trigger de evento em JavaScript (`pocketbase/hooks/fechamento_oportunidade.js`) monitorando o hook `onRecordBeforeUpdateRequest`:
+    - Ao mover para a etapa Ganho ou Perdido (ou setar status `ganho` / `perdido`), preenche automaticamente `data_fechamento` com o timestamp atual ISO (`new Date().toISOString()`), caso esteja vazio.
+    - Ao reabrir a oportunidade (movendo de Ganho/Perdido de volta para Prospecção/Negociação com status `aberto`), o backend limpa automaticamente o campo `data_fechamento = ""`.
+  - Essa mesma regra é replicada de forma antecipada no formulário do frontend (`OportunidadeModal.tsx`), assegurando consistência imediata na interface.
+- **Interação:** Drag-and-drop nativo entre colunas Kanban, modal completo de detalhes (`OportunidadeDetalhesSheet.tsx`), registro de motivo de perda obrigatório para propostas perdidas e cálculo em tempo real de Pipeline, Taxa de Conversão e Ticket Médio.
 
-  ```javascript
-  onRecordUpdate((e) => {
-    const status = e.record.get('status')
-    const oldRecord = e.record.original()
-    const oldStatus = oldRecord ? oldRecord.get('status') : ''
+### 6.2 Rotina de Follow-up Inteligente
 
-    if ((status === 'ganho' || status === 'perdido') && oldStatus !== status) {
-      e.record.set('data_fechamento', new Date().toISOString().split('T')[0])
-    } else if (status === 'aberto' && oldStatus !== 'aberto') {
-      e.record.set('data_fechamento', null)
-    }
-    e.next()
-  }, 'oportunidades')
-  ```
+A tela `/followup` agrupa e classifica os clientes em **4 grupos de atenção proativa**, processados com algoritmos de data:
 
-#### [HOOK-02 MÉDIO] Divergência de fuso horário UTC (Data incorreta após 21:00 BRT)
+1. **Sem Contato há 7+ dias:** Clientes sem nenhuma ligação efetuada e sem nenhuma tarefa concluída nos últimos 7 dias.
+2. **Oportunidades Paradas há 5+ dias:** Propostas comerciais abertas (`status = 'aberto'`) sem nenhuma atividade agendada ou executada nos últimos 5 dias.
+3. **Aniversariantes da Semana:** Clientes cuja data de nascimento ou fundação (`data_nascimento`) ocorre nos próximos 7 dias (comparação circular de dia/mês, independente do ano).
+4. **Sem Compra há 30+ dias (Reativação Comercial):** Clientes com `data_ultima_compra` anterior a 30 dias que demandam contato de reposição de estoque.
 
-- **Localização:** `pocketbase/hooks/fechamento_oportunidade.js`, linha 11.
-- **Descrição:** `new Date().toISOString()` utiliza o horário zero (UTC). No Brasil (fuso UTC-3), qualquer oportunidade fechada entre as 21:00 e 23:59 registra o dia subsequente no banco.
-- **Impacto:** Vendas fechadas no último dia do mês à noite caem no mês seguinte nas metas financeiras e relatórios de comissão.
-- **Correção Proposta:** Calcular o deslocamento de timezone ou ajustar a data para o fuso brasileiro antes de persistir o valor em `data_fechamento`.
+_Ação Rápida:_ Cada card possui botão de ação direta que abre o `TarefaModal` com o cliente e sugestão de texto já pré-preenchidos.
 
----
+### 6.3 Painel Geral de Vendas (Dashboard Executivo)
 
-## 6. Frontend — Arquitetura e Roteamento
+- **6 KPIs Estratégicos com Comparativo:**
+  - Faturamento Total Ganho (BRL e % variação vs. mês anterior)
+  - Oportunidades Ganhas (Qtd e % variação)
+  - Pipeline Aberto em Negociação (Valor total BRL)
+  - Taxa de Conversão do Período (% de ganho sobre finalizadas)
+  - Ligações Realizadas (Qtd e comparativo)
+  - Tarefas Concluídas (Qtd e comparativo)
+- **4 Gráficos Analíticos:**
+  - _Funil de Conversão_ (barras horizontais por etapa)
+  - _Evolução Mensal de Vendas_ (últimos 6 meses)
+  - _Top Vendedores_ (ranking por faturamento gerado)
+  - _Distribuição de Oportunidades_ (pizza/donut por status)
+- **Desempenho e Cache:**
+  - Cache em memória de **5 minutos** em `painelService.ts` para evitar sobrecarga de consultas agregadas ao banco SQLite.
+  - O cache é invalidado manualmente quando o usuário clica no botão "Atualizar" ou altera o mês/ano no seletor global.
 
-#### [FE-01 DECISÃO DE PRODUTO] Rotas administrativas ausentes no menu lateral
+### 6.4 Gestão de Metas Mensais
 
-- **Rotas:** `/importacao`, `/usuarios`, `/metas`, `/primeiros-passos`.
-- **Análise:** Foi verificado que estas rotas não estão incluídas no array `NAVIGATION_ITEMS` em `src/components/Layout.tsx`.
-- **Status:** **Decisão consciente de produto**. O usuário determinou explicitamente que essas páginas fiquem fora do menu principal e proibiu a alteração do menu. O acesso é feito via digitação direta de URL ou links internos (ex: onboarding em `/primeiros-passos`). Não constitui defeito.
+- Gerenciamento por ano e mês para cada consultor de vendas.
+- O coordenador e o CEO configuram duas metas por consultor: **Meta Financeira (R$)** e **Meta Quantitativa de Oportunidades**.
+- A tela compara o realizado daquele mês com a meta definida, calculando a barra percentual de atingimento e o saldo restante.
 
-#### [FE-02 DECISÃO DE PRODUTO] Módulos `/painel` e `/configuracoes` com placeholder
+### 6.5 Importador Inteligente Bling ERP
 
-- **Arquivos:** `src/pages/PainelPage.tsx`, `src/pages/ConfiguracoesPage.tsx`.
-- **Análise:** Ambas as páginas renderizam `<ModulePlaceholder />`.
-- **Status:** **Planejamento previsto do produto**. Os módulos estão reservados para fases futuras de implementação do sistema. Não constitui defeito.
+Implementado em `ImportacaoPage.tsx` com o utilitário `csvUtils.ts`:
 
-#### [SEC-03 ALTO] Ausência de trava de perfil no nível do roteador (`ProtectedRoute`)
+- **Suporte de Arquivos:** Aceita arquivos `.csv` e `.txt`.
+- **Detecção Automática de Delimitador:** Identifica automaticamente se o arquivo é separado por vírgula (`,`), ponto-e-vírgula (`;`) ou tabulação (`\t`).
+- **Auto-Detecção de Colunas:** Normaliza cabeçalhos removendo acentos, espaços e caixa-alta para mapear termos equivalentes (ex.: "Razão Social", "Nome Fantasia", "Contato" -> `nome_contato`; "Celular", "Fone" -> `telefone`; "Valor Total", "Total Venda" -> `valor`).
+- **Regras Bloqueantes:** O botão de importar permanece bloqueado enquanto os campos obrigatórios (`nome_contato` no modo Clientes; `valor` e `data_compra` no modo Compras) não forem mapeados.
+- **Perfil de Mapeamento Salvo:** Salva o último mapeamento escolhido no `localStorage` sob a chave `importacao_mapa_colunas`, permitindo reuso em uploads subsequentes.
+- **Deduplicação de Clientes:** Realiza busca prévia por `cnpj_cpf` ou `email`. Se o cliente já existir, atualiza seus dados; se não existir, cria um novo.
+- **Importação de Compras:** Ao importar pedidos de venda, localiza o cliente correspondente, atualiza o campo `data_ultima_compra` com a data do pedido mais recente e concatena o registro da compra no campo `observacoes` do cliente.
+- **Log de Auditoria:** Salva localmente o histórico das últimas 10 importações realizadas com timestamp, total de registros, sucessos e erros.
+- **Modelos CSV:** Oferece botões para download de arquivos de exemplo nos formatos padrão de clientes e pedidos.
 
-- **Localização:** `src/App.tsx`, linhas 50–57 e `src/components/ProtectedRoute.tsx`.
-- **Descrição:** O componente `ProtectedRoute` valida unicamente se o usuário está autenticado (`isAuthenticated`), sem checar perfil (`perfil`). As rotas restritas ao CEO (`/usuarios`, `/importacao`, `/primeiros-passos`) e aos gestores (`/metas`) são declaradas no `App.tsx` sem propriedade de perfis permitidos.
-- **Impacto:** Embora cada página contenha uma verificação interna exibindo o card "Acesso restrito", todo o código do componente da página restrita é baixado, montado e executado no cliente, disparando requisições iniciais à API antes da renderização do bloqueio.
-- **Correção Proposta:** Evoluir `ProtectedRoute` para aceitar a propriedade `allowedRoles?: PerfilUsuario[]`. Caso o perfil logado não conste na lista, redirecionar imediatamente para `/painel` com toast de aviso, impedindo a montagem dos componentes sensíveis.
+### 6.6 Central de Integrações
 
----
+Localizada em `/integracoes`, armazena configurações e tokens em chaves dedicadas de `localStorage`:
 
-## 7. Auditoria Página por Página
-
-### 7.1 Login e Entrada (`src/pages/Index.tsx`)
-
-- **[PG-01 MÉDIO] Ausência de redirecionamento para usuário já autenticado:**  
-  _Descrição:_ Se um usuário já autenticado acessar `/`, a página exibe novamente o formulário de login em vez de redirecioná-lo automaticamente para o funil ou painel.  
-  _Correção:_ No `Index.tsx`, incluir `useEffect` monitorando `isAuthenticated` e executar `navigate('/funil', { replace: true })`.
-
-### 7.2 Clientes (`src/pages/ClientesPage.tsx` e `src/components/clientes/ClienteModal.tsx`)
-
-- **[PG-02 ALTO] Vendedor pode alterar o responsável de clientes no modal:**  
-  _Descrição:_ Em `ClienteModal.tsx`, se o select de responsável estiver disponível, um vendedor poderia tentar associar o cliente a outro usuário. Embora a RLS bloqueie se ele não for o responsável, o select de `responsavel_id` deve ficar desabilitado ou fixo no próprio usuário quando `perfil === 'vendedor_1' || perfil === 'vendedor_2'`.  
-  _Correção:_ Desabilitar o campo `<Select>` de responsável quando o usuário logado for vendedor, atribuindo compulsoriamente seu próprio `id`.
-- **[PERF-01 ALTO] Consulta sem paginação (`getFullList`):**  
-  _Descrição:_ `ClientesPage.tsx` chama `pb.collection('clientes').getFullList()`. Conforme a carteira de clientes crescer além de mil contatos, causará degradação de memória no browser e tempo de carga lento.  
-  _Correção:_ Substituir por paginação server-side com `getList(page, perPage, { ... })`.
-
-### 7.3 Funil de Vendas (`src/pages/FunilPage.tsx`)
-
-- **[PG-03 ALTO] Tratamento de rollback em drag-and-drop:**  
-  _Descrição:_ O método `handleMudarEtapa` faz atualização otimista na tela e reverte em caso de erro no bloco `catch`. A checagem do frontend `podeEditarOportunidade` já previne ações indevidas. No entanto, se houver falha de rede intermitente, os cards podem apresentar piscamento visual. A lógica foi verificada e está correta, mas deve ser mantida com observância.
-
-### 7.4 Ligações (`src/pages/LigacoesPage.tsx`)
-
-- **[PG-04 ALTO] Operação não atômica ao criar ligação e agendar tarefa:**  
-  _Descrição:_ Ao registrar uma ligação com "Próxima Ação" preenchida, o código primeiro cria a ligação (`pb.collection('ligacoes').create`) e, em seguida, cria a tarefa vinculada (`pb.collection('tarefas').create`). Se a criação da tarefa falhar (ex: payload rejeitado ou queda de rede), a ligação já foi persistida e a tarefa não é gerada, deixando o fluxo comercial em estado inconsistente sem notificação de falha parcial.  
-  _Correção:_ Envolver a chamada de tarefa em bloco de contingência: se falhar, alertar o usuário especificamente com: _"Ligação registrada, mas houve falha ao agendar a tarefa de retorno. Por favor, crie-a manualmente."_
-
-### 7.5 Follow-up Inteligente (`src/pages/FollowUpPage.tsx`)
-
-- **[PG-05 MÉDIO] Risco de cálculo de aniversariantes em anos bissextos:**  
-  _Descrição:_ O cálculo de dias para aniversário (`new Date(anoAtual, mesNasc, diaNasc)`) na linha 295 pode gerar comportamento inesperado para clientes nascidos em 29 de Fevereiro em anos não-bissextos (o JavaScript projeta para 1º de Março).  
-  _Correção:_ Tratar explicitamente clientes de 29/02 para considerar 28/02 em anos comuns.
-- **[PG-06 BAIXO] Clientes inativos há mais de 30 dias:**  
-  _Descrição:_ A regra filtra `d < trintaDiasAtras`. Caso `data_ultima_compra` seja uma data futura inconsistente, ela é ignorada, o que está correto.
-
-### 7.6 Gestão de Usuários (`src/pages/UsuariosPage.tsx`)
-
-- **[PG-07 CRÍTICO] Falha de permissão de criação e exclusão:**  
-  _Descrição:_ Relacionado a [BD-01] e [SEC-01]. A tela não conseguirá criar nem deletar registros até que a migração de RLS de `usuarios` seja executada no banco.
-
-### 7.7 Importação de Dados (`src/pages/ImportacaoPage.tsx`)
-
-- **[PG-08 ALTO] Deduplicação de CPF/CNPJ com formatações assimétricas:**  
-  _Descrição:_ Ao importar clientes via CSV, a busca por duplicados compara strings. Se o banco possuir `12.345.678/0001-90` e a planilha contiver `12345678000190`, a duplicidade não é detectada e um cliente duplicado é criado.  
-  _Correção:_ Normalizar ambos os lados com regex removendo caracteres não numéricos (`val.replace(/\D/g, '')`) antes de comparar.
-- **[PG-09 MÉDIO] Concatenação infinita nas observações de importação:**  
-  _Descrição:_ Ao reimportar compras de um cliente existente, o código concatena:
-  `Total de compras importado: R$ X`. A cada nova importação da mesma planilha, a string é adicionada novamente, poluindo as observações.  
-  _Correção:_ Substituir a menção antiga via regex antes de concatenar o novo valor importado.
-
-### 7.8 Relatórios e Exportação (`src/components/relatorios/`)
-
-- **[PG-10 ALTO] Falta de BOM UTF-8 no CSV exportado (`exportarCsv.ts`):**  
-  _Descrição:_ O arquivo `src/components/relatorios/exportarCsv.ts` cria o blob CSV com `type: 'text/csv;charset=utf-8;'`, mas **não insere o Byte Order Mark (`\uFEFF`)** no início do conteúdo.  
-  _Impacto:_ No Microsoft Excel para Windows (padrão em escritórios brasileiros), caracteres com acentuação (como "Comunicação", "Aprovação", "João") abrem corrompidos com caracteres estranhos (`ComunicaÃ§Ã£o`).  
-  _Correção:_ Adicionar `\uFEFF` no início do blob:
-  ```typescript
-  const blob = new Blob(['\uFEFF' + conteudo], { type: 'text/csv;charset=utf-8;' })
-  ```
-
-### 7.9 Automações e Canais (`src/components/automacoes/CanalModal.tsx`)
-
-- **[PG-11 MÉDIO] Credenciais de canais expostas em texto puro no formulário:**  
-  _Descrição:_ Em `CanalModal.tsx`, campos de chave de API e tokens de webhook são exibidos em campos de texto padrão sem máscara (`type="password"` com botão de toggle de visibilidade).  
-  _Impacto:_ Usuários ao redor podem visualizar credenciais corporativas de mensageria na tela.  
-  _Correção:_ Aplicar máscara com toggle de visibilidade nos inputs de segredos de canal.
+- **Bling ERP:** Chave `integracao_bling_token` (API Key V2/V3).
+- **WhatsApp Cloud API (Meta):** Chave `integracao_whatsapp` (Phone Number ID, Access Token e Template Namespace).
+- **E-mail SMTP & SMS Gateway:** Chave `integracao_email_sms` (Host SMTP, Porta, Usuário, Senha e Provedor SMS).
 
 ---
 
-## 8. Regras de Negócio e Cálculos
+## 7. Infraestrutura e Utilitários Transversais
 
-| Indicador / Regra                       | Especificação de Negócio                                            | Implementação Atual                                            | Status do Diagnóstico                                       |
-| :-------------------------------------- | :------------------------------------------------------------------ | :------------------------------------------------------------- | :---------------------------------------------------------- |
-| **Taxa de Conversão do Funil**          | Ganhas / (Ganhas + Perdidas) \* 100                                 | `finalizadas > 0 ? (ganhas.length / finalizadas) * 100 : 0`    | **Correto** (evita divisão por zero)                        |
-| **Ticket Médio**                        | Soma das Ganhas / Qtd Ganhas                                        | `ganhas.length > 0 ? somaGanhas / ganhas.length : 0`           | **Correto** (evita divisão por zero)                        |
-| **Trava de Responsável (Vendedores)**   | Vendedor 1 e 2 só podem ser responsáveis por seus próprios clientes | Implementado no frontend (`ClienteModal`, `OportunidadeModal`) | **Parcialmente seguro** (depende de ajuste na RLS [RLS-02]) |
-| **Data de Fechamento de Oportunidades** | Preenchida apenas quando Ganho ou Perdido; limpa quando Aberto      | Preenche ao ganhar/perder; **não limpa ao reabrir**            | **Incorreto [HOOK-01]**                                     |
-| **Período Global de Análise**           | Filtragem síncrona por Mês/Ano corrente em Funil e Relatórios       | Contexto `PeriodoContext` integrado com `SeletorDePeriodo`     | **Correto e consistente**                                   |
-| **Percentual de Meta Atingida**         | (Realizado / Meta) \* 100                                           | Tratado com barra visual e saturação em 100%                   | **Correto**                                                 |
+### 7.1 Seletor de Período Global (`SeletorDePeriodo.tsx` e `PeriodoContext.tsx`)
 
----
+- Contexto global que propaga o `ano` e `mes` selecionados para o Painel, Funil e Relatórios.
+- Inclui atalhos para: "Mês Atual", avançar/voltar mês, e selecionar ano/mês em dropdowns.
+- Calcula datas no padrão ISO e YMD em UTC, prevenindo desvios decorrentes do fuso horário brasileiro (GMT-3).
 
-## 9. Qualidade de Código e Tipagem
+### 7.2 Componente de Paginação Reutilizável (`PaginacaoControles.tsx`)
 
-- **[CODE-01 MÉDIO] Tipos de modelos espalhados e tipagem inline:**  
-  _Descrição:_ A maior parte dos modelos reside em `src/types/clientes.ts` e `src/types/marketing.ts`. No entanto, em páginas como `MetasPage.tsx` e `ImportacaoPage.tsx`, interfaces auxiliares (ex: `LogImportacaoItem`, estados de erro de formulário) são declaradas inline nos arquivos de página.  
-  _Correção:_ Criar arquivos dedicados em `src/types/` (ex: `src/types/importacao.ts`, `src/types/metas.ts`) centralizando os tipos do domínio.
-- **[CODE-02 BAIXO] Uso residual de chamadas `console.error`:**  
-  _Descrição:_ Em `UsuariosPage.tsx` (linha 229) e `ImportacaoPage.tsx` (linha 609), há ocorrências de `console.error` residual em blocos de captura de exceção.  
-  _Correção:_ Substituir por notificações de toast ou serviço centralizado de monitoramento de logs de cliente.
-- **[CODE-03 BAIXO] Parse de `localStorage` sem try/catch em módulos isolados:**  
-  _Descrição:_ Em `ImportacaoPage.tsx` (linha 118), o parsing de logs históricos salvos em `localStorage` é protegido por bloco try/catch. A implementação foi conferida e está segura contra dados malformados.
+- Componente universal adotado em todas as tabelas e listas longas do CRM (`ClientesPage`, `FollowUpPage`, `FunilPage`, `UsuariosPage` e `SubAba...` de relatórios).
+- Suporte a seletor de itens por página: **25, 50 ou 100 registros** (padrão 50 registros).
+- Exibe o resumo do intervalo: _"Mostrando X a Y de Z registros"_ e botões de "Anterior" / "Próximo".
 
----
+### 7.3 Exportação CSV Padronizada com BOM UTF-8 (`exportarCsv.ts`)
 
-## 10. Responsividade e Experiência do Usuário (UX)
+- Módulo centralizado para geração de relatórios tabulares no navegador.
+- **Resolução de Caracteres Especiais:** Injeta explicitamente o Byte Order Mark UTF-8 (`Uint8Array([0xEF, 0xBB, 0xBF])`) no início do `Blob`. Isso garante abertura direta no Microsoft Excel sem corrupção de acentuação (ex.: "Negociação", "Concluída", "Crítico").
 
-- **[UX-01 MÉDIO] Visualização móvel das tabelas de gestão:**  
-  _Descrição:_ Em `UsuariosPage.tsx`, há alternância inteligente entre `<Table>` para desktop e cards individuais para mobile (`md:hidden`). No entanto, em `SubAbaClientes.tsx` e `SubAbaOportunidades.tsx` dos Relatórios, a tabela gera rolagem horizontal em telas menores que 640px sem indicação visual de scroll.  
-  _Correção:_ Adicionar indicador sutil de gradiente lateral em tabelas com rolagem horizontal em mobile.
-- **[UX-02 BAIXO] Navegação de retorno com histórico vazio:**  
-  _Descrição:_ Páginas como `UsuariosPage`, `MetasPage` e `PrimeirosPassosPage` utilizam a lógica:
-  ```typescript
-  if (window.history.length > 2) navigate(-1) else navigate('/painel')
-  ```
-  Se o usuário acessar o link diretamente em uma nova aba, ele é enviado corretamente para `/painel` (ou `/funil`). Recomenda-se direcionar para `/funil` como rota principal de trabalho.
+### 7.4 Impressão e Exportação de POPs (`imprimirPop`)
+
+- Localizado em `src/data/popTreinamentoData.ts`.
+- Abre uma janela temporária com CSS de mídia `@media print` formatado para folha A4 com logotipo da Colesel 45, blocos de objetivo, responsabilidades, passos operacionais e assinaturas de homologação.
 
 ---
 
-## 11. Performance e Escalabilidade
+## 8. Conteúdo Institucional: POPs e Trilha de Treinamento
 
-- **[PERF-01 ALTO] Carregamento irrestrito com `getFullList`:**  
-  _Descrição:_ As páginas `ClientesPage.tsx`, `FollowUpPage.tsx` e `RelatoriosPage.tsx` realizam `pb.collection(...).getFullList()`.  
-  _Impacto:_ Com bases de clientes acima de 2.000 registros e histórico acumulado de milhares de ligações e tarefas, o tempo de requisição e parsing de JSON na thread do navegador causará congelamento momentâneo da UI.  
-  _Correção:_ Implementar paginação com `getList` e virtualização de lista para tabelas com mais de 500 linhas.
+### 8.1 Catálogo dos 10 Procedimentos Operacionais Padrão (POPs)
+
+Todos os POPs estão declarados e estruturados em `src/data/popTreinamentoData.ts`:
+
+1. **POP-001 — Cadastro e Qualificação de Clientes:** Perfis: Vendedores e Coordenador. Critérios de campos obrigatórios, identificação de Grandes Clientes (VIP) e deduplicação de CNPJ.
+2. **POP-002 — Gestão e Movimentação do Funil de Vendas:** Perfis: Vendedores, Coordenador e CEO. Regras de passagem de etapa e preenchimento de motivos de perda.
+3. **POP-003 — Registro de Ligações e Agendamento de Retorno:** Perfis: Vendedores e Coordenador. Obrigatoriedade de registro de tipo de chamada, resultado e geração automática de tarefas.
+4. **POP-004 — Rotina Diária de Prospecção e Follow-up:** Perfis: Vendedores e Coordenador. Gestão das tarefas do dia e monitoramento de propostas paradas há mais de 5 dias.
+5. **POP-005 — Importação de Dados do Bling ERP:** Perfil: Exclusivo CEO Financeiro. Mapeamento de colunas, higienização de arquivos CSV e conciliação de compras.
+6. **POP-006 — Gestão e Acompanhamento de Metas Mensais:** Perfis: Coordenador e CEO Financeiro. Cadastramento de metas financeiras e volumétricas e rituais de alinhamento semanal.
+7. **POP-007 — Configuração e Manutenção de Integrações:** Perfis: Coordenador e CEO Financeiro. Manutenção segura de credenciais de mensageria e ERP.
+8. **POP-008 — Gestão de Usuários e Controle de Acessos:** Perfil: Exclusivo CEO Financeiro. Ciclo de vida de credenciais, provisionamento e política de desativação de contas.
+9. **POP-009 — Análise de Relatórios e Indicadores Comerciais:** Perfis: Coordenador e CEO Financeiro. Leitura dos gráficos de conversão, ticket médio e exportação para BI.
+10. **POP-010 — Segurança da Informação e Uso Adequado do CRM:** Perfis: Todos os Usuários. Confidencialidade de dados de clientes, política de senhas e vedação de exportação não autorizada.
+
+### 8.2 Trilha de Treinamento (18 Slides em 4 Módulos)
+
+A trilha de capacitação interativa é dividida em 4 módulos sequenciais:
+
+- **Módulo 1: Visão Geral e Arquitetura do CRM Colesel 45 (Slides 1 a 4):**
+  - Slide 1: Boas-vindas e Missão da Colesel 45
+  - Slide 2: Arquitetura Comercial e os Papéis da Equipe
+  - Slide 3: Navegação Geral e Interface do Sistema
+  - Slide 4: Painel Geral e Leitura dos Indicadores-Chave
+- **Módulo 2: O Ciclo de Vendas e o Funil Comercial (Slides 5 a 9):**
+  - Slide 5: Da Prospecção ao Fechamento: As 6 Etapas
+  - Slide 6: Cadastro Completo e Higiene de Dados
+  - Slide 7: Criando e Atualizando Oportunidades
+  - Slide 8: Oportunidades Ganhas e Perdidas: Boas Práticas
+  - Slide 9: O Segredo do Follow-up: Nunca Perca um Contato
+- **Módulo 3: Rotina Operacional e Produtividade Diária (Slides 10 a 14):**
+  - Slide 10: Gestão Diária de Tarefas e Agendamentos
+  - Slide 11: Registro de Ligações Telefônicas em Tempo Real
+  - Slide 12: Acompanhamento de Metas e Desempenho Individual
+  - Slide 13: Automações e Disparos de Comunicação
+  - Slide 14: Relatórios Comerciais e Exportação de Dados
+- **Módulo 4: Governança, Integrações e Segurança (Slides 15 a 18):**
+  - Slide 15: Integração com o ERP Bling
+  - Slide 16: Canais de Comunicação: WhatsApp e E-mail
+  - Slide 17: Governança de Acessos e Perfis de Usuário
+  - Slide 18: Segurança da Informação e Avaliação Final
 
 ---
 
-## 12. Configuração e Infraestrutura
+## 9. Achados da Auditoria Técnica Atualizada
 
-- **Vite & Rolldown (`vite.config.ts`):**  
-  Configurado adequadamente com minificação via `lightningcss` e aliases de caminho `@/` mapeados para `./src`.
-- **TypeScript (`tsconfig.json`, `tsconfig.app.json`):**  
-  Configurado com `strictNullChecks: true`, `noImplicitAny: false`, `skipLibCheck: true`. O typecheck (`tsc`) executa sem erros na versão atual.
-- **Segredos e Variáveis de Ambiente:**  
-  Não há segredos de produção ou tokens de backend expostos nos arquivos `.env` ou no repositório de frontend. Apenas `VITE_POCKETBASE_URL` é consumida no cliente. Segredos do servidor (`PB_SUPERUSER_TOKEN`, `SKIP_AI_GATEWAY_API_KEY`) estão isolados na infraestrutura de hooks da Skip Cloud.
-- **Arquivos Protegidos (`.skip.config.json`):**  
-  Configurações de infraestrutura e dependências preservadas conforme as diretrizes do projeto.
+### 9.1 Reavaliação dos 20 Achados Históricos (da v0.0.19)
+
+| ID Antigo  | Severidade Original | Descrição do Achado Antigo                                               | Status Atual (pós-v0.0.26) | Reavaliação e Situação no Código Real                                                                                                                               |
+| :--------- | :------------------ | :----------------------------------------------------------------------- | :------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **ACH-01** | Crítico             | Criação irrestrita de usuários sem autorização de admin                  | **CORRIGIDO**              | Criado o hook seguro `pocketbase/hooks/criar_usuario.js` com endpoint restrito que valida se o solicitante possui perfil `ceo_financeiro`.                          |
+| **ACH-02** | Crítico             | Exclusão de clientes permitida para qualquer usuário                     | **CORRIGIDO**              | RLS atualizada em `0009_ajustes_regras_acesso_e_ceos.js`. Exclusão permitida apenas para `ceo_financeiro` ou o próprio `responsavel_id`.                            |
+| **ACH-03** | Crítico             | Bloqueio do funil inexistente para perfil estoque                        | **CORRIGIDO**              | RLS das oportunidades e regras visuais barram criação/alteração por perfis não comerciais.                                                                          |
+| **ACH-04** | Crítico             | Falta de obrigatoriedade de treinamento pós-v0.0.19                      | **CORRIGIDO**              | Criada migração `0010_create_treinamento_concluido.js`, serviço `treinamentoService.ts`, guard de rotas no `ProtectedRoute.tsx` e bloqueio de menu no `Layout.tsx`. |
+| **ACH-05** | Alto                | Fechamento de oportunidade sem preenchimento de `data_fechamento`        | **CORRIGIDO**              | Criado hook de backend `pocketbase/hooks/fechamento_oportunidade.js` que preenche data no ganho/perda e limpa ao reabrir.                                           |
+| **ACH-06** | Alto                | Ausência de validação de quiz de treinamento                             | **CORRIGIDO**              | Implementado o componente de quiz de 5 perguntas com exigência mínima de 4 acertos (80%) antes de autorizar a conclusão.                                            |
+| **ACH-07** | Médio               | Filtro de período causava deslocamento de fuso (UTC vs GMT-3)            | **CORRIGIDO**              | Refatorado o `PeriodoContext.tsx` e `calcularPeriodoFiltro` para manipulação estrita em UTC e formato YMD.                                                          |
+| **ACH-08** | Médio               | Exportação CSV corria risco de quebra de caracteres no Excel             | **CORRIGIDO**              | Implementado `exportarCsv.ts` com injeção explícita do BOM UTF-8 (`Uint8Array([0xEF, 0xBB, 0xBF])`).                                                                |
+| **ACH-09** | Médio               | Listas longas sem paginação derrubavam o desempenho                      | **CORRIGIDO**              | Implementado componente padronizado `PaginacaoControles.tsx` e paginação server-side em `ClientesPage`, `FollowUpPage`, `FunilPage` e relatórios.                   |
+| **ACH-10** | Médio               | Falta de deduplicação na importação de clientes Bling                    | **CORRIGIDO**              | O utilitário de importação em `ImportacaoPage.tsx` realiza deduplicação prévia por `cnpj_cpf` e `email`.                                                            |
+| **ACH-11** | Alto                | Dados de integrações (chaves de API) armazenados em `localStorage`       | **PERSISTE**               | Chaves de API do Bling e WhatsApp continuam salvas no `localStorage` do browser. Ver recomendação REC-01.                                                           |
+| **ACH-12** | Médio               | Disparos de automação não executam envio real via gateway                | **PERSISTE**               | As automações gravam registros na tabela `mensagens_enviadas`, mas dependem de worker externo ou webhook que ainda não está ativo no backend.                       |
+| **ACH-13** | Baixo               | Paginação client-side na tela `/usuarios`                                | **PERSISTE**               | A tela `/usuarios` utiliza o componente `PaginacaoControles`, porém carrega a lista completa (`getFullList`) e pagina em memória no frontend.                       |
+| **ACH-14** | Médio               | Fallback de treinamento em `localStorage` passível de manipulação manual | **PERSISTE**               | Um usuário com conhecimento de DevTools pode injetar `treinamento_concluido_<id>` no `localStorage`.                                                                |
+| **ACH-15** | Baixo               | Dependência de `requestKey: null` no SDK do PocketBase                   | **MONITORADO**             | Adotado corretamente para evitar cancelamento de requisições paralelas no React 18 StrictMode.                                                                      |
+| **ACH-16** | Médio               | Falta de vínculo automático de tarefa na tela de ligações                | **CORRIGIDO**              | Implementado em `LigacoesPage.tsx`: se o campo "Próxima ação" for preenchido, uma tarefa é criada automaticamente.                                                  |
+| **ACH-17** | Baixo               | Falta de normalização na detecção de colunas CSV                         | **CORRIGIDO**              | Implementada função `normalizarNomeColuna` com remoção de acentuação e case-insensitive em `csvUtils.ts`.                                                           |
+| **ACH-18** | Baixo               | Falta de ordenação consistente nas consultas                             | **CORRIGIDO**              | Todas as consultas ao PocketBase definem `sort` explícito (`-created`, `ordem`, `nome_contato`).                                                                    |
+| **ACH-19** | Médio               | Ausência de log de histórico de importações                              | **CORRIGIDO**              | Implementada persistência local das últimas 10 execuções em `log_ultimas_importacoes`.                                                                              |
+| **ACH-20** | Baixo               | Ausência de visualização de detalhes de campanha 360°                    | **CORRIGIDO**              | Implementado o componente `VisaoCampanhaDetalhes.tsx` com sub-abas de Conteúdos e Publicações.                                                                      |
 
 ---
 
-## 13. Checklist de Correções Recomendadas (Ordem de Prioridade)
+### 9.2 Pontos Fortes da Arquitetura Atual
 
-|   #    | ID          | Severidade  | Localização                                     | Problema Identificado                                                         | Correção Proposta                                                                    |
-| :----: | :---------- | :---------: | :---------------------------------------------- | :---------------------------------------------------------------------------- | :----------------------------------------------------------------------------------- |
-| **1**  | **BD-01**   | **CRÍTICO** | `pocketbase/migrations/0001_create_usuarios.js` | `usuarios` sem `createRule` e `deleteRule` (gera 403 no frontend)             | Criar migração adicionando regras de criação e deleção para `ceo_financeiro`.        |
-| **2**  | **RLS-01**  | **CRÍTICO** | `pocketbase/migrations/0008_create_metas.js`    | Vendedor pode editar a própria meta via API (`usuario_id = @request.auth.id`) | Remover a cláusula de permissão do próprio usuário na `updateRule`.                  |
-| **3**  | **SEC-01**  | **CRÍTICO** | `src/pages/UsuariosPage.tsx`                    | Senha padrão hardcoded (`Skip@Pass45#`) no código client-side                 | Gerar senha aleatória temporária e usar fluxo de redefinição por e-mail.             |
-| **4**  | **SEC-02**  | **CRÍTICO** | `src/pages/UsuariosPage.tsx`                    | Auto-provisionamento de diretores em `useEffect` client-side                  | Mover o provisionamento para seed de migração PocketBase e remover do client.        |
-| **5**  | **HOOK-01** |  **ALTO**   | `pocketbase/hooks/fechamento_oportunidade.js`   | `data_fechamento` não é limpa quando oportunidade volta para "Aberto"         | Atualizar o hook para setar `data_fechamento = null` na reabertura da proposta.      |
-| **6**  | **RLS-02**  |  **ALTO**   | Migrações 0004 e 0005                           | Coordenador de vendas sem permissão de escrita/exclusão na equipe             | Incluir `@request.auth.perfil = 'coordenador_vendas'` nas `updateRule`/`deleteRule`. |
-| **7**  | **PG-10**   |  **ALTO**   | `src/components/relatorios/exportarCsv.ts`      | Arquivo CSV gerado sem BOM (`\uFEFF`), corrompendo acentuação no Excel        | Adicionar o caractere `\uFEFF` antes do conteúdo ao criar o `Blob`.                  |
-| **8**  | **PERF-01** |  **ALTO**   | Clientes, FollowUp e Relatórios                 | Uso massivo de `getFullList` sem paginação para grandes volumes               | Adicionar paginação e filtros no backend para listas extensas.                       |
-| **9**  | **SEC-03**  |  **ALTO**   | `src/App.tsx` e `ProtectedRoute.tsx`            | Rotas de CEO e gestão sem restrição por perfil no roteador                    | Adicionar suporte a `allowedRoles` em `ProtectedRoute`.                              |
-| **10** | **PG-08**   |  **ALTO**   | `src/pages/ImportacaoPage.tsx`                  | Deduplicação falha quando CPF/CNPJ possui máscara diferente no CSV            | Limpar pontuações de ambos os lados com `.replace(/\D/g, '')` antes de comparar.     |
-| **11** | **PG-04**   |  **ALTO**   | `src/pages/LigacoesPage.tsx`                    | Falta de tratamento atômico/contingência ao criar ligação e tarefa            | Tratar falha da tarefa sem mascarar o resultado da gravação da ligação.              |
-| **12** | **HOOK-02** |  **MÉDIO**  | `pocketbase/hooks/fechamento_oportunidade.js`   | Uso de UTC ISO puro gera data errada após 21:00 BRT                           | Ajustar para fuso horário local brasileiro (UTC-3).                                  |
-| **13** | **PG-01**   |  **MÉDIO**  | `src/pages/Index.tsx`                           | Usuário logado que acessa `/` não é redirecionado automaticamente             | Adicionar redirect para `/funil` se `isAuthenticated === true`.                      |
-| **14** | **PG-09**   |  **MÉDIO**  | `src/pages/ImportacaoPage.tsx`                  | Reimportação de cliente concatena linha de compras repetidas vezes            | Tratar substituição de texto nas observações em vez de simples concatenação.         |
-| **15** | **PG-11**   |  **MÉDIO**  | `src/components/automacoes/CanalModal.tsx`      | Chaves de API e tokens de canais exibidos em texto aberto                     | Aplicar inputs tipo `password` com botão de alternância de visualização.             |
-| **16** | **PG-05**   |  **MÉDIO**  | `src/pages/FollowUpPage.tsx`                    | Aniversário em ano bissexto (29/02) pode falhar em anos comuns                | Normalizar cálculo de dia/mês para anos comuns.                                      |
-| **17** | **BD-04**   |  **ALTO**   | Migração 0005                                   | Campo `data_fechamento` do tipo `date` perde granularidade de horário         | Alterar tipo de campo ou ajustar padrão de persistência.                             |
-| **18** | **CODE-01** |  **MÉDIO**  | Diversos arquivos de páginas                    | Tipos e interfaces de dados declarados inline em vez de `src/types/`          | Centralizar tipos em arquivos dedicados na pasta de tipos.                           |
-| **19** | **BD-03**   |  **BAIXO**  | Migração 0006 e `src/types/clientes.ts`         | Campos `criada_em` e `atualizada_em` no feminino em `automacoes`              | Padronizar nomenclatura dos campos de timestamp.                                     |
-| **20** | **CODE-02** |  **BAIXO**  | `UsuariosPage.tsx`, `ImportacaoPage.tsx`        | Presença de `console.error` residual no frontend                              | Remover ou substituir por tratamentos amigáveis com toast.                           |
+1. **Segurança em Camadas:** As regras de RLS do PocketBase garantem que mesmo que um usuário burle a interface ou manipule requisições HTTP, o banco de dados recusa operações ilegítimas.
+2. **Onboarding Blindado:** A governança de primeiro acesso impede que qualquer vendedor utilize o CRM antes de ser capacitado nos POPs e aprovado no teste de conhecimento.
+3. **Resiliência e Usabilidade:** Uso consistente de estados de carregamento, estados vazios ilustrados e tratamento amigável de erros 403/404 em toda a aplicação.
+4. **Performance do Dashboard:** Adoção de cache de 5 minutos em memória para consultas analíticas complexas do Painel Geral de Vendas.
+5. **Automação de Fechamento de Vendas:** O hook server-side garante a integridade da data de fechamento para cálculos confiáveis de ciclos de vendas e tempo médio de negociação.
+
+---
+
+### 9.3 Riscos e Limitações Técnicas Remanescentes
+
+1. **Persistência de Segredos no Cliente (`localStorage` para Integrações):**
+   - _Risco:_ As credenciais de API do Bling ERP, tokens do WhatsApp Cloud API e credenciais de SMTP/SMS estão armazenadas no `localStorage` do navegador do usuário gestor.
+   - _Impacto:_ Caso o computador do usuário seja comprometido ou ocorra um ataque do tipo Cross-Site Scripting (XSS), as chaves poderiam ser lidas.
+2. **Automações em Modo Simulação / Gravação em Tabela:**
+   - _Risco:_ A ação de "disparar automação" cria registros com status `pendente` ou `enviada` na tabela `mensagens_enviadas`, mas o envio real via API da Meta/Twilio/SendGrid não é disparado de forma transacional por um backend worker integrado.
+   - _Impacto:_ A automação funciona como régua interna de controle operacional, mas requer acoplamento de webhook externo para envio físico das mensagens.
+3. **Possibilidade de Fraude no Fallback Local do Treinamento:**
+   - _Risco:_ A verificação de treinamento consulta o banco de dados, mas caso haja erro na requisição (por exemplo, bloqueio de rede intencional), o sistema aceita a flag local `treinamento_concluido_<id>`.
+   - _Impacto:_ Um colaborador com conhecimento técnico em DevTools pode definir a chave manualmente para burlar o quiz sem registro no banco.
+4. **Paginação Client-Side em Usuários:**
+   - _Risco:_ Em `/usuarios`, o método utilizado é `getFullList`. Para a escala atual da construtora (dezenas de colaboradores), o impacto é nulo; porém, se a base crescer para centenas de colaboradores, a listagem consumirá largura de banda desnecessária.
+
+---
+
+### 9.4 Recomendações Técnicas Priorizadas para Próximas Versões
+
+1. **[REC-01 — Alta Prioridade] Migração de Tokens e Integrações para o Servidor:**
+   Criar uma coleção restrita no PocketBase (`configuracoes_integracao`) com acesso exclusivo de leitura/escrita para admin, ou utilizar variáveis de ambiente gerenciadas no backend para que o frontend nunca tenha acesso às chaves secretas de APIs terceiras.
+2. **[REC-02 — Alta Prioridade] Implementação do Dispatcher Real de Mensageria:**
+   Implementar um `pb_hook` em `pocketbase/hooks/enviar_mensagem.js` disparado no evento `onRecordAfterCreateRequest` da coleção `mensagens_enviadas` para fazer a chamada HTTP REST real aos endpoints da Meta e provedores de e-mail/SMS.
+3. **[REC-03 — Média Prioridade] Validação Estrita de Treinamento no Backend:**
+   Eliminar o fallback permissivo de `localStorage` para a aprovação do treinamento ou exigir que o backend valide a existência de registro em `treinamento_concluido` como pré-condição no RLS de criação de oportunidades por vendedores.
+4. **[REC-04 — Baixa Prioridade] Paginação Server-side no Módulo de Usuários:**
+   Migrar a listagem de `/usuarios` de `getFullList()` para `getList(pagina, limite)` utilizando a mesma infraestrutura já consolidada em `ClientesPage`.
+
+---
+
+## 10. Conclusão da Auditoria
+
+A versão atual do **CRM Colesel 45** apresenta evolução substancial de maturidade técnica, estabilidade e conformidade arquitetural em comparação com os estágios iniciais do projeto. A governança de perfis está consolidada nas regras RLS do banco de dados, o processo de onboarding obrigatório garante a aderência aos 10 POPs institucionais, e as funcionalidades comerciais (funil de vendas, follow-up, importação Bling e relatórios com exportação UTF-8) estão operacionais e aderentes às necessidades da construtora.
+
+O sistema encontra-se plenamente homologado para operação comercial e apto para auditoria externa por outro time de desenvolvimento.
