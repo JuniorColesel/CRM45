@@ -7,6 +7,7 @@ export type StatusCliente = 'ativo' | 'para_reativacao'
 export type GrandeClienteFlag = 'sim' | 'nao'
 
 export interface ClienteModel extends RecordModel {
+  bling_id?: string
   nome_empresa: string
   nome_contato?: string
   cnpj_cpf?: string

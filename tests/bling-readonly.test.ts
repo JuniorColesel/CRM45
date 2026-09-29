@@ -26,6 +26,7 @@ describe('14. Integração Bling ERP - Somente Leitura (Read-Only)', () => {
     const arquivosParaVerificar = [
       'src/pages/IntegracoesPage.tsx',
       'src/pages/ImportacaoPage.tsx',
+      'src/lib/bling/blingUtils.ts',
     ]
 
     for (const relPath of arquivosParaVerificar) {
@@ -35,8 +36,40 @@ describe('14. Integração Bling ERP - Somente Leitura (Read-Only)', () => {
         // Não deve haver chamadas diretas de escrita para a API do Bling
         expect(conteudo).not.toMatch(/https:\/\/api\.bling\.com\.br[^\n]*POST/i)
         expect(conteudo).not.toMatch(/https:\/\/api\.bling\.com\.br[^\n]*PUT/i)
+        expect(conteudo).not.toMatch(/https:\/\/api\.bling\.com\.br[^\n]*PATCH/i)
         expect(conteudo).not.toMatch(/https:\/\/api\.bling\.com\.br[^\n]*DELETE/i)
       }
+    }
+  })
+
+  it('Verificação estrita: nenhuma chamada POST/PUT/PATCH/DELETE para a API do Bling existe em todo o repositório', () => {
+    // Escaneia todos os arquivos de código em pocketbase/ e src/
+    const varrerDiretorio = (dir: string, arquivos: string[] = []): string[] => {
+      const itens = fs.readdirSync(dir)
+      for (const item of itens) {
+        const fullPath = path.join(dir, item)
+        const stat = fs.statSync(fullPath)
+        if (stat.isDirectory()) {
+          if (!fullPath.includes('node_modules') && !fullPath.includes('.git') && !fullPath.includes('dist')) {
+            varrerDiretorio(fullPath, arquivos)
+          }
+        } else if (/\.(js|ts|tsx)$/.test(item)) {
+          arquivos.push(fullPath)
+        }
+      }
+      return arquivos
+    }
+
+    const todosArquivos = [
+      ...varrerDiretorio(path.resolve(process.cwd(), 'pocketbase')),
+      ...varrerDiretorio(path.resolve(process.cwd(), 'src')),
+    ]
+
+    for (const arq of todosArquivos) {
+      const conteudo = fs.readFileSync(arq, 'utf-8')
+      // Proibição estrita: api.bling.com.br nunca pode ser associado com POST, PUT, PATCH ou DELETE
+      expect(conteudo).not.toMatch(/api\.bling\.com\.br[^\n]*(POST|PUT|PATCH|DELETE)/i)
+      expect(conteudo).not.toMatch(/method:\s*['"](POST|PUT|PATCH|DELETE)['"][^\n]*api\.bling\.com\.br/i)
     }
   })
 })

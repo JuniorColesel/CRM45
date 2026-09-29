@@ -22,6 +22,9 @@ import {
   RotateCcw,
   ShieldCheck,
   Loader2,
+  RefreshCw,
+  Clock,
+  AlertTriangle,
 } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
@@ -86,6 +89,21 @@ export default function IntegracoesPage() {
   const [blingToken, setBlingToken] = useState<string>('')
   const [showBlingToken, setShowBlingToken] = useState(false)
   const [temBlingSalvo, setTemBlingSalvo] = useState(false)
+  const [sincronizandoBling, setSincronizandoBling] = useState(false)
+  const [resultadoSync, setResultadoSync] = useState<{
+    iniciado_em: string
+    finalizado_em: string
+    duracao_ms: number
+    clientes_consultados: number
+    clientes_criados: number
+    clientes_atualizados: number
+    clientes_ignorados: number
+    pedidos_consultados: number
+    clientes_com_compras_atualizadas: number
+    erros: string[]
+    status: string
+    mensagem: string
+  } | null>(null)
 
   // ==========================================
   // ESTADO: SEÇÃO B - WHATSAPP / META
@@ -174,6 +192,91 @@ export default function IntegracoesPage() {
       navigate(-1)
     } else {
       navigate('/configuracoes')
+    }
+  }
+
+  // ==========================================
+  // HANDLER: SINCRONIZAR BLING (SOMENTE LEITURA NO BLING)
+  // ==========================================
+  const handleSincronizarBling = async () => {
+    if (!isCeo) {
+      toast({
+        variant: 'destructive',
+        title: 'Permissão insuficiente',
+        description: 'Apenas o perfil CEO / Financeiro pode disparar a sincronização do Bling.',
+      })
+      return
+    }
+
+    if (!temBlingSalvo && !blingToken) {
+      toast({
+        variant: 'destructive',
+        title: 'Token não configurado',
+        description: 'Por favor, salve o token de API do Bling antes de sincronizar.',
+      })
+      return
+    }
+
+    try {
+      setSincronizandoBling(true)
+      setResultadoSync(null)
+
+      const res = await pb.send<{
+        success: boolean
+        status: string
+        iniciado_em: string
+        finalizado_em: string
+        duracao_ms: number
+        clientes_consultados: number
+        clientes_criados: number
+        clientes_atualizados: number
+        clientes_ignorados: number
+        pedidos_consultados: number
+        clientes_com_compras_atualizadas: number
+        erros: string[]
+        mensagem: string
+      }>('/backend/v1/bling/sincronizar', {
+        method: 'POST',
+      })
+
+      if (res) {
+        setResultadoSync(res)
+        if (res.success) {
+          toast({
+            title: 'Sincronização com Bling concluída',
+            description: `${res.clientes_consultados} clientes e ${res.pedidos_consultados} pedidos processados.`,
+          })
+        } else {
+          toast({
+            variant: 'destructive',
+            title: 'Aviso na sincronização do Bling',
+            description: res.mensagem || 'Houve falhas no processamento.',
+          })
+        }
+      }
+    } catch (err: unknown) {
+      const msg = getErrorMessage(err)
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao sincronizar com o Bling ERP',
+        description: msg,
+      })
+      setResultadoSync({
+        iniciado_em: new Date().toISOString(),
+        finalizado_em: new Date().toISOString(),
+        duracao_ms: 0,
+        clientes_consultados: 0,
+        clientes_criados: 0,
+        clientes_atualizados: 0,
+        clientes_ignorados: 0,
+        pedidos_consultados: 0,
+        clientes_com_compras_atualizadas: 0,
+        erros: [msg],
+        status: 'erro',
+        mensagem: 'Falha na conexão com o serviço: ' + msg,
+      })
+    } finally {
+      setSincronizandoBling(false)
     }
   }
 
@@ -564,11 +667,25 @@ export default function IntegracoesPage() {
             </div>
 
             {isCeo && (
-              <div className="flex justify-end pt-2">
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
+                <Button
+                  type="button"
+                  onClick={handleSincronizarBling}
+                  disabled={sincronizandoBling || salvandoBling}
+                  className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-semibold text-xs shadow-sm gap-2 h-9 px-4"
+                >
+                  {sincronizandoBling ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4" />
+                  )}
+                  {sincronizandoBling ? 'Sincronizando com o Bling...' : 'SINCRONIZAR BLING'}
+                </Button>
+
                 <Button
                   type="submit"
-                  disabled={salvandoBling}
-                  className="bg-[#16A34A] hover:bg-[#15803D] text-white font-semibold text-xs shadow-sm gap-2"
+                  disabled={salvandoBling || sincronizandoBling}
+                  className="bg-[#16A34A] hover:bg-[#15803D] text-white font-semibold text-xs shadow-sm gap-2 h-9 px-4"
                 >
                   {salvandoBling ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -580,6 +697,135 @@ export default function IntegracoesPage() {
               </div>
             )}
           </form>
+
+          {/* Painel de Resultados da Sincronização Bling (Item 3 da especificação) */}
+          {sincronizandoBling && (
+            <div className="p-4 rounded-xl bg-blue-50 border border-blue-200 text-xs text-[#0F172A] flex items-center gap-3 animate-pulse">
+              <Loader2 className="w-5 h-5 text-blue-600 animate-spin flex-shrink-0" />
+              <div className="space-y-0.5">
+                <p className="font-semibold text-blue-900">
+                  Processando sincronização com a API do Bling ERP...
+                </p>
+                <p className="text-[11px] text-blue-700">
+                  Percorrendo páginas de contatos e pedidos de venda em modo{' '}
+                  <strong>somente leitura (GET)</strong>. Aguarde a consolidação idempotente dos
+                  dados.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {resultadoSync && !sincronizandoBling && (
+            <div
+              className={`p-4 rounded-xl border text-xs space-y-3 ${
+                resultadoSync.status === 'erro'
+                  ? 'bg-red-50/80 border-red-200 text-red-950'
+                  : resultadoSync.status === 'sucesso_parcial'
+                    ? 'bg-amber-50/80 border-amber-200 text-amber-950'
+                    : 'bg-emerald-50/80 border-emerald-200 text-emerald-950'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2 border-b border-black/5 pb-2">
+                <div className="flex items-center gap-2">
+                  {resultadoSync.status === 'erro' ? (
+                    <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                  )}
+                  <span className="font-bold text-sm">
+                    {resultadoSync.status === 'erro'
+                      ? 'Falha na Sincronização'
+                      : resultadoSync.status === 'sucesso_parcial'
+                        ? 'Sincronização Concluída com Avisos'
+                        : 'Sincronização Concluída com Sucesso'}
+                  </span>
+                  <Badge variant="outline" className="text-[10px] bg-white">
+                    {resultadoSync.status}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-1.5 text-[11px] text-[#64748B]">
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>
+                    Duração: {Math.round(resultadoSync.duracao_ms / 1000)}s (
+                    {resultadoSync.duracao_ms} ms)
+                  </span>
+                </div>
+              </div>
+
+              {/* Resumo em cards métricos */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-center">
+                <div className="bg-white/90 p-2.5 rounded-lg border border-black/5 shadow-2xs">
+                  <span className="block text-[10px] text-[#64748B] font-semibold">
+                    Clientes Consultados
+                  </span>
+                  <span className="text-base font-bold text-[#0F172A]">
+                    {resultadoSync.clientes_consultados}
+                  </span>
+                </div>
+                <div className="bg-white/90 p-2.5 rounded-lg border border-black/5 shadow-2xs">
+                  <span className="block text-[10px] text-emerald-700 font-semibold">
+                    Clientes Criados
+                  </span>
+                  <span className="text-base font-bold text-emerald-700">
+                    {resultadoSync.clientes_criados}
+                  </span>
+                </div>
+                <div className="bg-white/90 p-2.5 rounded-lg border border-black/5 shadow-2xs">
+                  <span className="block text-[10px] text-blue-700 font-semibold">
+                    Clientes Atualizados
+                  </span>
+                  <span className="text-base font-bold text-blue-700">
+                    {resultadoSync.clientes_atualizados}
+                  </span>
+                </div>
+                <div className="bg-white/90 p-2.5 rounded-lg border border-black/5 shadow-2xs">
+                  <span className="block text-[10px] text-purple-700 font-semibold">
+                    Pedidos Consultados
+                  </span>
+                  <span className="text-base font-bold text-purple-700">
+                    {resultadoSync.pedidos_consultados}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] pt-1">
+                <div>
+                  <strong>Clientes com vendas consolidadas:</strong>{' '}
+                  {resultadoSync.clientes_com_compras_atualizadas} |{' '}
+                  <strong>Clientes sem alterações:</strong> {resultadoSync.clientes_ignorados}
+                </div>
+                <div>
+                  <strong>Data/Hora:</strong>{' '}
+                  {new Date(resultadoSync.finalizado_em).toLocaleString('pt-BR')}
+                </div>
+              </div>
+
+              {resultadoSync.mensagem && (
+                <p className="text-[11px] text-[#334155] italic bg-white/60 p-2 rounded border border-black/5">
+                  {resultadoSync.mensagem}
+                </p>
+              )}
+
+              {resultadoSync.erros && resultadoSync.erros.length > 0 && (
+                <div className="p-2.5 rounded-lg bg-red-100/70 border border-red-200 text-[11px] text-red-900 space-y-1">
+                  <p className="font-bold flex items-center gap-1 text-red-800">
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    Ocorrências ({resultadoSync.erros.length}):
+                  </p>
+                  <ul className="list-disc list-inside space-y-0.5 text-[10px]">
+                    {resultadoSync.erros.slice(0, 5).map((err, i) => (
+                      <li key={i}>{err}</li>
+                    ))}
+                    {resultadoSync.erros.length > 5 && (
+                      <li>
+                        + {resultadoSync.erros.length - 5} outras ocorrências registradas em log.
+                      </li>
+                    )}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 

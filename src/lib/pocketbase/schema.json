@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-29T14:51:37.525Z",
+  "generatedAt": "2026-09-29T22:15:13.966Z",
   "collections": [
     {
       "name": "users",
@@ -330,6 +330,12 @@
           "required": false,
           "system": false,
           "selectValues": ["Alice", "Renan", "Karoline (Vendas 1)", "Vendas 2"]
+        },
+        {
+          "name": "bling_id",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -338,7 +344,8 @@
         "CREATE UNIQUE INDEX `idx_clientes_nome_empresa_unique` ON `clientes` (nome_empresa) WHERE nome_empresa != ''",
         "CREATE UNIQUE INDEX `idx_clientes_cnpj_cpf_unique` ON `clientes` (cnpj_cpf) WHERE cnpj_cpf != ''",
         "CREATE INDEX `idx_clientes_status_cliente` ON `clientes` (status_cliente)",
-        "CREATE INDEX `idx_clientes_total_vendas` ON `clientes` (valor_total_vendas)"
+        "CREATE INDEX `idx_clientes_total_vendas` ON `clientes` (valor_total_vendas)",
+        "CREATE INDEX `idx_clientes_bling_id` ON `clientes` (bling_id) WHERE bling_id != ''"
       ]
     },
     {
@@ -2027,6 +2034,111 @@
         "CREATE INDEX idx_backup_logs_usuario ON backup_logs (usuario_id)",
         "CREATE INDEX idx_backup_logs_tipo ON backup_logs (tipo)",
         "CREATE INDEX idx_backup_logs_resultado ON backup_logs (resultado)"
+      ]
+    },
+    {
+      "name": "bling_sync_logs",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas')",
+        "view": "@request.auth.id != '' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas')",
+        "create": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'",
+        "update": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'",
+        "delete": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'"
+      },
+      "fields": [
+        {
+          "name": "iniciado_em",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "finalizado_em",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "usuario",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "usuarios"
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["processando", "sucesso", "sucesso_parcial", "erro"]
+        },
+        {
+          "name": "clientes_lidos",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "clientes_criados",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "clientes_atualizados",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "clientes_ignorados",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "pedidos_lidos",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "erros",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "duracao_ms",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "mensagem_resumo",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_bling_sync_logs_status ON bling_sync_logs (status)",
+        "CREATE INDEX idx_bling_sync_logs_created ON bling_sync_logs (created DESC)"
       ]
     }
   ]
