@@ -551,8 +551,22 @@ export default function UsuariosPage() {
   // Confirmação de exclusão
   const handleConfirmarExclusao = async () => {
     if (!usuarioParaExcluir) return
+
+    // Trava de segurança: impede excluir a si mesmo caso chegue a este ponto
+    if (usuarioParaExcluir.id === user?.id) {
+      toast({
+        variant: 'destructive',
+        title: 'Operação não permitida',
+        description: 'Você não pode excluir seu próprio usuário.',
+      })
+      setDeleteConfirmOpen(false)
+      setUsuarioParaExcluir(null)
+      return
+    }
+
     setExcluindo(true)
     try {
+      // 1. Tentar exclusão definitiva (hard delete) primeiro
       await pb.collection('usuarios').delete(usuarioParaExcluir.id, { requestKey: null })
 
       setUsuarios((prev) => prev.filter((u) => u.id !== usuarioParaExcluir.id))
@@ -566,14 +580,81 @@ export default function UsuariosPage() {
       setUsuarioParaExcluir(null)
     } catch (err: unknown) {
       const msg = getErrorMessage(err)
-      toast({
-        variant: 'destructive',
-        title: 'Erro ao excluir usuário',
-        description:
-          msg.includes('403') || msg.includes('permissão')
-            ? 'Você não tem permissão para excluir este usuário.'
-            : msg || 'Não foi possível excluir o usuário.',
-      })
+      const errStr = (msg || '').toLowerCase()
+      const isRelationError =
+        errStr.includes('required relation') ||
+        errStr.includes('relation reference') ||
+        errStr.includes('make sure that the record is not part of a required relation')
+
+      if (isRelationError) {
+        // Fallback não-destrutivo: desativar usuário em vez de excluir para preservar integridade
+        try {
+          let usuarioDesativado: Usuario | null = null
+
+          // Tentar atualizar via PATCH direto
+          try {
+            usuarioDesativado = await pb
+              .collection('usuarios')
+              .update<Usuario>(usuarioParaExcluir.id, { ativo: false }, { requestKey: null })
+          } catch (patchErr) {
+            // Se o PATCH direto falhar por qualquer razão de validação/permissão, recorrer ao hook privilegiado
+            const resp = await pb.send<{ success: boolean; usuario: Usuario }>(
+              '/backend/v1/atualizar_usuario',
+              {
+                method: 'POST',
+                body: {
+                  id: usuarioParaExcluir.id,
+                  nome: usuarioParaExcluir.nome,
+                  email: usuarioParaExcluir.email,
+                  perfil: usuarioParaExcluir.perfil,
+                  ativo: false,
+                },
+              },
+            )
+            usuarioDesativado = resp.usuario
+          }
+
+          if (usuarioDesativado) {
+            setUsuarios((prev) =>
+              prev.map((item) =>
+                item.id === usuarioParaExcluir.id ? { ...item, ativo: false } : item,
+              ),
+            )
+          } else {
+            // Se não retornou o objeto mas não estourou erro, atualiza localmente
+            setUsuarios((prev) =>
+              prev.map((item) =>
+                item.id === usuarioParaExcluir.id ? { ...item, ativo: false } : item,
+              ),
+            )
+          }
+
+          toast({
+            title: 'Usuário desativado',
+            description: `O usuário "${usuarioParaExcluir.nome}" possui vínculos no sistema (clientes, metas, tarefas etc.) e não pode ser excluído definitivamente. Ele foi DESATIVADO para preservar o histórico.`,
+          })
+
+          setDeleteConfirmOpen(false)
+          setUsuarioParaExcluir(null)
+          return
+        } catch (desativarErr: unknown) {
+          const desativarMsg = getErrorMessage(desativarErr)
+          toast({
+            variant: 'destructive',
+            title: 'Erro ao desativar usuário',
+            description: `Não foi possível excluir nem desativar o usuário: ${desativarMsg}`,
+          })
+        }
+      } else {
+        toast({
+          variant: 'destructive',
+          title: 'Erro ao excluir usuário',
+          description:
+            msg.includes('403') || msg.includes('permissão')
+              ? 'Você não tem permissão para excluir este usuário.'
+              : msg || 'Não foi possível excluir o usuário.',
+        })
+      }
     } finally {
       setExcluindo(false)
     }
@@ -978,7 +1059,12 @@ export default function UsuariosPage() {
                           size="sm"
                           disabled={isSelf}
                           onClick={() => handleSolicitarExclusao(u)}
-                          className="h-8 px-2 text-xs text-[#64748B] hover:text-[#DC2626]"
+                          className={`h-8 px-2 text-xs text-[#64748B] hover:text-[#DC2626] ${
+                            isSelf ? 'opacity-40 cursor-not-allowed' : ''
+                          }`}
+                          title={
+                            isSelf ? 'Você não pode excluir seu próprio usuário' : 'Excluir Usuário'
+                          }
                         >
                           <Trash2 className="w-3.5 h-3.5 mr-1" />
                           Excluir
