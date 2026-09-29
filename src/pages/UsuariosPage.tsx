@@ -129,11 +129,15 @@ export default function UsuariosPage() {
   const [formEmail, setFormEmail] = useState('')
   const [formPerfil, setFormPerfil] = useState<PerfilUsuario>('vendedor_1')
   const [formAtivo, setFormAtivo] = useState(true)
+  const [formPassword, setFormPassword] = useState('')
+  const [formPasswordConfirm, setFormPasswordConfirm] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [formErros, setFormErros] = useState<{
     nome?: string
     email?: string
     perfil?: string
+    password?: string
+    passwordConfirm?: string
   }>({})
 
   // Controle de alternância de status rápido (toggle)
@@ -267,6 +271,8 @@ export default function UsuariosPage() {
     setFormEmail('')
     setFormPerfil('vendedor_1')
     setFormAtivo(true)
+    setFormPassword('')
+    setFormPasswordConfirm('')
     setFormErros({})
     setModalOpen(true)
   }
@@ -288,13 +294,21 @@ export default function UsuariosPage() {
     setFormEmail(u.email || '')
     setFormPerfil(u.perfil || 'vendedor_1')
     setFormAtivo(u.ativo !== false)
+    setFormPassword('')
+    setFormPasswordConfirm('')
     setFormErros({})
     setModalOpen(true)
   }
 
   // Validação amigável do formulário
   const validarFormulario = (): boolean => {
-    const erros: { nome?: string; email?: string; perfil?: string } = {}
+    const erros: {
+      nome?: string
+      email?: string
+      perfil?: string
+      password?: string
+      passwordConfirm?: string
+    } = {}
 
     if (!formNome.trim()) {
       erros.nome = 'O nome é obrigatório.'
@@ -312,6 +326,15 @@ export default function UsuariosPage() {
 
     if (!formPerfil) {
       erros.perfil = 'Selecione um perfil de acesso.'
+    }
+
+    if (usuarioEditando && (formPassword || formPasswordConfirm)) {
+      if (formPassword.length < 8) {
+        erros.password = 'A nova senha deve ter no mínimo 8 caracteres.'
+      }
+      if (formPassword !== formPasswordConfirm) {
+        erros.passwordConfirm = 'A confirmação de senha não confere.'
+      }
     }
 
     setFormErros(erros)
@@ -352,13 +375,26 @@ export default function UsuariosPage() {
           email: formEmail.trim(),
           perfil: formPerfil,
           ativo: formAtivo,
+          password: formPassword,
+          passwordConfirm: formPasswordConfirm,
+        }
+
+        // Se password e passwordConfirm estiverem vazios (string vazia ou nula), remove do payload
+        const senhaLimpa = typeof payload.password === 'string' ? payload.password.trim() : ''
+        const confirmLimpa =
+          typeof payload.passwordConfirm === 'string' ? payload.passwordConfirm.trim() : ''
+
+        if (!senhaLimpa && !confirmLimpa) {
+          delete payload.password
+          delete payload.passwordConfirm
         }
 
         const atualizado = await pb
           .collection('usuarios')
           .update<Usuario>(usuarioEditando.id, payload, { requestKey: null })
 
-        setUsuarios((prev) => prev.map((u) => (u.id === atualizado.id ? atualizado : u)))
+        // Recarrega a lista do servidor para refletir o estado real do banco
+        await carregarUsuarios()
 
         toast({
           title: 'Usuário atualizado',
@@ -401,6 +437,8 @@ export default function UsuariosPage() {
 
       setModalOpen(false)
       setUsuarioEditando(null)
+      setFormPassword('')
+      setFormPasswordConfirm('')
     } catch (err: unknown) {
       const msg = getErrorMessage(err)
       const errLower = (msg || '').toLowerCase()
@@ -1056,6 +1094,64 @@ export default function UsuariosPage() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Campos opcionais de redefinição de senha ao editar usuário existente */}
+            {usuarioEditando && (
+              <div className="pt-2 border-t border-slate-100 space-y-3">
+                <p className="text-[11px] text-[#64748B]">
+                  Preencha apenas se desejar redefinir a senha de acesso deste colaborador. Deixe em
+                  branco para manter a senha atual.
+                </p>
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-password" className="text-xs font-semibold text-[#0F172A]">
+                    Nova Senha (opcional)
+                  </Label>
+                  <Input
+                    id="edit-password"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="Deixe em branco para manter a atual"
+                    value={formPassword}
+                    onChange={(e) => {
+                      setFormPassword(e.target.value)
+                      if (formErros.password) {
+                        setFormErros((prev) => ({ ...prev, password: undefined }))
+                      }
+                    }}
+                    className={`text-sm ${formErros.password ? 'border-red-500 focus-visible:ring-red-400' : ''}`}
+                  />
+                  {formErros.password && (
+                    <p className="text-xs text-red-600 font-medium">{formErros.password}</p>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label
+                    htmlFor="edit-password-confirm"
+                    className="text-xs font-semibold text-[#0F172A]"
+                  >
+                    Confirmar Nova Senha
+                  </Label>
+                  <Input
+                    id="edit-password-confirm"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="Repita a nova senha se preenchida"
+                    value={formPasswordConfirm}
+                    onChange={(e) => {
+                      setFormPasswordConfirm(e.target.value)
+                      if (formErros.passwordConfirm) {
+                        setFormErros((prev) => ({ ...prev, passwordConfirm: undefined }))
+                      }
+                    }}
+                    className={`text-sm ${formErros.passwordConfirm ? 'border-red-500 focus-visible:ring-red-400' : ''}`}
+                  />
+                  {formErros.passwordConfirm && (
+                    <p className="text-xs text-red-600 font-medium">{formErros.passwordConfirm}</p>
+                  )}
+                </div>
+              </div>
+            )}
 
             <DialogFooter className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2">
               <Button
