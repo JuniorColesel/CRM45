@@ -31,8 +31,34 @@ import {
 import pb from '@/lib/pocketbase/client'
 import { useAuth, type Usuario } from '@/contexts/AuthContext'
 import type { ClienteModel, TarefaModel, LigacaoModel, OportunidadeModel } from '@/types/clientes'
-import { formatarData, formatarMoeda } from '@/types/clientes'
+import { formatarMoeda } from '@/types/clientes'
 import { toast } from '@/hooks/use-toast'
+
+const formatarDataBr = (dataStr?: string | null) => {
+  if (!dataStr) return '-'
+  const d = new Date(dataStr)
+  if (isNaN(d.getTime())) return '-'
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(d)
+}
+
+const formatarDataHoraBr = (dataStr?: string | null) => {
+  if (!dataStr) return '-'
+  const d = new Date(dataStr)
+  if (isNaN(d.getTime())) return '-'
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(d)
+}
 import { getErrorMessage } from '@/lib/pocketbase/errors'
 import TarefaModal from '@/components/tarefas/TarefaModal'
 import { PaginacaoControles } from '@/components/common/PaginacaoControles'
@@ -136,7 +162,7 @@ export default function FollowUpPage() {
 
       const [clientesResult, tarefasRes, ligacoesRes, opsRes, usuariosRes] = await Promise.all([
         pb.collection('clientes').getList<ClienteModel>(paginaAtual, itensPorPagina, {
-          sort: 'nome_contato',
+          sort: 'nome_empresa',
           expand: 'responsavel_id',
           filter: filtro || undefined,
           requestKey: null,
@@ -282,7 +308,7 @@ export default function FollowUpPage() {
         })
 
         const detalheExtra = ultimoContato
-          ? `Último contato em ${formatarData(ultimoContato.toISOString())}`
+          ? `Último contato em ${formatarDataHoraBr(ultimoContato.toISOString())}`
           : 'Nenhum contato registrado anteriormente'
 
         grupo1Itens.push({
@@ -290,7 +316,7 @@ export default function FollowUpPage() {
           motivo: 'Sem ligação e sem tarefa concluída na última semana.',
           detalheExtra,
           tipoAcaoSugerida: 'ligacao',
-          descricaoSugerida: `Follow-up semanal de relacionamento com ${c.nome_contato}`,
+          descricaoSugerida: `Follow-up semanal de relacionamento com ${c.nome_empresa || c.nome_contato}`,
         })
       }
     })
@@ -318,7 +344,7 @@ export default function FollowUpPage() {
           motivo: `${opsAbertas.length} proposta(s) em aberto sem ação há mais de 5 dias.`,
           detalheExtra: `Valor em aberto: ${formatarMoeda(totalValorOps)}`,
           tipoAcaoSugerida: 'ligacao',
-          descricaoSugerida: `Cobrança de retorno da proposta comercial em aberto com ${c.nome_contato}`,
+          descricaoSugerida: `Cobrança de retorno da proposta comercial em aberto com ${c.nome_empresa || c.nome_contato}`,
         })
       }
     })
@@ -363,7 +389,7 @@ export default function FollowUpPage() {
           motivo: `Aniversário em ${diaFmt}/${mesFmt}!`,
           detalheExtra: 'Excelente oportunidade para estreitar relacionamento e parabenizar.',
           tipoAcaoSugerida: 'whatsapp',
-          descricaoSugerida: `Enviar mensagem de parabéns pelo aniversário de ${c.nome_contato}`,
+          descricaoSugerida: `Enviar mensagem de parabéns pelo aniversário de ${c.nome_empresa || c.nome_contato}`,
         })
       }
     })
@@ -380,10 +406,10 @@ export default function FollowUpPage() {
         const diffDias = Math.floor((agora.getTime() - d.getTime()) / msPorDia)
         grupo4Itens.push({
           cliente: c,
-          motivo: `Última compra realizada há ${diffDias} dias (${formatarData(c.data_ultima_compra)}).`,
+          motivo: `Última compra realizada há ${diffDias} dias (${formatarDataBr(c.data_ultima_compra)}).`,
           detalheExtra: 'Momento ideal para reativação comercial e reposição de pedidos.',
           tipoAcaoSugerida: 'ligacao',
-          descricaoSugerida: `Reativação comercial: verificar reposição de estoque com ${c.nome_contato}`,
+          descricaoSugerida: `Reativação comercial: verificar reposição de estoque com ${c.nome_empresa || c.nome_contato}`,
         })
       }
     })
@@ -616,12 +642,14 @@ export default function FollowUpPage() {
                             <div className="space-y-1 min-w-0 flex-1">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="font-bold text-sm text-[#0F172A] truncate">
-                                  {cliente.nome_contato}
+                                  {cliente.nome_empresa ||
+                                    cliente.nome_contato ||
+                                    'Cliente sem nome'}
                                 </span>
-                                {cliente.nome_empresa && (
+                                {cliente.nome_empresa && cliente.nome_contato && (
                                   <span className="text-xs text-[#64748B] flex items-center gap-1 truncate">
-                                    <Building2 className="w-3 h-3 text-[#94A3B8]" />
-                                    {cliente.nome_empresa}
+                                    <User className="w-3 h-3 text-[#94A3B8]" />
+                                    {cliente.nome_contato}
                                   </span>
                                 )}
                                 {cliente.cidade && (

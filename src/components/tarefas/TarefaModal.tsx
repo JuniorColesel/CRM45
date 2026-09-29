@@ -163,6 +163,22 @@ export default function TarefaModal({
     return Object.keys(novos).length === 0
   }
 
+  const converterDatetimeLocalParaIso = (
+    valorDatetimeLocal: string,
+  ): { iso: string; dateObj: Date } => {
+    // valorDatetimeLocal vem no formato "YYYY-MM-DDTHH:mm"
+    const [dataParte, horaParte] = valorDatetimeLocal.split('T')
+    if (dataParte && horaParte) {
+      const [ano, mes, dia] = dataParte.split('-').map(Number)
+      const [hora, min] = horaParte.split(':').map(Number)
+      // Constrói com componentes locais no fuso horário do usuário
+      const d = new Date(ano, (mes || 1) - 1, dia || 1, hora || 0, min || 0, 0, 0)
+      return { iso: d.toISOString(), dateObj: d }
+    }
+    const d = new Date(valorDatetimeLocal)
+    return { iso: d.toISOString(), dateObj: d }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!validar()) return
@@ -170,12 +186,13 @@ export default function TarefaModal({
     setSaving(true)
     try {
       const respFinal = podeEscolherResponsavel ? responsavelId : user?.id || ''
+      const { iso: dataHoraIso, dateObj: dataHoraLocal } = converterDatetimeLocalParaIso(dataHora)
       const payload = {
         cliente_id: clienteId,
         responsavel_id: respFinal,
         tipo,
         descricao: descricao.trim(),
-        data_hora: new Date(dataHora).toISOString(),
+        data_hora: dataHoraIso,
         concluida,
         data_conclusao: concluida ? new Date().toISOString() : null,
       }
@@ -184,9 +201,18 @@ export default function TarefaModal({
         expand: 'responsavel_id,cliente_id',
       })
 
+      const dataFormatadaFuso = new Intl.DateTimeFormat('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(dataHoraLocal)
+
       toast({
         title: 'Tarefa criada com sucesso',
-        description: `Agendada para ${new Date(dataHora).toLocaleString('pt-BR')}.`,
+        description: `Agendada para ${dataFormatadaFuso}.`,
       })
 
       if (onSuccess) {
@@ -242,11 +268,13 @@ export default function TarefaModal({
                   {clienteSelecionado ? (
                     <div className="flex items-center gap-2 truncate">
                       <span className="font-semibold text-[#0F172A]">
-                        {clienteSelecionado.nome_contato}
+                        {clienteSelecionado.nome_empresa ||
+                          clienteSelecionado.nome_contato ||
+                          'Cliente sem nome'}
                       </span>
-                      {clienteSelecionado.nome_empresa && (
+                      {clienteSelecionado.nome_empresa && clienteSelecionado.nome_contato && (
                         <span className="text-xs text-[#64748B] truncate">
-                          ({clienteSelecionado.nome_empresa})
+                          ({clienteSelecionado.nome_contato})
                         </span>
                       )}
                     </div>
@@ -289,9 +317,13 @@ export default function TarefaModal({
                           }`}
                         >
                           <div className="truncate">
-                            <div className="font-semibold text-[#0F172A]">{cli.nome_contato}</div>
+                            <div className="font-semibold text-[#0F172A]">
+                              {cli.nome_empresa || cli.nome_contato || 'Cliente sem nome'}
+                            </div>
                             <div className="text-[11px] text-[#64748B] flex items-center gap-2">
-                              {cli.nome_empresa && <span>{cli.nome_empresa}</span>}
+                              {cli.nome_empresa && cli.nome_contato && (
+                                <span>{cli.nome_contato}</span>
+                              )}
                               {cli.cidade && <span>• {cli.cidade}</span>}
                             </div>
                           </div>
