@@ -87,6 +87,30 @@ export default function ClienteModal({
     return 'Alice'
   }
 
+  // Validadores e normalizadores para campos com enum restrito
+  const normalizarVendedorRegistro = (v?: unknown): VendedorCliente => {
+    const vs = typeof v === 'string' ? v.trim() : ''
+    const aceitos: VendedorCliente[] = ['Alice', 'Renan', 'Karoline (Vendas 1)', 'Vendas 2']
+    if (aceitos.includes(vs as VendedorCliente)) return vs as VendedorCliente
+    return obterVendedorPadrao()
+  }
+
+  const normalizarTipoContatoRegistro = (t?: unknown): TipoContatoCliente => {
+    const ts = typeof t === 'string' ? t.trim().toLowerCase() : ''
+    if (ts === 'fornecedor' || ts === 'ambos' || ts === 'cliente') {
+      return ts as TipoContatoCliente
+    }
+    return 'cliente'
+  }
+
+  const normalizarStatusClienteRegistro = (s?: unknown): StatusCliente => {
+    const ss = typeof s === 'string' ? s.trim().toLowerCase() : ''
+    if (ss === 'para_reativacao' || ss === 'ativo') {
+      return ss as StatusCliente
+    }
+    return 'ativo'
+  }
+
   // Sincronizar campos quando o modal abre ou cliente muda
   React.useEffect(() => {
     if (open) {
@@ -98,9 +122,9 @@ export default function ClienteModal({
         setEmail(cliente.email || '')
         setCidade(cliente.cidade || '')
         setEstado(cliente.estado || '')
-        setVendedor((cliente.vendedor as VendedorCliente) || obterVendedorPadrao())
-        setTipoContato((cliente.tipo_contato as TipoContatoCliente) || 'cliente')
-        setStatusCliente((cliente.status_cliente as StatusCliente) || 'ativo')
+        setVendedor(normalizarVendedorRegistro(cliente.vendedor))
+        setTipoContato(normalizarTipoContatoRegistro(cliente.tipo_contato))
+        setStatusCliente(normalizarStatusClienteRegistro(cliente.status_cliente))
         setGrandeCliente(
           cliente.grande_cliente === 'sim' || cliente.grande_cliente === true ? 'sim' : 'nao',
         )
@@ -144,6 +168,21 @@ export default function ClienteModal({
     if (estado.trim() && estado.trim().length > 2) {
       novosErros.estado = 'O estado deve conter no máximo 2 letras (UF).'
     }
+    const vendedoresValidos: VendedorCliente[] = [
+      'Alice',
+      'Renan',
+      'Karoline (Vendas 1)',
+      'Vendas 2',
+    ]
+    if (!vendedor || !vendedoresValidos.includes(vendedor)) {
+      novosErros.vendedor = 'Selecione um vendedor válido.'
+    }
+    if (!tipoContato || !['cliente', 'fornecedor', 'ambos'].includes(tipoContato)) {
+      novosErros.tipo_contato = 'Selecione o tipo de contato.'
+    }
+    if (!statusCliente || !['ativo', 'para_reativacao'].includes(statusCliente)) {
+      novosErros.status_cliente = 'Selecione o status do cliente.'
+    }
     setErros(novosErros)
     return Object.keys(novosErros).length === 0
   }
@@ -154,6 +193,22 @@ export default function ClienteModal({
 
     setSaving(true)
     try {
+      // Garantir valores padrão válidos caso algum campo select tenha chegado vazio
+      const vendedorFinal: VendedorCliente =
+        vendedor && ['Alice', 'Renan', 'Karoline (Vendas 1)', 'Vendas 2'].includes(vendedor)
+          ? vendedor
+          : obterVendedorPadrao()
+      const tipoContatoFinal: TipoContatoCliente =
+        tipoContato && ['cliente', 'fornecedor', 'ambos'].includes(tipoContato)
+          ? tipoContato
+          : 'cliente'
+      const statusClienteFinal: StatusCliente =
+        statusCliente && ['ativo', 'para_reativacao'].includes(statusCliente)
+          ? statusCliente
+          : 'ativo'
+      const grandeClienteBool: boolean =
+        grandeCliente === 'sim' || (grandeCliente as unknown) === true
+
       const payload: Record<string, unknown> = {
         nome_empresa: nomeEmpresa.trim(),
         nome_contato: nomeContato.trim() || nomeEmpresa.trim(),
@@ -162,17 +217,17 @@ export default function ClienteModal({
         email: email.trim() || '',
         cidade: cidade.trim() || '',
         estado: estado.trim().toUpperCase() || '',
-        vendedor,
-        tipo_contato: tipoContato,
-        status_cliente: statusCliente,
-        grande_cliente: grandeCliente,
+        vendedor: vendedorFinal,
+        tipo_contato: tipoContatoFinal,
+        status_cliente: statusClienteFinal,
+        grande_cliente: grandeClienteBool,
         valor_total_vendas: parseFloat(valorTotalVendas) || 0,
         valor_total_compras: parseFloat(valorTotalCompras) || 0,
         data_ultima_compra: dataUltimaCompra ? `${dataUltimaCompra} 12:00:00.000Z` : null,
         data_primeira_compra: dataPrimeiraCompra ? `${dataPrimeiraCompra} 12:00:00.000Z` : null,
         // sincronia para campos legados
         responsavel_id: user?.id || null,
-        status: statusCliente === 'ativo' ? 'ativo' : 'rascunho',
+        status: statusClienteFinal === 'ativo' ? 'ativo' : 'rascunho',
       }
 
       let savedRecord: ClienteModel
@@ -364,8 +419,16 @@ export default function ClienteModal({
               <Label className="text-xs font-semibold text-[#0F172A]">
                 Vendedor <span className="text-[#DC2626]">*</span>
               </Label>
-              <Select value={vendedor} onValueChange={(val: VendedorCliente) => setVendedor(val)}>
-                <SelectTrigger className="bg-white">
+              <Select
+                value={vendedor}
+                onValueChange={(val: VendedorCliente) => {
+                  setVendedor(val)
+                  if (erros.vendedor) setErros({ ...erros, vendedor: '' })
+                }}
+              >
+                <SelectTrigger
+                  className={`bg-white ${erros.vendedor ? 'border-[#DC2626] focus:ring-[#DC2626]' : ''}`}
+                >
                   <SelectValue placeholder="Vendedor" />
                 </SelectTrigger>
                 <SelectContent>
@@ -375,6 +438,7 @@ export default function ClienteModal({
                   <SelectItem value="Vendas 2">Vendas 2</SelectItem>
                 </SelectContent>
               </Select>
+              {erros.vendedor && <p className="text-xs text-[#DC2626]">{erros.vendedor}</p>}
             </div>
 
             <div className="space-y-1.5">
@@ -383,9 +447,14 @@ export default function ClienteModal({
               </Label>
               <Select
                 value={tipoContato}
-                onValueChange={(val: TipoContatoCliente) => setTipoContato(val)}
+                onValueChange={(val: TipoContatoCliente) => {
+                  setTipoContato(val)
+                  if (erros.tipo_contato) setErros({ ...erros, tipo_contato: '' })
+                }}
               >
-                <SelectTrigger className="bg-white">
+                <SelectTrigger
+                  className={`bg-white ${erros.tipo_contato ? 'border-[#DC2626] focus:ring-[#DC2626]' : ''}`}
+                >
                   <SelectValue placeholder="Tipo" />
                 </SelectTrigger>
                 <SelectContent>
@@ -394,15 +463,21 @@ export default function ClienteModal({
                   <SelectItem value="ambos">Ambos</SelectItem>
                 </SelectContent>
               </Select>
+              {erros.tipo_contato && <p className="text-xs text-[#DC2626]">{erros.tipo_contato}</p>}
             </div>
 
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold text-[#0F172A]">Status do Cliente</Label>
               <Select
                 value={statusCliente}
-                onValueChange={(val: StatusCliente) => setStatusCliente(val)}
+                onValueChange={(val: StatusCliente) => {
+                  setStatusCliente(val)
+                  if (erros.status_cliente) setErros({ ...erros, status_cliente: '' })
+                }}
               >
-                <SelectTrigger className="bg-white">
+                <SelectTrigger
+                  className={`bg-white ${erros.status_cliente ? 'border-[#DC2626] focus:ring-[#DC2626]' : ''}`}
+                >
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -410,6 +485,9 @@ export default function ClienteModal({
                   <SelectItem value="para_reativacao">Para Reativação</SelectItem>
                 </SelectContent>
               </Select>
+              {erros.status_cliente && (
+                <p className="text-xs text-[#DC2626]">{erros.status_cliente}</p>
+              )}
             </div>
 
             <div className="space-y-1.5">

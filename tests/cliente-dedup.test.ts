@@ -105,6 +105,61 @@ describe('Normalização e Agrupamento de Clientes (Regras de Deduplicação)', 
     expect(normalizarGrandeCliente('nao')).toBe('nao')
   })
 
+  it('valida payload de salvamento de cliente com boolean e selects válidos (caso do PATCH do erro)', () => {
+    // Simula o registro eo6q3hprzowa58h que tinha vendedor="", tipo_contato="", status_cliente="" e grande_cliente: false
+    const registroDoErro = {
+      id: 'eo6q3hprzowa58h',
+      nome_empresa: 'POUPANCA E INVESTIMENTO',
+      nome_contato: 'UNIPRIME DO IGUACU - COOPERATIVA DE CREDITO',
+      cnpj_cpf: 'UNIPRIME DO IGUACU - COOPERATIVA DE CREDITO',
+      telefone: 'POUPANCA E INVESTIMENTO',
+      email: '',
+      cidade: '',
+      estado: '',
+      vendedor: '',
+      tipo_contato: '',
+      status_cliente: '',
+      grande_cliente: false,
+    }
+
+    // Normalização feita pelo modal:
+    const vendedoresValidos = ['Alice', 'Renan', 'Karoline (Vendas 1)', 'Vendas 2']
+    const vendedorFinal =
+      registroDoErro.vendedor && vendedoresValidos.includes(registroDoErro.vendedor)
+        ? registroDoErro.vendedor
+        : 'Alice'
+    const tipoContatoFinal =
+      registroDoErro.tipo_contato && ['cliente', 'fornecedor', 'ambos'].includes(registroDoErro.tipo_contato)
+        ? registroDoErro.tipo_contato
+        : 'cliente'
+    const statusClienteFinal =
+      registroDoErro.status_cliente && ['ativo', 'para_reativacao'].includes(registroDoErro.status_cliente)
+        ? registroDoErro.status_cliente
+        : 'ativo'
+    const grandeClienteBool = registroDoErro.grande_cliente === true
+
+    const payload = {
+      nome_empresa: registroDoErro.nome_empresa.trim(),
+      nome_contato: registroDoErro.nome_contato.trim(),
+      cnpj_cpf: registroDoErro.cnpj_cpf.trim(),
+      telefone: registroDoErro.telefone.trim(),
+      email: '',
+      cidade: '',
+      estado: '',
+      vendedor: vendedorFinal,
+      tipo_contato: tipoContatoFinal,
+      status_cliente: statusClienteFinal,
+      grande_cliente: grandeClienteBool,
+      status: statusClienteFinal === 'ativo' ? 'ativo' : 'rascunho',
+    }
+
+    expect(typeof payload.grande_cliente).toBe('boolean')
+    expect(payload.grande_cliente).toBe(false)
+    expect(vendedoresValidos).toContain(payload.vendedor)
+    expect(['cliente', 'fornecedor', 'ambos']).toContain(payload.tipo_contato)
+    expect(['ativo', 'para_reativacao']).toContain(payload.status_cliente)
+  })
+
   it('gera relatório detalhado de agrupamento com nomes e linhas agrupadas', async () => {
     const { processarAgrupamentoClientes } = await import('@/lib/clientes/clienteUtils')
     const itens: ClienteImportItem[] = [

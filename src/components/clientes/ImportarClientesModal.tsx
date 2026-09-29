@@ -231,7 +231,7 @@ export default function ImportarClientesModal({
         vendedor: item.vendedor,
         tipo_contato: item.tipo_contato,
         status_cliente: item.status_cliente,
-        grande_cliente: item.grande_cliente,
+        grande_cliente: item.grande_cliente === 'sim',
         valor_total_vendas: item.valor_total_vendas,
         valor_total_compras: item.valor_total_compras,
         data_ultima_compra: formatarDataIso(item.data_ultima_compra),
