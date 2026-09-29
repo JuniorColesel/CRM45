@@ -387,30 +387,19 @@ export default function UsuariosPage() {
     setSalvando(true)
     try {
       if (usuarioEditando) {
-        // Atualização de usuário existente
+        // Atualização de usuário existente via rota de backend segura /backend/v1/atualizar_usuario
+        // Motivo: Em auth collections do PocketBase, requisições de PATCH diretas pelo cliente
+        // exigem a senha atual (oldPassword) para permitir alteração de senha de outro usuário.
+        // O hook /backend/v1/atualizar_usuario roda em contexto de superusuário autenticado
+        // e permite atualizar nome, e-mail, perfil, status e redefinir senha sem oldPassword.
         const payload: Record<string, unknown> = {
+          id: usuarioEditando.id,
           nome: formNome.trim(),
+          email: emailNormalizado,
           perfil: formPerfil,
           ativo: formAtivo,
-          emailVisibility: true,
         }
 
-        // Gerenciamento seguro de e-mail:
-        // NUNCA enviar string vazia no campo email.
-        // Se o e-mail foi alterado em relação ao original, envia com emailVisibility=true.
-        // Se não foi alterado mas o campo tem valor preenchido, envia para garantir persistência/visibilidade.
-        const emailTrim = emailNormalizado
-        const emailOriginal = (usuarioEditando.email || '').trim().toLowerCase()
-
-        if (emailTrim) {
-          if (emailTrim !== emailOriginal || !emailOriginal) {
-            payload.email = emailTrim
-          } else {
-            payload.email = emailTrim
-          }
-        }
-
-        // Se password e passwordConfirm estiverem vazios (string vazia ou nula), remove do payload
         const senhaLimpa = formPassword.trim()
         const confirmLimpa = formPasswordConfirm.trim()
 
@@ -419,9 +408,16 @@ export default function UsuariosPage() {
           payload.passwordConfirm = formPasswordConfirm
         }
 
-        const atualizado = await pb
-          .collection('usuarios')
-          .update<Usuario>(usuarioEditando.id, payload, { requestKey: null })
+        const response = await pb.send<{
+          success: boolean
+          message: string
+          usuario: Usuario
+        }>('/backend/v1/atualizar_usuario', {
+          method: 'POST',
+          body: payload,
+        })
+
+        const atualizado = response.usuario
 
         // Recarrega a lista do servidor para refletir o estado real do banco
         await carregarUsuarios()
