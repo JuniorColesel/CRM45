@@ -64,10 +64,23 @@ cronAdd('executar_backup_diario_persistente', '0 6 * * *', () => {
       '[BACKUP-R2] FALHA CRÍTICA: Variáveis obrigatórias ausentes no ambiente: ' +
       faltantes.join(', ')
     console.error(msgErro)
+    try {
+      const logsCol = $app.findCollectionByNameOrId('backup_logs')
+      const logRec = new Record(logsCol)
+      logRec.set('data_hora', timestampIso)
+      logRec.set('tipo', 'auto')
+      logRec.set('resultado', 'falha')
+      logRec.set('duracao_ms', 0)
+      logRec.set('detalhes', msgErro)
+      logRec.set('arquivos_gerados', [])
+      $app.save(logRec)
+    } catch (_) {}
     return
   }
 
-  // 2. Coletar dados de todas as 23 coleções
+  const inicioMs = Date.now()
+
+  // 2. Coletar dados de todas as coleções de negócio do CRM
   const colecoesAlvo = [
     'users',
     'usuarios',
@@ -85,6 +98,7 @@ cronAdd('executar_backup_diario_persistente', '0 6 * * *', () => {
     'publicacoes',
     'aprovacoes_pendentes',
     'metas',
+    'meta_participantes',
     'treinamento_concluido',
     'conversas_whatsapp',
     'mensagens_whatsapp',
@@ -93,7 +107,6 @@ cronAdd('executar_backup_diario_persistente', '0 6 * * *', () => {
     'integracoes_config',
     'webhook_logs',
   ]
-
   const dadosDump = {}
   const contagens = {}
   let totalRegistros = 0
@@ -454,11 +467,47 @@ cronAdd('executar_backup_diario_persistente', '0 6 * * *', () => {
       console.log(
         `[BACKUP-R2] SUCESSO: Dump enviado para Cloudflare R2 com HTTP ${resPut.statusCode} (${nomeArquivo})`,
       )
+      const duracaoTotalMs = Date.now() - inicioMs
+      try {
+        const logsCol = $app.findCollectionByNameOrId('backup_logs')
+        const logRec = new Record(logsCol)
+        logRec.set('data_hora', timestampIso)
+        logRec.set('tipo', 'auto')
+        logRec.set('resultado', 'sucesso')
+        logRec.set('duracao_ms', duracaoTotalMs)
+        logRec.set(
+          'detalhes',
+          `Backup automático diário gravado no R2 (${totalRegistros} registros, ${colecoesAlvo.length} coleções, HTTP ${resPut.statusCode})`,
+        )
+        logRec.set('arquivos_gerados', [
+          { nome: nomeArquivo, tamanhoBytes: tamanhoBytes, bucket: bucket },
+        ])
+        $app.save(logRec)
+      } catch (errLog) {
+        console.warn(
+          '[BACKUP-R2] Aviso ao salvar log de sucesso:',
+          errLog && errLog.message ? errLog.message : errLog,
+        )
+      }
     } else {
       const parsedPutErr = parseR2Error(resPut.raw || '', resPut.statusCode)
       console.error(
         `[BACKUP-R2] ERRO ao enviar dump para R2: HTTP ${resPut.statusCode} | Code: ${parsedPutErr.code} | Msg: ${parsedPutErr.detalheOriginal}`,
       )
+      try {
+        const logsCol = $app.findCollectionByNameOrId('backup_logs')
+        const logRec = new Record(logsCol)
+        logRec.set('data_hora', timestampIso)
+        logRec.set('tipo', 'auto')
+        logRec.set('resultado', 'falha')
+        logRec.set('duracao_ms', Date.now() - inicioMs)
+        logRec.set(
+          'detalhes',
+          `Falha HTTP ${resPut.statusCode} no envio ao R2: ${parsedPutErr.mensagemAmigavel} (${parsedPutErr.detalheOriginal})`,
+        )
+        logRec.set('arquivos_gerados', [])
+        $app.save(logRec)
+      } catch (_) {}
       return
     }
   } catch (errUpload) {
@@ -466,6 +515,21 @@ cronAdd('executar_backup_diario_persistente', '0 6 * * *', () => {
       '[BACKUP-R2] Exceção durante envio HTTP ao Cloudflare R2:',
       errUpload && errUpload.message ? errUpload.message : errUpload,
     )
+    try {
+      const logsCol = $app.findCollectionByNameOrId('backup_logs')
+      const logRec = new Record(logsCol)
+      logRec.set('data_hora', timestampIso)
+      logRec.set('tipo', 'auto')
+      logRec.set('resultado', 'falha')
+      logRec.set('duracao_ms', Date.now() - inicioMs)
+      logRec.set(
+        'detalhes',
+        'Exceção de rede durante envio ao Cloudflare R2: ' +
+          (errUpload && errUpload.message ? errUpload.message : errUpload),
+      )
+      logRec.set('arquivos_gerados', [])
+      $app.save(logRec)
+    } catch (_) {}
     return
   }
 

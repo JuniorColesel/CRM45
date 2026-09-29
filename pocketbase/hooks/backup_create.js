@@ -88,7 +88,8 @@ routerAdd(
       })
     }
 
-    // 3. Gerar Dump Estruturado de Todas as 23 Coleções
+    // 3. Gerar Dump Estruturado de Todas as Coleções de Negócio do CRM
+    const inicioMs = Date.now()
     const agora = new Date()
     const timestampIso = agora.toISOString()
 
@@ -109,6 +110,7 @@ routerAdd(
       'publicacoes',
       'aprovacoes_pendentes',
       'metas',
+      'meta_participantes',
       'treinamento_concluido',
       'conversas_whatsapp',
       'mensagens_whatsapp',
@@ -591,6 +593,23 @@ routerAdd(
 
     if (!uploadOk) {
       const parsedErr = parseR2Error(uploadRawResponse, httpStatusUpload)
+      const duracaoFalhaMs = Date.now() - inicioMs
+      try {
+        const logsCol = $app.findCollectionByNameOrId('backup_logs')
+        const logRec = new Record(logsCol)
+        logRec.set('data_hora', timestampIso)
+        if (authRecord) logRec.set('usuario_id', authRecord.id)
+        logRec.set('tipo', 'manual')
+        logRec.set('resultado', 'falha')
+        logRec.set('duracao_ms', duracaoFalhaMs)
+        logRec.set(
+          'detalhes',
+          `Falha HTTP ${httpStatusUpload} no upload para R2: ${parsedErr.mensagemAmigavel} (${parsedErr.detalheOriginal})`,
+        )
+        logRec.set('arquivos_gerados', [])
+        $app.save(logRec)
+      } catch (_) {}
+
       return e.json(502, {
         success: false,
         httpStatus: httpStatusUpload,
@@ -785,6 +804,37 @@ routerAdd(
       )
     }
 
+    const duracaoTotalMs = Date.now() - inicioMs
+
+    // 6. Registrar execução em backup_logs
+    try {
+      const logsCol = $app.findCollectionByNameOrId('backup_logs')
+      const logRec = new Record(logsCol)
+      logRec.set('data_hora', timestampIso)
+      if (authRecord) logRec.set('usuario_id', authRecord.id)
+      logRec.set('tipo', 'manual')
+      logRec.set('resultado', 'sucesso')
+      logRec.set('duracao_ms', duracaoTotalMs)
+      logRec.set(
+        'detalhes',
+        `Backup manual sob demanda criado com sucesso (${totalRegistros} registros em ${colecoesAlvo.length} coleções, ${rotacionados} item(ns) rotacionados)`,
+      )
+      logRec.set('arquivos_gerados', [
+        {
+          nome: nomeArquivo,
+          tamanhoBytes: tamanhoBytes,
+          bucket: bucket,
+          totalRegistros: totalRegistros,
+        },
+      ])
+      $app.save(logRec)
+    } catch (errLog) {
+      console.warn(
+        '[BACKUP-CREATE] Aviso ao gravar backup_logs:',
+        errLog && errLog.message ? errLog.message : errLog,
+      )
+    }
+
     return e.json(200, {
       success: true,
       mensagem: 'Backup criado com sucesso e despachado para Cloudflare R2.',
@@ -795,6 +845,7 @@ routerAdd(
       totalRegistros: totalRegistros,
       contagens: contagens,
       itensRotacionados: rotacionados,
+      duracaoMs: duracaoTotalMs,
       timestamp: timestampIso,
     })
   },

@@ -1,28 +1,21 @@
 /**
- * Endpoint POST /backend/v1/backup/restore
- * Baixa um backup específico do Cloudflare R2, valida sua integridade estrutural,
- * executa o restore no PocketBase e valida estritamente a divergência zero de contagens.
+ * Endpoint GET /backend/v1/backup/download
+ * Baixa um snapshot específico do Cloudflare R2 via SigV4 GET e o devolve ao cliente
+ * como download (Content-Disposition: attachment; filename="...").
  *
- * Modo 'simulado': true (default quando não especificado 'executar_real: true') ou 'executar_real: true'.
- * Em ambos os modos:
- * - Valida autenticação estrita (apenas ceo_financeiro ou superuser).
- * - Baixa o arquivo do Cloudflare R2 usando SigV4.
- * - Confirma hash SHA-256 e formato JSON íntegro.
- * - Valida contagens antes e depois da restauração das tabelas/coleções críticas.
- * - Divergência zero obrigatória para confirmação de sucesso.
+ * Restrito a superusuários e administradores do CRM (ceo_financeiro e coordenador_vendas).
  *
  * ⚠ IMPORTANTE PB HOOKS: Toda lógica inline dentro do callback!
  */
 
 routerAdd(
-  'POST',
-  '/backend/v1/backup/restore',
+  'GET',
+  '/backend/v1/backup/download',
   (e) => {
-    // 1. Autenticação e Autorização Superuser / Admin (ceo_financeiro)
+    // 1. Autenticação e Autorização Admin
     const authRecord = e.auth
     let isSuperuser = e.hasSuperuserAuth ? e.hasSuperuserAuth() : false
 
-    // Validação alternativa via secret PB_SUPERUSER_TOKEN no Authorization header (sem desabilitar auth)
     if (!isSuperuser && !authRecord) {
       try {
         const expectedSuperToken = ($os.getenv && $os.getenv('PB_SUPERUSER_TOKEN')) || ''
@@ -40,36 +33,31 @@ routerAdd(
       return e.json(401, { message: 'Autenticação necessária.' })
     }
 
-    let isAuthorized = isSuperuser
+    let isAdmin = isSuperuser
     if (authRecord) {
       const perfil = authRecord.getString('perfil')
-      if (perfil === 'ceo_financeiro') {
-        isAuthorized = true
+      if (perfil === 'ceo_financeiro' || perfil === 'coordenador_vendas') {
+        isAdmin = true
       }
     }
 
-    if (!isAuthorized) {
-      return e.json(403, {
-        message: 'Acesso negado. Apenas superusuários e ceo_financeiro podem executar restore.',
-      })
+    if (!isAdmin) {
+      return e.json(403, { message: 'Acesso negado. Apenas administradores podem baixar backups.' })
     }
-    // 2. Parâmetros da Requisição
-    const body = e.requestInfo().body || {}
-    const filename = (body.filename || body.arquivo || '').toString().trim()
-    const executarReal = body.executar_real === true
 
+    // 2. Parâmetro filename
+    const filename = (e.requestInfo().query?.filename || e.requestInfo().query?.arquivo || '')
+      .toString()
+      .trim()
     if (!filename) {
-      return e.json(400, {
-        message: 'Nome do arquivo de backup obrigatório (campo "filename" ou "arquivo").',
-      })
+      return e.json(400, { message: 'Parâmetro query "filename" obrigatório.' })
     }
 
-    // Sanitização de nome de arquivo (evitar path traversal)
     if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
       return e.json(400, { message: 'Nome de arquivo inválido.' })
     }
 
-    // 3. Leitura Segura de Credenciais do R2
+    // 3. Credenciais do R2
     let bucket = ''
     let endpoint = ''
     let accessKey = ''
@@ -100,20 +88,14 @@ routerAdd(
       } catch (_) {}
     }
 
-    const faltantes = []
-    if (!bucket) faltantes.push('BACKUP_S3_BUCKET')
-    if (!endpoint) faltantes.push('BACKUP_S3_ENDPOINT')
-    if (!accessKey) faltantes.push('BACKUP_S3_ACCESS_KEY_ID')
-    if (!secretKey) faltantes.push('BACKUP_S3_SECRET_ACCESS_KEY')
-
-    if (faltantes.length > 0) {
+    if (!bucket || !endpoint || !accessKey || !secretKey) {
       return e.json(500, {
         success: false,
-        message: 'Variáveis de ambiente do storage externo ausentes: ' + faltantes.join(', '),
+        message: 'Variáveis de ambiente do storage R2 não configuradas.',
       })
     }
 
-    // 4. SigV4 Helpers (Pure JS SHA-256 e HMAC-SHA256)
+    // 4. SigV4 pure JS helpers
     function sha256Raw(bytesInput) {
       const K = [
         0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
@@ -285,56 +267,11 @@ routerAdd(
       return { host: host, basePath: basePath }
     }
 
-    function parseR2Error(xmlStr, httpStatus) {
-      let code = ''
-      let msg = ''
-      if (xmlStr) {
-        const cMatch = xmlStr.match(/<Code>([^<]+)<\/Code>/i)
-        const mMatch = xmlStr.match(/<Message>([^<]+)<\/Message>/i)
-        if (cMatch && cMatch[1]) code = cMatch[1].trim()
-        if (mMatch && mMatch[1]) msg = mMatch[1].trim()
-      }
-
-      if (
-        code === 'InvalidAccessKeyId' ||
-        code === 'SignatureDoesNotMatch' ||
-        code === 'AccessDenied' ||
-        code === 'InvalidArgument'
-      ) {
-        return {
-          code: code,
-          mensagemAmigavel:
-            'Credenciais inválidas para o R2 (verifique BACKUP_S3_ACCESS_KEY_ID e BACKUP_S3_SECRET_ACCESS_KEY).',
-          detalheOriginal: msg || xmlStr,
-        }
-      }
-      if (code === 'NoSuchBucket') {
-        return {
-          code: code,
-          mensagemAmigavel: 'Bucket não encontrado (verifique BACKUP_S3_BUCKET).',
-          detalheOriginal: msg || xmlStr,
-        }
-      }
-      return {
-        code: code || 'HTTP_' + httpStatus,
-        mensagemAmigavel:
-          'Erro no Cloudflare R2 (' +
-          (code || 'HTTP ' + httpStatus) +
-          '): ' +
-          (msg || 'Acesso recusado ou recurso indisponível.'),
-        detalheOriginal: msg || xmlStr,
-      }
-    }
-
     const epInfo = parseEndpoint(endpoint)
     const host = epInfo.host
     const region = 'auto'
     const service = 's3'
 
-    console.log('[BACKUP-RESTORE] Endpoint configurado:', 'https://' + host)
-    console.log('[BACKUP-RESTORE] Bucket configurado:', bucket)
-
-    // 5. Download do Arquivo do Bucket via SigV4 (GET /<bucket>/<filename>)
     const objectPath = '/' + bucket + '/' + filename
     const emptyPayloadSha256 = bytesToHex(sha256Raw(strToUtf8Bytes('')))
     const getAmzDate = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '') + 'Z'
@@ -394,11 +331,8 @@ routerAdd(
       'Signature=' +
       getSignatureHex
 
-    console.log(`[BACKUP-RESTORE] Solicitando download do arquivo ${filename} do Cloudflare R2...`)
-
-    let resGet = null
     try {
-      resGet = $http.send({
+      const resGet = $http.send({
         url: 'https://' + host + objectPath,
         method: 'GET',
         headers: {
@@ -409,193 +343,30 @@ routerAdd(
         },
         timeout: 120,
       })
+
+      if (resGet.statusCode === 404) {
+        return e.json(404, { message: `Arquivo "${filename}" não encontrado no storage.` })
+      }
+
+      if (resGet.statusCode !== 200) {
+        return e.json(resGet.statusCode || 502, {
+          message: 'Falha ao buscar arquivo no Cloudflare R2 (HTTP ' + resGet.statusCode + ').',
+        })
+      }
+
+      // Retornar o conteúdo como payload para download
+      const rawContent = resGet.raw || ''
+      const safeFilename = filename.replace(/["\r\n]/g, '')
+      e.response.header().set('Content-Type', 'application/json; charset=utf-8')
+      e.response.header().set('Content-Disposition', 'attachment; filename="' + safeFilename + '"')
+      return e.string(200, rawContent)
     } catch (errGet) {
       return e.json(500, {
-        success: false,
         message:
-          'Erro na conexão com Cloudflare R2 para download: ' +
+          'Erro na conexão com Cloudflare R2: ' +
           (errGet && errGet.message ? errGet.message : errGet),
       })
     }
-
-    if (!resGet || resGet.statusCode === 404) {
-      return e.json(404, {
-        success: false,
-        message: `Arquivo "${filename}" não encontrado no bucket ${bucket}.`,
-      })
-    }
-
-    if (resGet.statusCode !== 200) {
-      const parsedGetErr = parseR2Error(resGet.raw || '', resGet.statusCode)
-      console.error(
-        `[BACKUP-RESTORE] Falha no download R2: HTTP ${resGet.statusCode} | Code: ${parsedGetErr.code} | Msg: ${parsedGetErr.detalheOriginal}`,
-      )
-      return e.json(502, {
-        success: false,
-        httpStatus: resGet.statusCode,
-        r2Code: parsedGetErr.code,
-        message: parsedGetErr.mensagemAmigavel,
-        detalhes: parsedGetErr.detalheOriginal,
-      })
-    }
-
-    // 6. Parse e Validação Estrutural do Dump
-    let snapshot = null
-    try {
-      snapshot =
-        typeof resGet.json === 'object' && resGet.json !== null
-          ? resGet.json
-          : JSON.parse(resGet.raw)
-    } catch (errJson) {
-      return e.json(422, {
-        success: false,
-        message: 'O arquivo baixado não contém um payload JSON válido de backup.',
-      })
-    }
-
-    if (!snapshot || !snapshot.colecoes || typeof snapshot.colecoes !== 'object') {
-      return e.json(422, {
-        success: false,
-        message: 'Estrutura do arquivo de backup inválida: campo "colecoes" ausente.',
-      })
-    }
-
-    // 7. validateRestore: Verificação de Contagens ANTES vs DUMP e Aplicação
-    const colecoesAlvo = [
-      'users',
-      'usuarios',
-      'etapas_funil',
-      'motivos_perda',
-      'clientes',
-      'oportunidades',
-      'tarefas',
-      'ligacoes',
-      'canais_marketing',
-      'automacoes',
-      'mensagens_enviadas',
-      'campanhas',
-      'conteudos_gerados',
-      'publicacoes',
-      'aprovacoes_pendentes',
-      'metas',
-      'meta_participantes',
-      'treinamento_concluido',
-      'conversas_whatsapp',
-      'mensagens_whatsapp',
-      'produtos',
-      'sugestoes_ia',
-      'integracoes_config',
-      'webhook_logs',
-    ]
-
-    const contagensAntes = {}
-    for (let c = 0; c < colecoesAlvo.length; c++) {
-      const col = colecoesAlvo[c]
-      try {
-        contagensAntes[col] = $app.countRecords(col)
-      } catch (_) {
-        contagensAntes[col] = 0
-      }
-    }
-
-    const contagensDump = snapshot.contagens || {}
-    const colecoesRecuperadas = {}
-    const diferencas = {}
-
-    for (let c = 0; c < colecoesAlvo.length; c++) {
-      const col = colecoesAlvo[c]
-      const registrosDump = snapshot.colecoes[col] || []
-      const totalDump = Array.isArray(registrosDump)
-        ? registrosDump.length
-        : contagensDump[col] || 0
-      colecoesRecuperadas[col] = totalDump
-
-      // Se executar_real for true, realiza upsert/restauração dos registros ausentes
-      if (executarReal && Array.isArray(registrosDump)) {
-        try {
-          const colModel = $app.findCollectionByNameOrId(col)
-          for (let r = 0; r < registrosDump.length; r++) {
-            const item = registrosDump[r]
-            if (!item || !item.id) continue
-            try {
-              $app.findRecordById(col, item.id)
-            } catch (_) {
-              // Registro não existe no banco atual: restaura
-              try {
-                const novoRec = new Record(colModel)
-                for (const [campo, val] of Object.entries(item)) {
-                  if (campo !== 'created' && campo !== 'updated') {
-                    novoRec.set(campo, val)
-                  }
-                }
-                $app.save(novoRec)
-              } catch (errSave) {
-                console.warn(
-                  `[BACKUP-RESTORE] Erro ao restaurar registro ${item.id} em ${col}:`,
-                  errSave && errSave.message ? errSave.message : errSave,
-                )
-              }
-            }
-          }
-        } catch (errCol) {
-          console.warn(
-            `[BACKUP-RESTORE] Erro ao processar coleção ${col}:`,
-            errCol && errCol.message ? errCol.message : errCol,
-          )
-        }
-      }
-    }
-
-    // Contagens DEPOIS
-    const contagensDepois = {}
-    for (let c = 0; c < colecoesAlvo.length; c++) {
-      const col = colecoesAlvo[c]
-      try {
-        contagensDepois[col] = $app.countRecords(col)
-      } catch (_) {
-        contagensDepois[col] = 0
-      }
-    }
-
-    // Verificação estrita de integridade com o dump do arquivo baixado
-    let divergenciaTotal = 0
-    for (let c = 0; c < colecoesAlvo.length; c++) {
-      const col = colecoesAlvo[c]
-      const esperado = colecoesRecuperadas[col]
-      const atual = contagensDepois[col]
-      // Diferença entre o snapshot do R2 e o banco restaurado
-      if (atual !== esperado) {
-        diferencas[col] = {
-          esperadoNoDump: esperado,
-          atualNoBanco: atual,
-          delta: atual - esperado,
-        }
-        divergenciaTotal += Math.abs(atual - esperado)
-      }
-    }
-
-    const integridadeValidada = divergenciaTotal === 0
-
-    console.log(
-      `[BACKUP-RESTORE] Validação de Restore concluída: Arquivo ${filename}, Integridade: ${integridadeValidada ? '100% ÍNTEGRO (Divergência Zero)' : 'Divergência detectada'}, Modo Real: ${executarReal}`,
-    )
-
-    return e.json(200, {
-      success: true,
-      mensagem: integridadeValidada
-        ? 'Restore validado a partir do bucket Cloudflare R2 com divergência ZERO.'
-        : 'Restore verificado a partir do bucket Cloudflare R2 (com divergências registradas).',
-      arquivo: filename,
-      bucket: bucket,
-      timestampDump: snapshot.timestamp || '',
-      modoReal: executarReal,
-      integridadeValidada: integridadeValidada,
-      divergenciaTotal: divergenciaTotal,
-      contagensAntes: contagensAntes,
-      contagensDump: colecoesRecuperadas,
-      contagensDepois: contagensDepois,
-      diferencas: diferencas,
-    })
   },
   $apis.requireAuth(),
 )

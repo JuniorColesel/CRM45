@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-29T14:13:04.312Z",
+  "generatedAt": "2026-09-29T14:51:37.525Z",
   "collections": [
     {
       "name": "users",
@@ -1949,6 +1949,84 @@
         "CREATE UNIQUE INDEX idx_meta_participantes_meta_usuario ON meta_participantes (meta_id, usuario_id)",
         "CREATE INDEX idx_meta_participantes_meta ON meta_participantes (meta_id)",
         "CREATE INDEX idx_meta_participantes_usuario ON meta_participantes (usuario_id)"
+      ]
+    },
+    {
+      "name": "backup_logs",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas')",
+        "view": "@request.auth.id != '' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas')",
+        "create": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'",
+        "update": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'",
+        "delete": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'"
+      },
+      "fields": [
+        {
+          "name": "data_hora",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "usuario_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "usuarios"
+        },
+        {
+          "name": "tipo",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["auto", "manual"]
+        },
+        {
+          "name": "resultado",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["sucesso", "falha"]
+        },
+        {
+          "name": "duracao_ms",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "detalhes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "arquivos_gerados",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_backup_logs_data_hora ON backup_logs (data_hora DESC)",
+        "CREATE INDEX idx_backup_logs_usuario ON backup_logs (usuario_id)",
+        "CREATE INDEX idx_backup_logs_tipo ON backup_logs (tipo)",
+        "CREATE INDEX idx_backup_logs_resultado ON backup_logs (resultado)"
       ]
     }
   ]
