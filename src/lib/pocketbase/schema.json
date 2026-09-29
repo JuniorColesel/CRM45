@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-29T01:57:49.723Z",
+  "generatedAt": "2026-09-29T02:15:00.288Z",
   "collections": [
     {
       "name": "users",
@@ -1265,84 +1265,6 @@
       ]
     },
     {
-      "name": "metas",
-      "type": "base",
-      "apiRules": {
-        "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && usuario_id = @request.auth.id))",
-        "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && usuario_id = @request.auth.id))",
-        "create": "@request.auth.id != '' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && (usuario_id.perfil = 'vendedor_1' || usuario_id.perfil = 'vendedor_2')))",
-        "update": "@request.auth.id != '' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && (usuario_id.perfil = 'vendedor_1' || usuario_id.perfil = 'vendedor_2')))",
-        "delete": "@request.auth.id != '' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && (usuario_id.perfil = 'vendedor_1' || usuario_id.perfil = 'vendedor_2')))"
-      },
-      "fields": [
-        {
-          "name": "usuario_id",
-          "type": "relation",
-          "required": true,
-          "system": false,
-          "collectionRef": "usuarios"
-        },
-        {
-          "name": "ano",
-          "type": "number",
-          "required": true,
-          "system": false
-        },
-        {
-          "name": "mes",
-          "type": "number",
-          "required": true,
-          "system": false
-        },
-        {
-          "name": "valor_meta",
-          "type": "number",
-          "required": true,
-          "system": false
-        },
-        {
-          "name": "meta_oportunidades",
-          "type": "number",
-          "required": true,
-          "system": false
-        },
-        {
-          "name": "criado_em",
-          "type": "autodate",
-          "required": false,
-          "system": false,
-          "autodateTriggers": ["onCreate"]
-        },
-        {
-          "name": "atualizado_em",
-          "type": "autodate",
-          "required": false,
-          "system": false,
-          "autodateTriggers": ["onCreate", "onUpdate"]
-        },
-        {
-          "name": "created",
-          "type": "autodate",
-          "required": false,
-          "system": false,
-          "autodateTriggers": ["onCreate"]
-        },
-        {
-          "name": "updated",
-          "type": "autodate",
-          "required": false,
-          "system": false,
-          "autodateTriggers": ["onCreate", "onUpdate"]
-        }
-      ],
-      "indexes": [
-        "CREATE UNIQUE INDEX idx_metas_usuario_ano_mes ON metas (usuario_id, ano, mes)",
-        "CREATE INDEX idx_metas_usuario ON metas (usuario_id)",
-        "CREATE INDEX idx_metas_ano ON metas (ano)",
-        "CREATE INDEX idx_metas_mes ON metas (mes)"
-      ]
-    },
-    {
       "name": "treinamento_concluido",
       "type": "base",
       "apiRules": {
@@ -1900,6 +1822,133 @@
       "indexes": [
         "CREATE INDEX idx_webhook_logs_ext ON webhook_logs (external_id)",
         "CREATE INDEX idx_webhook_logs_status ON webhook_logs (status)"
+      ]
+    },
+    {
+      "name": "metas",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && meta_participantes_via_meta_id.usuario_id ?= @request.auth.id))",
+        "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && meta_participantes_via_meta_id.usuario_id ?= @request.auth.id))",
+        "create": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'",
+        "update": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'",
+        "delete": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'"
+      },
+      "fields": [
+        {
+          "name": "mes",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "ano",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "meta_geral",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "valor_atingido",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "fonte_atingido",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "criado_por",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "usuarios"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_metas_mes_ano ON metas (mes, ano)",
+        "CREATE INDEX idx_metas_ano ON metas (ano)",
+        "CREATE INDEX idx_metas_mes ON metas (mes)"
+      ]
+    },
+    {
+      "name": "meta_participantes",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && usuario_id = @request.auth.id))",
+        "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && usuario_id = @request.auth.id))",
+        "create": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'",
+        "update": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'",
+        "delete": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro'"
+      },
+      "fields": [
+        {
+          "name": "meta_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "metas"
+        },
+        {
+          "name": "usuario_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "usuarios"
+        },
+        {
+          "name": "valor_individual",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "percentual",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_meta_participantes_meta_usuario ON meta_participantes (meta_id, usuario_id)",
+        "CREATE INDEX idx_meta_participantes_meta ON meta_participantes (meta_id)",
+        "CREATE INDEX idx_meta_participantes_usuario ON meta_participantes (usuario_id)"
       ]
     }
   ]

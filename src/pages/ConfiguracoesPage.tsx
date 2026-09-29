@@ -64,12 +64,13 @@ const CARDS_CONFIGURACOES: ConfigCardItem[] = [
   {
     id: 'metas',
     titulo: 'Metas do Time',
-    descricao: 'Defina e acompanhe as metas mensais de faturamento e oportunidades por vendedor.',
+    descricao:
+      'Defina e acompanhe as metas gerais de faturamento, valor atingido e participantes da equipe.',
     rota: '/metas',
     icone: Target,
-    corIcone: 'text-[#DC2626]',
-    bgIcone: 'bg-red-100',
-    perfisPermitidos: ['ceo_financeiro', 'coordenador_vendas'],
+    corIcone: 'text-[#16A34A]',
+    bgIcone: 'bg-emerald-100',
+    perfisPermitidos: ['ceo_financeiro', 'coordenador_vendas', 'vendedor_1', 'vendedor_2'],
   },
   {
     id: 'produtos',

@@ -67,16 +67,34 @@ export interface OportunidadeModel extends RecordModel {
 
 export type TipoTarefa = 'ligacao' | 'visita' | 'email' | 'whatsapp' | 'reuniao' | 'outro'
 
+export type FonteAtingidoMeta = 'manual' | 'bling'
+
 export interface MetaModel extends RecordModel {
-  usuario_id: string
-  ano: number
   mes: number
-  valor_meta: number
-  meta_oportunidades: number
-  criado_em?: string
-  atualizado_em?: string
+  ano: number
+  meta_geral: number
+  valor_atingido: number
+  fonte_atingido: FonteAtingidoMeta | string
+  criado_por?: string
+  expand?: {
+    criado_por?: Usuario
+    // Compatibilidade opcional
+    usuario_id?: Usuario
+  }
+  // Campos de compatibilidade com interfaces legadas
+  usuario_id?: string
+  valor_meta?: number
+  meta_oportunidades?: number
+}
+
+export interface MetaParticipanteModel extends RecordModel {
+  meta_id: string
+  usuario_id: string
+  valor_individual: number
+  percentual: number
   expand?: {
     usuario_id?: Usuario
+    meta_id?: MetaModel
   }
 }
 

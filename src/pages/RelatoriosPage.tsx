@@ -111,7 +111,7 @@ export default function RelatoriosPage() {
           .collection('metas')
           .getFullList<MetaModel>({
             sort: '-ano,-mes',
-            expand: 'usuario_id',
+            expand: 'criado_por',
           })
           .catch(() => [] as MetaModel[]),
 

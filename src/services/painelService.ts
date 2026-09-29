@@ -846,21 +846,23 @@ export async function obterDadosPainel(params: {
         if (params.usuarioId) condMeta.push(`usuario_id = '${params.usuarioId}'`)
       }
 
+      // Busca a meta geral do mês atual
       const metasRes = await pb.collection('metas').getFullList({
-        filter: condMeta.join(' && '),
+        filter: `ano = ${anoHoje} && mes = ${mesHoje}`,
         requestKey: null,
       })
 
       if (metasRes.length > 0) {
-        const metaValorTotal = metasRes.reduce((acc: number, m) => {
-          const v = (m as unknown as { valor_meta?: number }).valor_meta || 0
-          return acc + v
-        }, 0)
+        const metaAtual = metasRes[0] as unknown as {
+          meta_geral?: number
+          valor_atingido?: number
+          valor_meta?: number
+          meta_oportunidades?: number
+        }
 
-        const metaOpsTotal = metasRes.reduce((acc: number, m) => {
-          const v = (m as unknown as { meta_oportunidades?: number }).meta_oportunidades || 0
-          return acc + v
-        }, 0)
+        const metaValorTotal = metaAtual.meta_geral || metaAtual.valor_meta || 0
+        const valorAtingidoMeta = metaAtual.valor_atingido || somaVendasAtual
+        const metaOpsTotal = metaAtual.meta_oportunidades || 0
 
         const pctValor = metaValorTotal > 0 ? (somaVendasAtual / metaValorTotal) * 100 : 0
         const isBatida = pctValor >= 100
@@ -874,7 +876,7 @@ export async function obterDadosPainel(params: {
           prioridade: isBatida ? 4 : 3,
           iconeCor: isBatida ? 'verde' : 'amarelo',
           titulo: `Meta do mês: ${pctValor.toFixed(0)}% concluída`,
-          descricao: `Valor: ${fmtValor(somaVendasAtual)} de ${fmtValor(metaValorTotal)} | Oportunidades: ${qtdVendasGanhasAtual} de ${metaOpsTotal}`,
+          descricao: `Valor: ${fmtValor(valorAtingidoMeta)} de ${fmtValor(metaValorTotal)}${metaOpsTotal > 0 ? ` | Oportunidades: ${qtdVendasGanhasAtual} de ${metaOpsTotal}` : ''}`,
           linkDestino: '/metas',
           linkRotulo: 'Ver metas',
         })

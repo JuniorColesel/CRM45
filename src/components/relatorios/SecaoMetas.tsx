@@ -74,9 +74,10 @@ export function SecaoMetas({
       (m.expand?.usuario_id as unknown as Usuario) ||
       (m.usuario_id === usuarioLogado?.id ? usuarioLogado : null)
 
-    const realizados = ganhasPorUsuario.get(m.usuario_id) || { totalValor: 0, qtd: 0 }
-    const valorMeta = m.valor_meta || 0
-    const valorRealizado = realizados.totalValor
+    const uId = m.usuario_id || ''
+    const realizados = ganhasPorUsuario.get(uId) || { totalValor: 0, qtd: 0 }
+    const valorMeta = m.valor_meta || m.meta_geral || 0
+    const valorRealizado = realizados.totalValor || m.valor_atingido || 0
     const metaOportunidades = m.meta_oportunidades || 0
     const oportunidadesRealizadas = realizados.qtd
 
