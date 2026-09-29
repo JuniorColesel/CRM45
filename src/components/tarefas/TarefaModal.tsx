@@ -39,6 +39,8 @@ import { useAuth, type Usuario } from '@/contexts/AuthContext'
 import type { ClienteModel, TarefaModel, TipoTarefa } from '@/types/clientes'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/pocketbase/errors'
+import { ClienteInlineModal } from '@/components/clientes/ClienteInlineModal'
+import { UserPlus } from 'lucide-react'
 
 export interface TarefaModalProps {
   open: boolean
@@ -85,9 +87,17 @@ export default function TarefaModal({
   const [responsavelId, setResponsavelId] = useState('')
   const [concluida, setConcluida] = useState(false)
 
+  // Lista de clientes local (para permitir inclusão imediata após cadastro inline)
+  const [listaClientes, setListaClientes] = useState<ClienteModel[]>(clientes)
+
+  useEffect(() => {
+    setListaClientes(clientes)
+  }, [clientes])
+
   // Combobox cliente
   const [clienteComboboxOpen, setClienteComboboxOpen] = useState(false)
   const [buscaCliente, setBuscaCliente] = useState('')
+  const [modalNovoClienteOpen, setModalNovoClienteOpen] = useState(false)
 
   const [saving, setSaving] = useState(false)
   const [erros, setErros] = useState<Record<string, string>>({})
@@ -97,18 +107,32 @@ export default function TarefaModal({
   const podeEscolherResponsavel =
     user?.perfil === 'ceo_financeiro' || user?.perfil === 'coordenador_vendas'
 
-  // Helper para datetime-local agora + 1 hora
+  // Converte Date ou string ISO para formato datetime-local ("YYYY-MM-DDTHH:mm") no fuso America/Sao_Paulo (GMT-3)
+  const formatarParaDatetimeLocalSp = (data: Date | string): string => {
+    const d = typeof data === 'string' ? new Date(data) : data
+    if (isNaN(d.getTime())) return ''
+    const dtf = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+    const partes = dtf.formatToParts(d)
+    const mapa: Record<string, string> = {}
+    for (const p of partes) {
+      if (p.type !== 'literal') mapa[p.type] = p.value
+    }
+    // Formato final exigido pelo input datetime-local: YYYY-MM-DDTHH:mm
+    return `${mapa.year}-${mapa.month}-${mapa.day}T${mapa.hour}:${mapa.minute}`
+  }
+
+  // Helper para datetime-local no fuso America/Sao_Paulo: data/hora atual + 1 hora
   const getDefaultDateTime = () => {
-    const d = new Date()
-    d.setHours(d.getHours() + 1)
-    // Ajustar offset local para string ISO compativel com input datetime-local
-    const pad = (n: number) => String(n).padStart(2, '0')
-    const ano = d.getFullYear()
-    const mes = pad(d.getMonth() + 1)
-    const dia = pad(d.getDate())
-    const hora = pad(d.getHours())
-    const min = pad(d.getMinutes())
-    return `${ano}-${mes}-${dia}T${hora}:${min}`
+    const d = new Date(Date.now() + 60 * 60 * 1000)
+    return formatarParaDatetimeLocalSp(d)
   }
 
   useEffect(() => {
@@ -116,7 +140,12 @@ export default function TarefaModal({
       setClienteId(initialClienteId || '')
       setTipo(initialTipo)
       setDescricao(initialDescricao)
-      setDataHora(initialDataHora || getDefaultDateTime())
+      const dataHoraInicial = initialDataHora
+        ? initialDataHora.includes('T') && !initialDataHora.endsWith('Z')
+          ? initialDataHora
+          : formatarParaDatetimeLocalSp(initialDataHora)
+        : getDefaultDateTime()
+      setDataHora(dataHoraInicial)
       setResponsavelId(user?.id || (usuarios[0]?.id ?? ''))
       setConcluida(false)
       setBuscaCliente('')
@@ -125,20 +154,20 @@ export default function TarefaModal({
   }, [open, initialClienteId, initialTipo, initialDescricao, initialDataHora, user, usuarios])
 
   const clientesFiltrados = useMemo(() => {
-    if (!buscaCliente.trim()) return clientes
+    if (!buscaCliente.trim()) return listaClientes
     const termo = buscaCliente.toLowerCase().trim()
-    return clientes.filter((c) => {
+    return listaClientes.filter((c) => {
       const matchContato = c.nome_contato?.toLowerCase().includes(termo)
       const matchEmpresa = c.nome_empresa?.toLowerCase().includes(termo)
       const matchCnpj = c.cnpj_cpf?.toLowerCase().includes(termo)
       const matchCidade = c.cidade?.toLowerCase().includes(termo)
       return Boolean(matchContato || matchEmpresa || matchCnpj || matchCidade)
     })
-  }, [clientes, buscaCliente])
+  }, [listaClientes, buscaCliente])
 
   const clienteSelecionado = useMemo(() => {
-    return clientes.find((c) => c.id === clienteId)
-  }, [clientes, clienteId])
+    return listaClientes.find((c) => c.id === clienteId)
+  }, [listaClientes, clienteId])
 
   const validar = (): boolean => {
     const novos: Record<string, string> = {}
@@ -297,9 +326,22 @@ export default function TarefaModal({
                 </div>
                 <div className="max-h-56 overflow-y-auto space-y-1">
                   {clientesFiltrados.length === 0 ? (
-                    <p className="text-xs text-center text-[#64748B] py-3">
-                      Nenhum cliente encontrado.
-                    </p>
+                    <div className="py-3 px-2 text-center space-y-2">
+                      <p className="text-xs text-[#64748B]">Nenhum cliente encontrado.</p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setClienteComboboxOpen(false)
+                          setModalNovoClienteOpen(true)
+                        }}
+                        className="w-full text-xs font-semibold text-[#16A34A] border-emerald-300 hover:bg-emerald-50 h-8 flex items-center justify-center gap-1.5"
+                      >
+                        <UserPlus className="w-3.5 h-3.5" />
+                        Cadastrar novo cliente
+                      </Button>
+                    </div>
                   ) : (
                     clientesFiltrados.map((cli) => {
                       const isSel = cli.id === clienteId
@@ -528,6 +570,19 @@ export default function TarefaModal({
           </DialogFooter>
         </form>
       </DialogContent>
+
+      {/* Modal Inline para Cadastrar Novo Cliente sem sair da tela */}
+      <ClienteInlineModal
+        open={modalNovoClienteOpen}
+        onOpenChange={setModalNovoClienteOpen}
+        nomeInicial={buscaCliente}
+        onClienteCriado={(novoCliente) => {
+          setListaClientes((prev) => [novoCliente, ...prev.filter((c) => c.id !== novoCliente.id)])
+          setClienteId(novoCliente.id)
+          setBuscaCliente('')
+          if (erros.cliente_id) setErros((prev) => ({ ...prev, cliente_id: '' }))
+        }}
+      />
     </Dialog>
   )
 }

@@ -277,6 +277,14 @@ export default function ClientesPage() {
   }
 
   const abrirEditarCliente = (cliente: ClienteModel) => {
+    if (!podeEditarCliente(user, cliente)) {
+      toast({
+        variant: 'destructive',
+        title: 'Acesso negado',
+        description: 'Você não pode editar clientes de outros vendedores.',
+      })
+      return
+    }
     setClienteEditando(cliente)
     setModalOpen(true)
   }

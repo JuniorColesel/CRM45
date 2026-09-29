@@ -213,7 +213,17 @@ export default function ClienteDetalhesPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setModalEditOpen(true)}
+                onClick={() => {
+                  if (!podeEditarCliente(user, cliente)) {
+                    toast({
+                      variant: 'destructive',
+                      title: 'Acesso negado',
+                      description: 'Você não pode editar clientes de outros vendedores.',
+                    })
+                    return
+                  }
+                  setModalEditOpen(true)
+                }}
                 className="text-[#16A34A] hover:bg-emerald-50 border-emerald-200 font-semibold text-xs"
               >
                 <Pencil className="w-3.5 h-3.5 mr-1.5" />

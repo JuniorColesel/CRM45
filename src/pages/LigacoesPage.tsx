@@ -20,6 +20,7 @@ import {
   FileText,
   ChevronDown,
   Check,
+  UserPlus,
 } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -47,6 +48,7 @@ import type {
 import { formatarDataHora, formatarDuracao } from '@/types/clientes'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/pocketbase/errors'
+import { ClienteInlineModal } from '@/components/clientes/ClienteInlineModal'
 
 export default function LigacoesPage() {
   const { user } = useAuth()
@@ -76,6 +78,7 @@ export default function LigacoesPage() {
   // Combobox do cliente no formulário
   const [clienteComboboxOpen, setClienteComboboxOpen] = useState(false)
   const [buscaClienteForm, setBuscaClienteForm] = useState('')
+  const [modalNovoClienteOpen, setModalNovoClienteOpen] = useState(false)
 
   const [saving, setSaving] = useState(false)
   const [errosForm, setErrosForm] = useState<Record<string, string>>({})
@@ -461,9 +464,22 @@ export default function LigacoesPage() {
                     </div>
                     <div className="max-h-56 overflow-y-auto space-y-1">
                       {clientesFiltrados.length === 0 ? (
-                        <p className="text-xs text-center text-[#64748B] py-3">
-                          Nenhum cliente encontrado.
-                        </p>
+                        <div className="py-3 px-2 text-center space-y-2">
+                          <p className="text-xs text-[#64748B]">Nenhum cliente encontrado.</p>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setClienteComboboxOpen(false)
+                              setModalNovoClienteOpen(true)
+                            }}
+                            className="w-full text-xs font-semibold text-[#7C3AED] border-purple-300 hover:bg-purple-50 h-8 flex items-center justify-center gap-1.5"
+                          >
+                            <UserPlus className="w-3.5 h-3.5" />
+                            Cadastrar novo cliente
+                          </Button>
+                        </div>
                       ) : (
                         clientesFiltrados.map((cli) => {
                           const isSel = cli.id === formClienteId
@@ -838,6 +854,19 @@ export default function LigacoesPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Modal Inline para Cadastrar Novo Cliente sem sair da tela */}
+      <ClienteInlineModal
+        open={modalNovoClienteOpen}
+        onOpenChange={setModalNovoClienteOpen}
+        nomeInicial={buscaClienteForm}
+        onClienteCriado={(novoCliente) => {
+          setClientes((prev) => [novoCliente, ...prev.filter((c) => c.id !== novoCliente.id)])
+          setFormClienteId(novoCliente.id)
+          setBuscaClienteForm('')
+          if (errosForm.cliente_id) setErrosForm((prev) => ({ ...prev, cliente_id: '' }))
+        }}
+      />
     </div>
   )
 }

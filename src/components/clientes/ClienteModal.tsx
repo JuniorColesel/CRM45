@@ -30,12 +30,13 @@ import {
 } from 'lucide-react'
 import pb from '@/lib/pocketbase/client'
 import { useAuth, type Usuario } from '@/contexts/AuthContext'
-import type {
-  ClienteModel,
-  VendedorCliente,
-  TipoContatoCliente,
-  StatusCliente,
-  GrandeClienteFlag,
+import {
+  podeEditarCliente,
+  type ClienteModel,
+  type VendedorCliente,
+  type TipoContatoCliente,
+  type StatusCliente,
+  type GrandeClienteFlag,
 } from '@/types/clientes'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/pocketbase/errors'
@@ -190,6 +191,17 @@ export default function ClienteModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    // Trava de edição entre vendedores: se estiver editando cliente de outro vendedor
+    if (isEditing && cliente && !podeEditarCliente(user, cliente)) {
+      toast({
+        variant: 'destructive',
+        title: 'Acesso negado',
+        description: 'Você não pode editar clientes de outros vendedores.',
+      })
+      return
+    }
+
     if (!validar()) return
 
     setSaving(true)
@@ -617,7 +629,9 @@ export default function ClienteModal({
             </Button>
             <Button
               type="submit"
-              disabled={saving}
+              disabled={
+                saving || (isEditing && cliente ? !podeEditarCliente(user, cliente) : false)
+              }
               className="bg-[#16A34A] hover:bg-[#15803D] text-white font-semibold"
             >
               {saving ? (

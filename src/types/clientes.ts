@@ -174,17 +174,38 @@ export interface MensagemEnviadaModel extends RecordModel {
 }
 
 /**
- * Regra de permissão da RLS do PocketBase para edição/exclusão de clientes:
- * - ceo_financeiro pode editar/excluir qualquer um
- * - outros perfis (vendedores, etc.) só podem editar/excluir se forem o responsável (responsavel_id === user.id)
+ * Determina se um usuário vendedor é o dono/responsável pelo cliente.
+ * Checa tanto responsavel_id (id do usuário) quanto o campo textual vendedor
+ * (ex: vendedor_1 -> 'Karoline (Vendas 1)', vendedor_2 -> 'Vendas 2', ou nome/email correspondente).
+ */
+export function ehVendedorDoCliente(user: Usuario | null, cliente?: ClienteModel | null): boolean {
+  if (!user || !cliente) return false
+  if (cliente.responsavel_id && cliente.responsavel_id === user.id) return true
+  const cv = (cliente.vendedor || '').trim().toLowerCase()
+  if (!cv) return false
+  if (user.perfil === 'vendedor_1' && (cv.includes('vendas 1') || cv.includes('karoline')))
+    return true
+  if (user.perfil === 'vendedor_2' && cv.includes('vendas 2')) return true
+  if (user.nome && cv.includes(user.nome.toLowerCase().trim())) return true
+  return false
+}
+
+/**
+ * Regra de permissão para edição de clientes:
+ * - ceo_financeiro e coordenador_vendas têm acesso irrestrito para gerenciar e editar qualquer cliente.
+ * - perfil estoque não pode editar clientes.
+ * - Vendedores (vendedor_1, vendedor_2 ou outros perfis comerciais) só podem editar clientes que lhes pertençam
+ *   (responsavel_id igual ou vendedor atribuído a ele), ou clientes liberados com status "para_reativacao".
+ * - Se o cliente pertencer a outro vendedor, a edição é bloqueada.
  */
 export function podeEditarCliente(user: Usuario | null, cliente?: ClienteModel | null): boolean {
   if (!user) return false
   if (user.perfil === 'estoque') return false
   if (user.perfil === 'ceo_financeiro' || user.perfil === 'coordenador_vendas') return true
-  // Vendedores podem editar se forem o responsável ou se o cliente estiver para reativação
+  // Se o cliente estiver para reativação, qualquer vendedor pode assumir / editar
   if (cliente && cliente.status_cliente === 'para_reativacao') return true
-  return Boolean(cliente && cliente.responsavel_id === user.id)
+  // Vendedores só podem editar se o cliente for deles
+  return ehVendedorDoCliente(user, cliente)
 }
 
 export function podeExcluirCliente(user: Usuario | null, cliente?: ClienteModel | null): boolean {
