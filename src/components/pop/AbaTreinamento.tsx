@@ -58,6 +58,9 @@ export function AbaTreinamento({ modoObrigatorio = false, aoConcluir }: AbaTrein
   const isPrimeiroSlide = slideAtual === 0
   const isUltimoSlide = slideAtual === totalSlides - 1
 
+  const totalPerguntasQuiz = QUIZ_TREINAMENTO.length
+  const notaMinimaAprovacao = Math.ceil(totalPerguntasQuiz * 0.8)
+
   const porcentagemProgresso = Math.round(((slideAtual + 1) / totalSlides) * 100)
 
   const handleSelecionarOpcaoQuiz = (perguntaId: number, opcaoId: string) => {
@@ -91,20 +94,21 @@ export function AbaTreinamento({ modoObrigatorio = false, aoConcluir }: AbaTrein
       }
     })
 
+    const notaMinima = Math.ceil(QUIZ_TREINAMENTO.length * 0.8) // 5 de 6
     setAcertosQuiz(acertos)
     setQuizVerificado(true)
-    const aprovado = acertos >= 4
+    const aprovado = acertos >= notaMinima
     setQuizAprovado(aprovado)
 
     if (aprovado) {
       toast({
         title: 'Parabéns! Quiz Aprovado',
-        description: `Você acertou ${acertos} de 5 perguntas. Agora você pode concluir o treinamento!`,
+        description: `Você acertou ${acertos} de ${QUIZ_TREINAMENTO.length} perguntas. Agora você pode concluir o treinamento!`,
       })
     } else {
       toast({
         title: 'Quiz Não Atingiu a Nota Mínima',
-        description: `Você acertou ${acertos} de 5. Revise o treinamento e tente novamente.`,
+        description: `Você acertou ${acertos} de ${QUIZ_TREINAMENTO.length}. São necessários no mínimo ${notaMinima} acertos. Revise o treinamento e tente novamente.`,
         variant: 'destructive',
       })
     }
@@ -227,16 +231,25 @@ export function AbaTreinamento({ modoObrigatorio = false, aoConcluir }: AbaTrein
     if (num === 18) {
       return <CheckCircle2 className="w-8 h-8 text-[#16A34A]" />
     }
-    if (num <= 4) {
+    if (num <= 3) {
       return <Layers className="w-8 h-8 text-[#16A34A]" />
     }
-    if (num <= 10) {
+    if (num <= 6) {
       return <Compass className="w-8 h-8 text-[#2563EB]" />
     }
-    if (num <= 15) {
+    if (num <= 8) {
+      return <CheckSquare className="w-8 h-8 text-[#0284C7]" />
+    }
+    if (num <= 11) {
+      return <Layers className="w-8 h-8 text-[#D97706]" />
+    }
+    if (num <= 14) {
       return <BarChart3 className="w-8 h-8 text-[#4F46E5]" />
     }
-    return <CheckSquare className="w-8 h-8 text-[#D97706]" />
+    if (num <= 16) {
+      return <ShieldAlert className="w-8 h-8 text-[#DC2626]" />
+    }
+    return <Sparkles className="w-8 h-8 text-[#7C3AED]" />
   }
 
   const moduloBadge = getModuloBadge(slideCorrente.moduloNumero)
@@ -458,11 +471,14 @@ export function AbaTreinamento({ modoObrigatorio = false, aoConcluir }: AbaTrein
                       <span>Quiz Obrigatório de Verificação</span>
                     </div>
                     <h3 className="text-lg sm:text-xl font-extrabold text-[#0F172A]">
-                      Validação de Conhecimento (5 Perguntas)
+                      Validação de Conhecimento ({totalPerguntasQuiz} Perguntas)
                     </h3>
                     <p className="text-xs sm:text-sm text-[#64748B]">
-                      Acerte pelo menos <strong>4 de 5</strong> perguntas para liberar o botão de
-                      conclusão do treinamento.
+                      Acerte pelo menos{' '}
+                      <strong>
+                        {notaMinimaAprovacao} de {totalPerguntasQuiz}
+                      </strong>{' '}
+                      perguntas para liberar o botão de conclusão do treinamento.
                     </p>
                   </div>
 
@@ -601,13 +617,13 @@ export function AbaTreinamento({ modoObrigatorio = false, aoConcluir }: AbaTrein
                       <div>
                         <strong className="block font-bold text-sm sm:text-base">
                           {quizAprovado
-                            ? `Aprovado! Você acertou ${acertosQuiz} de 5 perguntas.`
-                            : `Você acertou ${acertosQuiz} de 5. Revise o treinamento e tente novamente`}
+                            ? `Aprovado! Você acertou ${acertosQuiz} de ${totalPerguntasQuiz} perguntas.`
+                            : `Você acertou ${acertosQuiz} de ${totalPerguntasQuiz}. Revise o treinamento e tente novamente`}
                         </strong>
                         <span className="text-xs sm:text-sm opacity-90 block mt-0.5">
                           {quizAprovado
                             ? 'Parabéns pelo aproveitamento! O botão "Concluir treinamento" foi liberado abaixo.'
-                            : 'É necessário acertar no mínimo 4 de 5 perguntas para concluir e desbloquear o acesso ao sistema.'}
+                            : `É necessário acertar no mínimo ${notaMinimaAprovacao} de ${totalPerguntasQuiz} perguntas para concluir e desbloquear o acesso ao sistema.`}
                         </span>
                       </div>
                     </div>
@@ -692,10 +708,10 @@ export function AbaTreinamento({ modoObrigatorio = false, aoConcluir }: AbaTrein
             ) : (
               <div
                 className="text-xs font-semibold text-[#64748B] bg-slate-100 border border-slate-200 px-4 py-2.5 rounded-lg flex items-center gap-1.5"
-                title="Responda o quiz acima e acerte pelo menos 4 de 5 para liberar a conclusão"
+                title={`Responda o quiz acima e acerte pelo menos ${notaMinimaAprovacao} de ${totalPerguntasQuiz} para liberar a conclusão`}
               >
                 <HelpCircle className="w-4 h-4 text-purple-600" />
-                <span>Acerte 4+ no Quiz para Concluir</span>
+                <span>Acerte {notaMinimaAprovacao}+ no Quiz para Concluir</span>
               </div>
             )
           ) : (

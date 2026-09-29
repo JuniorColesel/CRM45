@@ -11,6 +11,7 @@ import {
   Users,
   PhoneCall,
   Lock,
+  Clock,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -76,9 +77,10 @@ export function GuiaRapido({ onIrParaTreinamento }: GuiaRapidoProps) {
               <h3 className="font-bold text-base text-[#0F172A]">Módulos do Menu</h3>
             </div>
             <p className="text-sm text-[#334155] leading-relaxed">
-              <strong>Painel</strong>, <strong>Funil</strong>, <strong>Follow-up</strong>,{' '}
-              <strong>Clientes</strong>, <strong>Relatórios</strong>, <strong>Automações</strong>,{' '}
-              <strong>Configurações</strong> e <strong>POP & Treinamento</strong>.
+              <strong>Painel</strong>, <strong>Clientes</strong>, <strong>Funil</strong>,{' '}
+              <strong>Prospecção</strong>, <strong>Ligações</strong>, <strong>Follow-up</strong>,{' '}
+              <strong>Conversas</strong>, <strong>Marketing</strong>, <strong>Metas</strong> e{' '}
+              <strong>Configurações & POPs</strong>.
             </p>
           </div>
 
@@ -137,7 +139,11 @@ export function GuiaRapido({ onIrParaTreinamento }: GuiaRapidoProps) {
               </li>
               <li className="flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                <span>Nunca duplique (busque antes)</span>
+                <span>Travas ativas: CNPJ e Nome de Empresa bloqueiam duplicidades</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <Clock className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                <span>Regra +1h: novas tarefas sugerem horário 1h à frente</span>
               </li>
               <li className="flex items-start gap-2">
                 <Lock className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
