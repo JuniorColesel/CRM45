@@ -278,7 +278,7 @@ export default function UsuariosPage() {
   }
 
   // Abertura do modal para Editar Usuário
-  const handleEditarUsuario = (u: Usuario) => {
+  const handleEditarUsuario = async (u: Usuario) => {
     // Regra: Não permita editar o próprio usuário logado
     if (u.id === user?.id) {
       toast({
@@ -289,6 +289,7 @@ export default function UsuariosPage() {
       return
     }
 
+    // Inicializa imediatamente com os dados locais
     setUsuarioEditando(u)
     setFormNome(u.nome || '')
     setFormEmail(u.email || '')
@@ -298,6 +299,23 @@ export default function UsuariosPage() {
     setFormPasswordConfirm('')
     setFormErros({})
     setModalOpen(true)
+
+    // Busca o registro individual mais recente com campos explícitos para garantir que o e-mail venha preenchido
+    try {
+      const recordCompleto = await pb.collection('usuarios').getOne<Usuario>(u.id, {
+        fields: 'id,nome,email,perfil,ativo,created,updated',
+        requestKey: null,
+      })
+      if (recordCompleto) {
+        setUsuarioEditando(recordCompleto)
+        if (recordCompleto.nome) setFormNome(recordCompleto.nome)
+        if (recordCompleto.email) setFormEmail(recordCompleto.email)
+        if (recordCompleto.perfil) setFormPerfil(recordCompleto.perfil)
+        if (recordCompleto.ativo !== undefined) setFormAtivo(recordCompleto.ativo !== false)
+      }
+    } catch {
+      // Se falhar o getOne, mantém os dados com os quais o modal foi aberto
+    }
   }
 
   // Validação amigável do formulário
@@ -372,21 +390,33 @@ export default function UsuariosPage() {
         // Atualização de usuário existente
         const payload: Record<string, unknown> = {
           nome: formNome.trim(),
-          email: formEmail.trim(),
           perfil: formPerfil,
           ativo: formAtivo,
-          password: formPassword,
-          passwordConfirm: formPasswordConfirm,
+          emailVisibility: true,
+        }
+
+        // Gerenciamento seguro de e-mail:
+        // NUNCA enviar string vazia no campo email.
+        // Se o e-mail foi alterado em relação ao original, envia com emailVisibility=true.
+        // Se não foi alterado mas o campo tem valor preenchido, envia para garantir persistência/visibilidade.
+        const emailTrim = emailNormalizado
+        const emailOriginal = (usuarioEditando.email || '').trim().toLowerCase()
+
+        if (emailTrim) {
+          if (emailTrim !== emailOriginal || !emailOriginal) {
+            payload.email = emailTrim
+          } else {
+            payload.email = emailTrim
+          }
         }
 
         // Se password e passwordConfirm estiverem vazios (string vazia ou nula), remove do payload
-        const senhaLimpa = typeof payload.password === 'string' ? payload.password.trim() : ''
-        const confirmLimpa =
-          typeof payload.passwordConfirm === 'string' ? payload.passwordConfirm.trim() : ''
+        const senhaLimpa = formPassword.trim()
+        const confirmLimpa = formPasswordConfirm.trim()
 
-        if (!senhaLimpa && !confirmLimpa) {
-          delete payload.password
-          delete payload.passwordConfirm
+        if (senhaLimpa || confirmLimpa) {
+          payload.password = formPassword
+          payload.passwordConfirm = formPasswordConfirm
         }
 
         const atualizado = await pb
@@ -762,8 +792,10 @@ export default function UsuariosPage() {
                         {/* Email */}
                         <TableCell className="py-3.5 text-xs text-[#64748B]">
                           <div className="flex items-center gap-1.5 font-mono">
-                            <Mail className="w-3.5 h-3.5 text-slate-400" />
-                            <span>{u.email}</span>
+                            <Mail className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                            <span className={u.email ? 'text-[#0F172A]' : 'text-slate-400 italic'}>
+                              {u.email || 'Não informado'}
+                            </span>
                           </div>
                         </TableCell>
 
@@ -883,8 +915,11 @@ export default function UsuariosPage() {
                               </Badge>
                             )}
                           </div>
-                          <p className="text-xs text-[#64748B] font-mono break-all mt-0.5">
-                            {u.email}
+                          <p className="text-xs text-[#64748B] font-mono break-all mt-0.5 flex items-center gap-1">
+                            <Mail className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                            <span className={u.email ? 'text-[#0F172A]' : 'text-slate-400 italic'}>
+                              {u.email || 'Sem e-mail'}
+                            </span>
                           </p>
                         </div>
                       </div>

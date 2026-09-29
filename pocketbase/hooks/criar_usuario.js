@@ -100,6 +100,7 @@ routerAdd(
     const usuariosCol = $app.findCollectionByNameOrId('usuarios')
     const record = new Record(usuariosCol)
     record.setEmail(email)
+    record.setEmailVisibility(true)
     record.setPassword(senhaFinal)
     record.setVerified(true)
     record.set('nome', nome)
