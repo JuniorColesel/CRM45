@@ -200,4 +200,95 @@ describe('Normalização e Agrupamento de Clientes (Regras de Deduplicação)', 
     expect(resultado.gruposComMaisDeUmRegistro[0].totalItens).toBe(2)
     expect(resultado.gruposComMaisDeUmRegistro[0].valorTotalVendas).toBe(280)
   })
+
+  describe('verificarClienteDuplicado (Checagem prévia no PocketBase)', () => {
+    const criarMockPb = (itens: Array<{ id: string; nome_empresa: string; cnpj_cpf?: string }>) => {
+      return {
+        collection: (_name: string) => ({
+          getList: async (
+            _page: number,
+            _perPage: number,
+            _opts?: { filter?: string; requestKey?: null | string },
+          ) => ({
+            items: itens,
+          }),
+        }),
+      }
+    }
+
+    it('detecta duplicidade de nome_empresa (case-insensitive, trim)', async () => {
+      const { verificarClienteDuplicado } = await import('@/lib/clientes/clienteUtils')
+      const mockPb = criarMockPb([
+        { id: '1', nome_empresa: 'UNIPRIME DO IGUACU', cnpj_cpf: '' },
+      ])
+
+      const res = await verificarClienteDuplicado(mockPb, {
+        nomeEmpresa: '  uniprime do iguacu  ',
+        cnpjCpf: '',
+      })
+
+      expect(res.duplicado).toBe(true)
+      expect(res.motivo).toBe('nome')
+    })
+
+    it('detecta duplicidade de cnpj_cpf mesmo com nome diferente', async () => {
+      const { verificarClienteDuplicado } = await import('@/lib/clientes/clienteUtils')
+      const mockPb = criarMockPb([
+        { id: '1', nome_empresa: 'EMPRESA ANTIGA', cnpj_cpf: '12.345.678/0001-90' },
+      ])
+
+      const res = await verificarClienteDuplicado(mockPb, {
+        nomeEmpresa: 'EMPRESA TOTALMENTE NOVA',
+        cnpjCpf: ' 12.345.678/0001-90 ',
+      })
+
+      expect(res.duplicado).toBe(true)
+      expect(res.motivo).toBe('cnpj')
+    })
+
+    it('permite cadastro com cnpj_cpf vazio/espaços quando o nome não for duplicado', async () => {
+      const { verificarClienteDuplicado } = await import('@/lib/clientes/clienteUtils')
+      const mockPb = criarMockPb([
+        { id: '1', nome_empresa: 'OUTRA EMPRESA', cnpj_cpf: '' },
+      ])
+
+      const res = await verificarClienteDuplicado(mockPb, {
+        nomeEmpresa: 'NOVA EMPRESA INÉDITA',
+        cnpjCpf: '   ',
+      })
+
+      expect(res.duplicado).toBe(false)
+    })
+
+    it('permite edição (update) do próprio registro sem acusar duplicidade', async () => {
+      const { verificarClienteDuplicado } = await import('@/lib/clientes/clienteUtils')
+      const mockPb = criarMockPb([
+        { id: 'cli_123', nome_empresa: 'MINHA EMPRESA LTDA', cnpj_cpf: '00.111.222/0001-33' },
+      ])
+
+      const res = await verificarClienteDuplicado(mockPb, {
+        nomeEmpresa: 'MINHA EMPRESA LTDA',
+        cnpjCpf: '00.111.222/0001-33',
+        clienteIdAtual: 'cli_123',
+      })
+
+      expect(res.duplicado).toBe(false)
+    })
+
+    it('bloqueia edição se colidir com o nome/CNPJ de OUTRO cliente', async () => {
+      const { verificarClienteDuplicado } = await import('@/lib/clientes/clienteUtils')
+      const mockPb = criarMockPb([
+        { id: 'cli_outro', nome_empresa: 'EMPRESA JA EXISTENTE', cnpj_cpf: '99.888.777/0001-66' },
+      ])
+
+      const res = await verificarClienteDuplicado(mockPb, {
+        nomeEmpresa: 'EMPRESA JA EXISTENTE',
+        cnpjCpf: '',
+        clienteIdAtual: 'cli_atual',
+      })
+
+      expect(res.duplicado).toBe(true)
+      expect(res.motivo).toBe('nome')
+    })
+  })
 })

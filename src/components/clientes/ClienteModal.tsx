@@ -39,6 +39,7 @@ import type {
 } from '@/types/clientes'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/pocketbase/errors'
+import { verificarClienteDuplicado } from '@/lib/clientes/clienteUtils'
 
 interface ClienteModalProps {
   open: boolean
@@ -193,6 +194,23 @@ export default function ClienteModal({
 
     setSaving(true)
     try {
+      // 1. Verificação prévia de duplicidade antes do salvamento (CNPJ/nome)
+      const checagemDuplicidade = await verificarClienteDuplicado(pb, {
+        nomeEmpresa: nomeEmpresa.trim(),
+        cnpjCpf: cnpjCpf.trim(),
+        clienteIdAtual: isEditing && cliente ? cliente.id : undefined,
+      })
+
+      if (checagemDuplicidade.duplicado) {
+        toast({
+          variant: 'destructive',
+          title: 'Cliente duplicado',
+          description: 'Já existe um cliente cadastrado com esse CNPJ/nome.',
+        })
+        setSaving(false)
+        return
+      }
+
       // Garantir valores padrão válidos caso algum campo select tenha chegado vazio
       const vendedorFinal: VendedorCliente =
         vendedor && ['Alice', 'Renan', 'Karoline (Vendas 1)', 'Vendas 2'].includes(vendedor)
@@ -251,11 +269,20 @@ export default function ClienteModal({
       onOpenChange(false)
     } catch (err: unknown) {
       const msg = getErrorMessage(err)
+      const msgLower = (msg || '').toLowerCase()
+      const ehErroUnicidade =
+        msgLower.includes('unique') ||
+        msgLower.includes('já existe') ||
+        msgLower.includes('already exists') ||
+        msgLower.includes('nome_empresa') ||
+        msgLower.includes('cnpj_cpf')
+
       toast({
         variant: 'destructive',
-        title: 'Erro ao salvar cliente',
-        description:
-          msg.includes('permissão') || msg.includes('permission')
+        title: ehErroUnicidade ? 'Cliente duplicado' : 'Erro ao salvar cliente',
+        description: ehErroUnicidade
+          ? 'Já existe um cliente cadastrado com esse CNPJ/nome.'
+          : msg.includes('permissão') || msg.includes('permission')
             ? 'Você não tem permissão para realizar esta operação.'
             : msg ||
               'Ocorreu um erro ao salvar o cliente. Verifique se o nome da empresa ou CNPJ já existem.',

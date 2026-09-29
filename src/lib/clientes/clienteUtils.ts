@@ -155,6 +155,111 @@ export function normalizarTipoContato(val?: string): 'cliente' | 'fornecedor' | 
 }
 
 /**
+ * Escapa strings para uso seguro em filtros de string do PocketBase
+ */
+export function escaparFiltroPocketBase(valor: string): string {
+  return valor.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+}
+
+export interface VerificarClienteDuplicadoParams {
+  nomeEmpresa: string
+  cnpjCpf?: string
+  clienteIdAtual?: string
+}
+
+export interface ClienteDuplicadoResultado {
+  duplicado: boolean
+  motivo?: 'nome' | 'cnpj'
+  clienteExistente?: {
+    id: string
+    nome_empresa: string
+    cnpj_cpf?: string
+  }
+}
+
+/**
+ * Verifica se já existe um cliente cadastrado no PocketBase com o mesmo nome_empresa
+ * ou mesmo cnpj_cpf (case-insensitive, trim).
+ * - CNPJ vazio/apenas espaços não é considerado duplicado.
+ * - Ignora o próprio registro quando clienteIdAtual estiver presente (edição).
+ */
+export async function verificarClienteDuplicado(
+  pbClient: {
+    collection: (name: string) => {
+      getList: (
+        page: number,
+        perPage: number,
+        options?: { filter?: string; requestKey?: null | string },
+      ) => Promise<{ items: Array<{ id: string; nome_empresa: string; cnpj_cpf?: string }> }>
+    }
+  },
+  params: VerificarClienteDuplicadoParams,
+): Promise<ClienteDuplicadoResultado> {
+  const nomeLimpo = (params.nomeEmpresa || '').trim()
+  const cnpLimpo = (params.cnpjCpf || '').trim()
+  const idAtual = params.clienteIdAtual
+
+  if (!nomeLimpo && !cnpLimpo) {
+    return { duplicado: false }
+  }
+
+  // Montar condições para consulta no PocketBase com operador ~ (case-insensitive substring)
+  const condicoes: string[] = []
+  if (nomeLimpo) {
+    condicoes.push(`nome_empresa ~ '${escaparFiltroPocketBase(nomeLimpo)}'`)
+  }
+  if (cnpLimpo) {
+    condicoes.push(`cnpj_cpf ~ '${escaparFiltroPocketBase(cnpLimpo)}'`)
+  }
+
+  const filtroGeral = condicoes.length > 1 ? `(${condicoes.join(' || ')})` : condicoes[0]
+
+  try {
+    const result = await pbClient.collection('clientes').getList(1, 50, {
+      filter: filtroGeral,
+      requestKey: null,
+    })
+
+    const nomeLower = nomeLimpo.toLowerCase()
+    const cnpjLower = cnpLimpo.toLowerCase()
+
+    for (const item of result.items) {
+      if (idAtual && item.id === idAtual) {
+        continue
+      }
+
+      const itemNome = (item.nome_empresa || '').trim().toLowerCase()
+      const itemCnpj = (item.cnpj_cpf || '').trim().toLowerCase()
+
+      // Checa se nome coincide exatamente (case-insensitive e trim)
+      if (nomeLower && itemNome === nomeLower) {
+        return {
+          duplicado: true,
+          motivo: 'nome',
+          clienteExistente: item,
+        }
+      }
+
+      // Checa se cnpj_cpf coincide exatamente (quando preenchido, case-insensitive e trim)
+      if (cnpjLower && itemCnpj && itemCnpj === cnpjLower) {
+        return {
+          duplicado: true,
+          motivo: 'cnpj',
+          clienteExistente: item,
+        }
+      }
+    }
+
+    return { duplicado: false }
+  } catch (err) {
+    console.warn('Erro ao consultar duplicidade de cliente no PocketBase:', err)
+    // Em caso de erro na consulta do filtro, retorna false para não bloquear
+    // indevidamente a submissão, permitindo que as constraints do backend atuem
+    return { duplicado: false }
+  }
+}
+
+/**
  * Agrupa registros de clientes com base na normalização do nome_empresa (deduplicação e sufixos societários).
  * Soma valor_total_compras e valor_total_vendas.
  * Combina datas (última compra = mais recente, primeira compra = mais antiga).
