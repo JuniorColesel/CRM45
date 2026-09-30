@@ -1,223 +1,345 @@
 import React from 'react'
 import {
-  Users,
-  Filter,
-  DollarSign,
   TrendingUp,
+  ShoppingBag,
+  FileText,
+  Target,
+  Trophy,
+  XCircle,
   Percent,
-  Receipt,
-  ArrowUpRight,
-  ArrowDownRight,
-  Minus,
+  Users,
+  Database,
   HelpCircle,
+  Clock,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatarMoeda } from '@/types/clientes'
-import type { PainelKpis } from '@/services/painelService'
+import type {
+  DadosPainelComercialCompleto,
+  HistoricoTotalSeparado,
+  IndicadoresBaseSistema,
+} from '@/services/painelService'
 
 interface PainelKpiCardsProps {
-  kpis: PainelKpis
-  esconderFinanceiro?: boolean // true para perfis de compras/estoque
+  dados: DadosPainelComercialCompleto
+  esconderFinanceiro?: boolean
 }
 
-interface CardConfig {
-  id: string
-  titulo: string
-  valor: string
-  variacao: string
-  variacaoStatus: 'positivo' | 'negativo' | 'neutro'
-  tooltip: string
-  icone: React.ComponentType<{ className?: string }>
-  corIconeBg: string
-  corIcone: string
-}
+export function PainelKpiCards({ dados, esconderFinanceiro = false }: PainelKpiCardsProps) {
+  const {
+    contexto,
+    pedidos_periodo,
+    propostas_periodo,
+    oportunidades_periodo,
+    historico_total,
+    indicadores_base,
+  } = dados
 
-export function PainelKpiCards({ kpis, esconderFinanceiro = false }: PainelKpiCardsProps) {
-  // Helper para formatar a variação percentual
-  const formatarVariacao = (
-    val: number | null,
-    isPontosPercentuais = false,
-  ): { texto: string; status: 'positivo' | 'negativo' | 'neutro' } => {
-    if (val === null || val === undefined || isNaN(val)) {
-      return { texto: '— vs. anterior', status: 'neutro' }
-    }
-    if (val === 0) {
-      return { texto: '0.0% estável', status: 'neutro' }
-    }
-    const sinal = val > 0 ? '+' : ''
-    const sufixo = isPontosPercentuais ? ' p.p.' : '%'
-    return {
-      texto: `${sinal}${val.toFixed(1)}${sufixo} vs. anterior`,
-      status: val > 0 ? 'positivo' : 'negativo',
-    }
-  }
-
-  // Lista com os 6 cards especificados
-  const cards: CardConfig[] = [
-    // Card 1: Total de Clientes
-    {
-      id: 'kpi-clientes',
-      titulo: 'Total de Clientes',
-      valor: String(kpis.totalClientes),
-      variacao: formatarVariacao(kpis.variacaoClientes).texto,
-      variacaoStatus: formatarVariacao(kpis.variacaoClientes).status,
-      tooltip: 'Clientes com pelo menos 1 registro de contato',
-      icone: Users,
-      corIconeBg: 'bg-blue-50',
-      corIcone: 'text-[#2563EB]',
-    },
-    // Card 2: Oportunidades em Aberto
-    {
-      id: 'kpi-abertas',
-      titulo: 'Oportunidades em Aberto',
-      valor: String(kpis.oportunidadesAberto),
-      variacao: formatarVariacao(kpis.variacaoOportunidades).texto,
-      variacaoStatus: formatarVariacao(kpis.variacaoOportunidades).status,
-      tooltip: 'Oportunidades ativas no funil',
-      icone: Filter,
-      corIconeBg: 'bg-indigo-50',
-      corIcone: 'text-[#4F46E5]',
-    },
-  ]
-
-  // Se não for restrito (compras/estoque), inclui os 4 cards comerciais/financeiros
-  if (!esconderFinanceiro) {
-    cards.push(
-      // Card 3: Valor em Pipeline
-      {
-        id: 'kpi-pipeline',
-        titulo: 'Valor em Pipeline',
-        valor: formatarMoeda(kpis.valorPipeline),
-        variacao: formatarVariacao(kpis.variacaoPipeline).texto,
-        variacaoStatus: formatarVariacao(kpis.variacaoPipeline).status,
-        tooltip: 'Soma do valor esperado das oportunidades ativas',
-        icone: DollarSign,
-        corIconeBg: 'bg-sky-50',
-        corIcone: 'text-[#0284C7]',
-      },
-      // Card 4: Vendas do Período
-      {
-        id: 'kpi-vendas',
-        titulo: 'Vendas do Período',
-        valor: formatarMoeda(kpis.vendasPeriodo),
-        variacao: formatarVariacao(kpis.variacaoVendas).texto,
-        variacaoStatus: formatarVariacao(kpis.variacaoVendas).status,
-        tooltip: 'Valor total das vendas fechadas no período',
-        icone: TrendingUp,
-        corIconeBg: 'bg-emerald-50',
-        corIcone: 'text-[#16A34A]',
-      },
-      // Card 5: Taxa de Conversão
-      {
-        id: 'kpi-conversao',
-        titulo: 'Taxa de Conversão',
-        valor: `${kpis.taxaConversao.toFixed(1)}%`,
-        variacao: formatarVariacao(kpis.variacaoConversaoPontos, true).texto,
-        variacaoStatus: formatarVariacao(kpis.variacaoConversaoPontos, true).status,
-        tooltip: '% de oportunidades que viraram venda',
-        icone: Percent,
-        corIconeBg: 'bg-purple-50',
-        corIcone: 'text-[#7C3AED]',
-      },
-      // Card 6: Ticket Médio
-      {
-        id: 'kpi-ticket',
-        titulo: 'Ticket Médio',
-        valor: formatarMoeda(kpis.ticketMedio),
-        variacao: formatarVariacao(kpis.variacaoTicketMedio).texto,
-        variacaoStatus: formatarVariacao(kpis.variacaoTicketMedio).status,
-        tooltip: 'Valor médio por venda fechada',
-        icone: Receipt,
-        corIconeBg: 'bg-amber-50',
-        corIcone: 'text-[#CA8A04]',
-      },
-    )
-  }
-
-  // Grid responsivo:
-  // Se forem 6 cards: 2 colunas mobile, 3 tablet (md), 6 desktop (xl)
-  // Se for estoque/compras (2 cards): 2 colunas responsivas elegantes sem buracos
-  const gridClasses = esconderFinanceiro
-    ? 'grid grid-cols-1 sm:grid-cols-2 gap-4'
-    : 'grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4'
+  const rotuloPeriodo = contexto.labelPeriodo
+  const modoVisaoLabel = contexto.modoVisao === 'fechamento' ? 'por Fechamento' : 'por Origem'
 
   return (
     <TooltipProvider delayDuration={150}>
-      <div className={gridClasses}>
-        {cards.map((c) => {
-          const Icone = c.icone
-          const isPos = c.variacaoStatus === 'positivo'
-          const isNeg = c.variacaoStatus === 'negativo'
-
-          return (
-            <Card
-              key={c.id}
-              className="border border-[#E2E8F0] shadow-sm hover:shadow-md transition-all duration-200 bg-white flex flex-col justify-between"
-            >
-              <CardHeader className="p-3 sm:p-4 pb-1 sm:pb-2 flex flex-row items-center justify-between space-y-0">
-                <div className="flex items-center gap-1 min-w-0 pr-1">
-                  <span className="text-[11px] sm:text-xs font-semibold text-[#64748B] uppercase tracking-wider truncate">
-                    {c.titulo}
-                  </span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        className="text-[#94A3B8] hover:text-[#0F172A] inline-flex items-center transition-colors"
-                        aria-label={`Informações sobre ${c.titulo}`}
+      <div className="space-y-4">
+        {/* =========================================================================
+            LINHA 0: INDICADORES ATEMPORAIS DE BASE VS. HISTÓRICO TOTAL SEPARADO
+            (Regras 26, 33, 34: Nunca misturar histórico com período; rotular como Base)
+           ========================================================================= */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+          {/* Card: Histórico Total de Vendas Bling (Totalmente separado do período) */}
+          {!esconderFinanceiro && (
+            <Card className="border border-slate-200 bg-slate-50/70 shadow-xs">
+              <CardContent className="p-3 sm:p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-slate-200 text-slate-700 flex items-center justify-center shrink-0">
+                    <Clock className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                        Histórico Total (Bling ERP)
+                      </span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <HelpCircle className="w-3.5 h-3.5 text-slate-400 hover:text-slate-600" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs bg-[#0F172A] text-white p-2">
+                          {historico_total.criterio}
+                        </TooltipContent>
+                      </Tooltip>
+                      <Badge
+                        variant="outline"
+                        className="text-[9px] bg-white text-slate-600 border-slate-300"
                       >
-                        <HelpCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent
-                      side="top"
-                      className="text-xs bg-[#0F172A] text-white p-2 rounded-lg max-w-xs shadow-lg"
-                    >
-                      <p>{c.tooltip}</p>
-                    </TooltipContent>
-                  </Tooltip>
+                        Atemporal
+                      </Badge>
+                    </div>
+                    <div className="text-xl font-black text-[#0F172A] mt-0.5">
+                      {formatarMoeda(historico_total.valor_vendas_total)}
+                    </div>
+                  </div>
                 </div>
 
-                <div
-                  className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center shrink-0 ${c.corIconeBg} ${c.corIcone}`}
-                >
-                  <Icone className="w-4 h-4" />
-                </div>
-              </CardHeader>
-
-              <CardContent className="p-3 sm:p-4 pt-1 sm:pt-2 space-y-1 sm:space-y-1.5">
-                <div className="text-xl sm:text-2xl font-extrabold text-[#0F172A] tracking-tight truncate">
-                  {c.valor}
-                </div>
-
-                {/* Variação percentual vs período anterior (verde positivo, vermelho negativo, cinza neutro) */}
-                <div className="flex items-center gap-1 text-[11px] font-medium leading-tight truncate">
-                  {isPos && (
-                    <ArrowUpRight className="w-3.5 h-3.5 text-[#16A34A] shrink-0 stroke-[2.5]" />
-                  )}
-                  {isNeg && (
-                    <ArrowDownRight className="w-3.5 h-3.5 text-[#DC2626] shrink-0 stroke-[2.5]" />
-                  )}
-                  {!isPos && !isNeg && <Minus className="w-3.5 h-3.5 text-[#64748B] shrink-0" />}
-
-                  <span
-                    className={
-                      isPos
-                        ? 'text-[#16A34A] font-semibold'
-                        : isNeg
-                          ? 'text-[#DC2626] font-semibold'
-                          : 'text-[#64748B]'
-                    }
-                  >
-                    {c.variacao}
+                <div className="text-right">
+                  <span className="text-[11px] text-slate-500 font-medium block">
+                    Pedidos Válidos
+                  </span>
+                  <span className="text-base font-bold text-slate-800">
+                    {historico_total.pedidos_validos_total.toLocaleString('pt-BR')} ped.
                   </span>
                 </div>
               </CardContent>
             </Card>
-          )
-        })}
+          )}
+
+          {/* Card: Base / Sistema (Indicador de Base Atemporal) */}
+          <Card className="border border-slate-200 bg-slate-50/70 shadow-xs">
+            <CardContent className="p-3 sm:p-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center shrink-0">
+                  <Database className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                      Base / Sistema Cadastrada
+                    </span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <HelpCircle className="w-3.5 h-3.5 text-slate-400 hover:text-slate-600" />
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-xs bg-[#0F172A] text-white p-2">
+                        {indicadores_base.descricao}
+                      </TooltipContent>
+                    </Tooltip>
+                    <Badge
+                      variant="outline"
+                      className="text-[9px] bg-white text-purple-700 border-purple-200"
+                    >
+                      Base Global
+                    </Badge>
+                  </div>
+                  <div className="text-xl font-black text-[#0F172A] mt-0.5">
+                    {indicadores_base.totalClientesCadastrados.toLocaleString('pt-BR')} clientes
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-right text-xs space-y-0.5">
+                <span className="text-[11px] text-purple-700 font-medium block">
+                  {indicadores_base.clientesComBlingId} vinculados Bling
+                </span>
+                <span className="text-[10px] text-slate-500 block">
+                  {indicadores_base.totalPedidosCadastradosBase.toLocaleString('pt-BR')} pedidos
+                  salvos
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* =========================================================================
+            LINHA 1: CARDS COMERCIAIS DO PERÍODO SELECIONADO (Regras 21, 22, 23, 27)
+           ========================================================================= */}
+        <div className="flex items-center justify-between pt-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-[#0F172A] uppercase tracking-wider">
+              Indicadores do Período:
+            </span>
+            <Badge className="bg-blue-600 text-white font-bold text-xs hover:bg-blue-600">
+              {rotuloPeriodo}
+            </Badge>
+            <Badge variant="outline" className="text-[10px] text-slate-600 border-slate-300">
+              {modoVisaoLabel}
+            </Badge>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
+          {/* Card 1: Vendas Válidas do Período */}
+          {!esconderFinanceiro && (
+            <Card className="border border-[#E2E8F0] shadow-sm bg-white hover:border-emerald-300 transition-all col-span-2 xl:col-span-2">
+              <CardHeader className="p-3 pb-1 flex flex-row items-center justify-between space-y-0">
+                <span className="text-[11px] font-bold text-[#64748B] uppercase tracking-wider truncate">
+                  Vendas {contexto.ano} (Válidas)
+                </span>
+                <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                  <TrendingUp className="w-4 h-4" />
+                </div>
+              </CardHeader>
+              <CardContent className="p-3 pt-1 space-y-1">
+                <div className="text-xl font-extrabold text-emerald-700 tracking-tight">
+                  {formatarMoeda(pedidos_periodo.valor_vendas_valido)}
+                </div>
+                <div className="flex items-center justify-between text-[11px] text-[#64748B]">
+                  <span>{pedidos_periodo.pedidos_validos} pedidos válidos</span>
+                  <span className="text-[10px] text-emerald-600 font-semibold">
+                    Em aberto + Atendido
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Card 2: Pedidos do Período (Total e status) */}
+          <Card className="border border-[#E2E8F0] shadow-sm bg-white col-span-2 xl:col-span-2">
+            <CardHeader className="p-3 pb-1 flex flex-row items-center justify-between space-y-0">
+              <span className="text-[11px] font-bold text-[#64748B] uppercase tracking-wider truncate">
+                Pedidos no Período
+              </span>
+              <div className="w-7 h-7 rounded-lg bg-blue-50 text-[#2563EB] flex items-center justify-center shrink-0">
+                <ShoppingBag className="w-4 h-4" />
+              </div>
+            </CardHeader>
+            <CardContent className="p-3 pt-1 space-y-1">
+              <div className="text-xl font-extrabold text-[#0F172A] tracking-tight">
+                {pedidos_periodo.total_pedidos}
+              </div>
+              <div className="flex items-center gap-2 text-[10px] text-[#64748B]">
+                <span className="text-blue-700 font-semibold">
+                  {pedidos_periodo.em_aberto.qtd} abertos
+                </span>
+                <span>•</span>
+                <span className="text-emerald-700 font-semibold">
+                  {pedidos_periodo.atendidos.qtd} atendidos
+                </span>
+                <span>•</span>
+                <span className="text-rose-600">{pedidos_periodo.cancelados.qtd} canc.</span>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Card 3: Propostas no Período */}
+          <Card className="border border-[#E2E8F0] shadow-sm bg-white col-span-2 xl:col-span-2">
+            <CardHeader className="p-3 pb-1 flex flex-row items-center justify-between space-y-0">
+              <span className="text-[11px] font-bold text-[#64748B] uppercase tracking-wider truncate">
+                Propostas no Período
+              </span>
+              <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                <FileText className="w-4 h-4" />
+              </div>
+            </CardHeader>
+            <CardContent className="p-3 pt-1 space-y-1">
+              <div className="text-xl font-extrabold text-[#0F172A] tracking-tight">
+                {propostas_periodo.total}
+              </div>
+              <div className="flex items-center gap-2 text-[10px] text-[#64748B]">
+                <span className="text-emerald-700 font-semibold">
+                  {propostas_periodo.convertida} conv.
+                </span>
+                <span>•</span>
+                <span className="text-blue-700">{propostas_periodo.aguardando} aguard.</span>
+                <span>•</span>
+                <span className="text-rose-600">{propostas_periodo.nao_aprovada} não aprov.</span>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Card 4: Clientes com Compra no Período */}
+          <Card className="border border-[#E2E8F0] shadow-sm bg-white col-span-2 xl:col-span-2">
+            <CardHeader className="p-3 pb-1 flex flex-row items-center justify-between space-y-0">
+              <span className="text-[11px] font-bold text-[#64748B] uppercase tracking-wider truncate">
+                Clientes com Compra
+              </span>
+              <div className="w-7 h-7 rounded-lg bg-purple-50 text-purple-700 flex items-center justify-center shrink-0">
+                <Users className="w-4 h-4" />
+              </div>
+            </CardHeader>
+            <CardContent className="p-3 pt-1 space-y-1">
+              <div className="text-xl font-extrabold text-purple-900 tracking-tight">
+                {pedidos_periodo.clientes_distintos_com_compra}
+              </div>
+              <p className="text-[10px] text-[#64748B] truncate">
+                Clientes distintos com pedidos válidos em {rotuloPeriodo}
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* Card 5: Oportunidades CRM no Período */}
+          <Card className="border border-[#E2E8F0] shadow-sm bg-white col-span-2 xl:col-span-2">
+            <CardHeader className="p-3 pb-1 flex flex-row items-center justify-between space-y-0">
+              <span className="text-[11px] font-bold text-[#64748B] uppercase tracking-wider truncate">
+                Oportunidades ({modoVisaoLabel})
+              </span>
+              <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                <Target className="w-4 h-4" />
+              </div>
+            </CardHeader>
+            <CardContent className="p-3 pt-1 space-y-1">
+              <div className="text-xl font-extrabold text-[#0F172A] tracking-tight">
+                {oportunidades_periodo.total_periodo}
+              </div>
+              <div className="text-[10px] text-[#64748B]">
+                {oportunidades_periodo.abertas.qtd} em aberto (
+                {formatarMoeda(oportunidades_periodo.abertas.valor)})
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Card 6: Ganhos no Período */}
+          <Card className="border border-[#E2E8F0] shadow-sm bg-white col-span-2 xl:col-span-2">
+            <CardHeader className="p-3 pb-1 flex flex-row items-center justify-between space-y-0">
+              <span className="text-[11px] font-bold text-[#64748B] uppercase tracking-wider truncate">
+                Ganhos no Período
+              </span>
+              <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                <Trophy className="w-4 h-4" />
+              </div>
+            </CardHeader>
+            <CardContent className="p-3 pt-1 space-y-1">
+              <div className="text-xl font-extrabold text-emerald-700 tracking-tight">
+                {oportunidades_periodo.ganhas.qtd}
+              </div>
+              <div className="text-[10px] text-[#64748B]">
+                Valor: {formatarMoeda(oportunidades_periodo.ganhas.valor)}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Card 7: Perdidos no Período */}
+          <Card className="border border-[#E2E8F0] shadow-sm bg-white col-span-2 xl:col-span-2">
+            <CardHeader className="p-3 pb-1 flex flex-row items-center justify-between space-y-0">
+              <span className="text-[11px] font-bold text-[#64748B] uppercase tracking-wider truncate">
+                Perdidos no Período
+              </span>
+              <div className="w-7 h-7 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
+                <XCircle className="w-4 h-4" />
+              </div>
+            </CardHeader>
+            <CardContent className="p-3 pt-1 space-y-1">
+              <div className="text-xl font-extrabold text-rose-700 tracking-tight">
+                {oportunidades_periodo.perdidas.qtd}
+              </div>
+              <div className="text-[10px] text-[#64748B]">
+                Valor: {formatarMoeda(oportunidades_periodo.perdidas.valor)}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Card 8: Taxa de Conversão */}
+          <Card className="border border-[#E2E8F0] shadow-sm bg-white col-span-2 xl:col-span-2">
+            <CardHeader className="p-3 pb-1 flex flex-row items-center justify-between space-y-0">
+              <span className="text-[11px] font-bold text-[#64748B] uppercase tracking-wider truncate">
+                Taxa de Conversão
+              </span>
+              <div className="w-7 h-7 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center shrink-0">
+                <Percent className="w-4 h-4" />
+              </div>
+            </CardHeader>
+            <CardContent className="p-3 pt-1 space-y-1">
+              <div className="text-xl font-extrabold text-purple-900 tracking-tight">
+                {oportunidades_periodo.taxa_conversao.toFixed(1)}%
+              </div>
+              <p className="text-[10px] text-[#64748B] truncate">
+                Ticket Médio: {formatarMoeda(oportunidades_periodo.ticket_medio)}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </TooltipProvider>
   )
 }
+export default PainelKpiCards

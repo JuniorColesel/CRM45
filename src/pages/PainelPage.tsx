@@ -1,62 +1,33 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { RefreshCw, LayoutDashboard, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import {
-  SeletorDePeriodo,
-  type OpcaoPeriodoPredefinido,
-} from '@/components/common/SeletorDePeriodo'
+import { SeletorDePeriodo } from '@/components/common/SeletorDePeriodo'
 import { usePeriodo } from '@/contexts/PeriodoContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { PainelKpiCards } from '@/components/painel/PainelKpiCards'
 import { PainelGraficos } from '@/components/painel/PainelGraficos'
 import { PainelAcoesAlertas } from '@/components/painel/PainelAcoesAlertas'
 import {
-  obterDadosPainel,
+  obterDadosPainelComercial,
   limparCachePainel,
-  type DadosPainelGeral,
+  type DadosPainelComercialCompleto,
 } from '@/services/painelService'
 
 export function PainelPage() {
   const { user } = useAuth()
-  const { ano, mes } = usePeriodo()
+  const { ano, mes, periodo, modoVisao, dataInicioPersonalizada, dataFimPersonalizada } =
+    usePeriodo()
 
-  // Estado do seletor de período pré-definido (padrão: 'este_mes')
-  const [opcaoPeriodo, setOpcaoPeriodo] = useState<OpcaoPeriodoPredefinido>('este_mes')
-
-  // Estado dos dados
-  const [dados, setDados] = useState<DadosPainelGeral | null>(null)
+  // Estado dos dados comerciais consolidados no backend
+  const [dados, setDados] = useState<DadosPainelComercialCompleto | null>(null)
   const [carregando, setCarregando] = useState<boolean>(true)
   const [erro, setErro] = useState<string | null>(null)
 
   // Perfil do usuário atual
   const perfil = user?.perfil
-  // Perfis com restrição comercial: 'compras_grandes_clientes' e 'estoque'
-  // Conforme requisito:
-  // "compras/estoque: vê apenas KPIs gerais (Total de Clientes e Oportunidades em Aberto);
-  // NÃO vê dados de vendas, pipeline, conversão, ticket médio, funil, metas ou top vendedores;
-  // alertas limitados a follow-ups e tarefas. Nesses perfis, esconda os cards/gráficos restritos com elegância"
   const isPerfilRestrito = perfil === 'compras_grandes_clientes' || perfil === 'estoque'
 
-  // Label dinâmico para exibição no cabeçalho
-  const rotuloPeriodoSelecionado = useMemo(() => {
-    switch (opcaoPeriodo) {
-      case 'este_mes':
-        return 'Este mês'
-      case 'mes_passado':
-        return 'Mês passado'
-      case 'ultimos_3_meses':
-        return 'Últimos 3 meses'
-      case 'ultimos_6_meses':
-        return 'Últimos 6 meses'
-      case 'ano_corrente':
-        return 'Ano corrente'
-      case 'personalizado':
-      default:
-        return undefined
-    }
-  }, [opcaoPeriodo])
-
-  // Busca de dados com agregação e cache de 5 minutos
+  // Busca agregada diretamente do backend por período comercial
   const carregarDados = useCallback(
     async (forcarRecarregamento = false) => {
       try {
@@ -67,58 +38,36 @@ export function PainelPage() {
           limparCachePainel()
         }
 
-        const res = await obterDadosPainel({
-          tipoPeriodo: opcaoPeriodo,
+        const res = await obterDadosPainelComercial({
           ano,
           mes,
+          dataInicioYmd: dataInicioPersonalizada,
+          dataFimYmd: dataFimPersonalizada,
+          modoVisao,
           perfil,
           usuarioId: user?.id,
         })
 
         setDados(res)
       } catch (e: unknown) {
-        console.error('Erro ao carregar dados do painel:', e)
-        const msg = e instanceof Error ? e.message : 'Falha ao processar dados do painel'
+        console.error('Erro ao carregar dados do painel comercial:', e)
+        const msg =
+          e instanceof Error ? e.message : 'Falha ao processar dados comerciais do período'
         setErro(msg)
       } finally {
         setCarregando(false)
       }
     },
-    [opcaoPeriodo, ano, mes, perfil, user?.id],
+    [ano, mes, dataInicioPersonalizada, dataFimPersonalizada, modoVisao, perfil, user?.id],
   )
 
   useEffect(() => {
     carregarDados()
   }, [carregarDados])
 
-  // Dados padrão para estado inicial / vazio caso não retorne
-  const dadosEfetivos: DadosPainelGeral = dados || {
-    kpis: {
-      totalClientes: 0,
-      variacaoClientes: null,
-      oportunidadesAberto: 0,
-      variacaoOportunidades: null,
-      valorPipeline: 0,
-      variacaoPipeline: null,
-      vendasPeriodo: 0,
-      variacaoVendas: null,
-      taxaConversao: 0,
-      variacaoConversaoPontos: null,
-      ticketMedio: 0,
-      variacaoTicketMedio: null,
-    },
-    graficoFunil: [],
-    graficoVendasPorMes: [],
-    graficoTopVendedores: [],
-    graficoStatusOportunidades: [],
-    totalOportunidadesStatus: 0,
-    alertas: [],
-  }
-
   return (
     <div className="space-y-6 pb-12">
-      {/* ---------------- 1. CABEÇALHO ---------------- */}
-      {/* Título "Painel Geral" + Seletor de período reutilizando SeletorDePeriodo */}
+      {/* ---------------- 1. CABEÇALHO & SELETOR DE PERÍODO GLOBAL ---------------- */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#E2E8F0] pb-4 bg-white -mx-4 sm:-mx-6 px-4 sm:px-6 pt-1">
         <div>
           <div className="flex items-center gap-2">
@@ -127,24 +76,17 @@ export function PainelPage() {
             </div>
             <div>
               <h1 className="text-xl sm:text-2xl font-black text-[#0F172A] tracking-tight">
-                Painel Geral
+                Painel Comercial
               </h1>
               <p className="text-xs text-[#64748B]">
-                Visão consolidada de performance comercial, pipeline e metas do CRM Colesel 45
+                Indicadores consolidados por período comercial com reconciliação anual no backend
               </p>
             </div>
           </div>
         </div>
 
-        {/* Lado direito: Seletor de Período + Botão Atualizar */}
-        <div className="flex flex-wrap items-center gap-2">
-          <SeletorDePeriodo
-            mostrarOpcoesPredefinidas
-            opcaoSelecionada={opcaoPeriodo}
-            onSelectOpcaoPredefinida={(op) => setOpcaoPeriodo(op)}
-            labelPersonalizado={rotuloPeriodoSelecionado}
-          />
-
+        {/* Lado direito: Botão Atualizar */}
+        <div className="flex items-center gap-2">
           <Button
             type="button"
             variant="outline"
@@ -152,13 +94,18 @@ export function PainelPage() {
             onClick={() => carregarDados(true)}
             disabled={carregando}
             className="h-8 px-2.5 text-xs text-[#64748B] hover:text-[#0F172A] border-[#E2E8F0] bg-white shadow-xs"
-            title="Atualizar dados (recarrega do servidor)"
+            title="Atualizar dados (recalcula no backend)"
           >
             <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${carregando ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline">Atualizar</span>
+            <span>Atualizar</span>
           </Button>
         </div>
       </div>
+
+      {/* SELETOR GLOBAL DE PERÍODO (Regras 16, 17, 20, 21) */}
+      <section aria-label="Seletor de Período Global">
+        <SeletorDePeriodo mostrarModoVisao />
+      </section>
 
       {/* Alerta de erro caso ocorra */}
       {erro && (
@@ -179,36 +126,23 @@ export function PainelPage() {
         </div>
       )}
 
-      {/* ---------------- 2. CARDS DE KPIS ---------------- */}
-      {/* 6 cards em grid responsivo (2 col mobile, 3 tablet, 6 desktop);
-          para compras/estoque: exibe apenas os 2 permitidos elegantemente */}
-      <section aria-label="Indicadores Chave de Performance">
-        <PainelKpiCards kpis={dadosEfetivos.kpis} esconderFinanceiro={isPerfilRestrito} />
-      </section>
-
-      {/* ---------------- 3. GRÁFICOS ---------------- */}
-      {/* 4 gráficos em grid 2x2 (1 coluna no mobile):
-          - Funil de Vendas (barras horizontais)
-          - Vendas por Mês (linha, últimos 6 meses)
-          - Top Vendedores (barras verticais)
-          - Status das Oportunidades (donut)
-          Nota: Perfis compras/estoque não visualizam vendas/pipeline/funil */}
-      {!isPerfilRestrito && (
-        <section aria-label="Gráficos de Performance e Funil">
-          <PainelGraficos
-            graficoFunil={dadosEfetivos.graficoFunil}
-            graficoVendasPorMes={dadosEfetivos.graficoVendasPorMes}
-            graficoTopVendedores={dadosEfetivos.graficoTopVendedores}
-            graficoStatusOportunidades={dadosEfetivos.graficoStatusOportunidades}
-            totalOportunidadesStatus={dadosEfetivos.totalOportunidadesStatus}
-          />
+      {/* ---------------- 2. CARDS DE KPIS DO PERÍODO & BASE / HISTÓRICO ---------------- */}
+      {dados && (
+        <section aria-label="Indicadores Chave do Período">
+          <PainelKpiCards dados={dados} esconderFinanceiro={isPerfilRestrito} />
         </section>
       )}
 
-      {/* ---------------- 4. AÇÕES RÁPIDAS + ALERTAS ---------------- */}
-      {/* 2 colunas: Ações rápidas à esquerda, Alertas à direita */}
-      <section aria-label="Ações Rápidas e Alertas Prioritários">
-        <PainelAcoesAlertas alertas={dadosEfetivos.alertas} esconderComercial={isPerfilRestrito} />
+      {/* ---------------- 3. GRÁFICOS DO PERÍODO ---------------- */}
+      {dados && !isPerfilRestrito && (
+        <section aria-label="Gráficos do Período">
+          <PainelGraficos dados={dados} />
+        </section>
+      )}
+
+      {/* ---------------- 4. AÇÕES RÁPIDAS & ALERTAS ---------------- */}
+      <section aria-label="Ações Rápidas">
+        <PainelAcoesAlertas alertas={[]} esconderComercial={isPerfilRestrito} />
       </section>
     </div>
   )

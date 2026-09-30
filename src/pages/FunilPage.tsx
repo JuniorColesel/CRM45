@@ -24,7 +24,7 @@ import { PaginacaoControles } from '@/components/common/PaginacaoControles'
 
 export default function FunilPage() {
   const { user } = useAuth()
-  const { periodo, ano, mes, nomeMesAno } = usePeriodo()
+  const { periodo, ano, mes, nomeMesAno, modoVisao } = usePeriodo()
 
   // Estados principais de dados
   const [etapas, setEtapas] = useState<EtapaFunilModel[]>([])
@@ -120,29 +120,34 @@ export default function FunilPage() {
       }
     }
 
-    // 3. Filtro por data (comercial/origem ou prevista - personalizado)
+    // 3. Filtro por data personalizado do FunilFiltros (caso fornecido manualmente no formulário)
     if (filtros.dataInicio) {
       condicoes.push(
-        `(data_origem >= '${filtros.dataInicio}' || data_prevista_fechamento >= '${filtros.dataInicio} 00:00:00')`,
+        `(data_origem >= '${filtros.dataInicio}' || created >= '${filtros.dataInicio} 00:00:00')`,
       )
     }
     if (filtros.dataFim) {
       condicoes.push(
-        `(data_origem <= '${filtros.dataFim}' || data_prevista_fechamento <= '${filtros.dataFim} 23:59:59')`,
+        `(data_origem <= '${filtros.dataFim}' || created <= '${filtros.dataFim} 23:59:59')`,
       )
     }
 
-    // 4. Período selecionado (ano e mês)
-    const inicioMesStr = `${ano}-${String(mes).padStart(2, '0')}-01 00:00:00`
-    const inicioMesDataOnly = `${ano}-${String(mes).padStart(2, '0')}-01`
-    const fimDoMesDia = new Date(ano, mes, 0).getDate()
-    const fimMesStr = `${ano}-${String(mes).padStart(2, '0')}-${String(fimDoMesDia).padStart(2, '0')} 23:59:59`
-    const fimMesDataOnly = `${ano}-${String(mes).padStart(2, '0')}-${String(fimDoMesDia).padStart(2, '0')}`
+    // 4. Período Selecionado no Seletor Global (Regras 29 e 30)
+    // Permite alternar VISÃO POR ORIGEM (data_origem default) vs VISÃO POR FECHAMENTO (data_fechamento)
+    const iniYmd = periodo.dataInicioYmd
+    const fimYmd = periodo.dataFimYmd
+    const iniIso = `${iniYmd} 00:00:00`
+    const fimIso = `${fimYmd} 23:59:59`
 
-    // Regra do período:
-    // Suporta data_origem para registros Bling, além de data_fechamento e data_prevista_fechamento
-    const filtroPeriodo = `((status = 'ganho' && ((data_origem >= '${inicioMesDataOnly}' && data_origem <= '${fimMesDataOnly}') || (data_fechamento >= '${inicioMesStr}' && data_fechamento <= '${fimMesStr}') || (data_fechamento = '' && created >= '${inicioMesStr}' && created <= '${fimMesStr}'))) || (status = 'perdido' && ((data_origem >= '${inicioMesDataOnly}' && data_origem <= '${fimMesDataOnly}') || (data_fechamento >= '${inicioMesStr}' && data_fechamento <= '${fimMesStr}') || (data_fechamento = '' && created >= '${inicioMesStr}' && created <= '${fimMesStr}'))) || (status = 'aberto' && ((data_origem >= '${inicioMesDataOnly}' && data_origem <= '${fimMesDataOnly}') || (data_prevista_fechamento >= '${inicioMesStr}' && data_prevista_fechamento <= '${fimMesStr}') || (data_prevista_fechamento = '' && created <= '${fimMesStr}'))))`
-    condicoes.push(filtroPeriodo)
+    if (modoVisao === 'fechamento') {
+      // Visão Fechamento: ganhas e perdidas pela data_fechamento; abertas pela data_prevista_fechamento
+      const filtroFechamento = `((status != 'aberto' && ((data_fechamento >= '${iniYmd}' && data_fechamento <= '${fimYmd}') || (data_fechamento >= '${iniIso}' && data_fechamento <= '${fimIso}'))) || (status = 'aberto' && ((data_prevista_fechamento >= '${iniYmd}' && data_prevista_fechamento <= '${fimYmd}') || (data_prevista_fechamento >= '${iniIso}' && data_prevista_fechamento <= '${fimIso}'))))`
+      condicoes.push(filtroFechamento)
+    } else {
+      // Visão Padrão: Origem comercial (quando o negócio entrou no CRM)
+      const filtroOrigem = `((data_origem != '' && data_origem >= '${iniYmd}' && data_origem <= '${fimYmd}') || ((data_origem = '' || data_origem = null) && created >= '${iniIso}' && created <= '${fimIso}'))`
+      condicoes.push(filtroOrigem)
+    }
 
     // 5. Busca textual
     if (filtros.busca.trim()) {
@@ -153,7 +158,7 @@ export default function FunilPage() {
     }
 
     return condicoes.join(' && ')
-  }, [filtros, ano, mes])
+  }, [filtros, periodo, modoVisao])
 
   // Carregar dados auxiliares (etapas, clientes, usuários, motivos)
   useEffect(() => {
@@ -234,7 +239,7 @@ export default function FunilPage() {
   // Voltar à página 1 ao alterar filtros ou período
   useEffect(() => {
     setPaginaAtual(1)
-  }, [filtros, ano, mes, itensPorPagina])
+  }, [filtros, periodo, modoVisao, itensPorPagina])
 
   // Disparar requisição de oportunidades quando mudam parâmetros
   useEffect(() => {
@@ -394,8 +399,8 @@ export default function FunilPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Topo: Seletor de Período Global */}
-      <SeletorDePeriodo />
+      {/* Topo: Seletor de Período Global com Visão Origem / Fechamento (Regras 29 e 30) */}
+      <SeletorDePeriodo mostrarModoVisao />
 
       {/* Top Bar: Título, Descrição e Botões de Ação */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-[#E2E8F0]">
@@ -406,7 +411,11 @@ export default function FunilPage() {
           </h2>
           <p className="text-sm text-[#64748B] mt-0.5">
             Pipeline de negociação e propostas para{' '}
-            <strong className="text-[#0F172A] font-semibold">{nomeMesAno}</strong>.
+            <strong className="text-[#0F172A] font-semibold">{nomeMesAno}</strong>{' '}
+            <span className="text-xs text-blue-600 font-medium">
+              (Visão {modoVisao === 'fechamento' ? 'por Fechamento' : 'por Origem Comercial'})
+            </span>
+            .
           </p>
         </div>
 

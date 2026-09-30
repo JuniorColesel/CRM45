@@ -39,6 +39,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { useAuth } from '@/contexts/AuthContext'
+import { usePeriodo } from '@/contexts/PeriodoContext'
+import { SeletorDePeriodo } from '@/components/common/SeletorDePeriodo'
 import { toast } from '@/hooks/use-toast'
 import pb from '@/lib/pocketbase/client'
 import { getErrorMessage } from '@/lib/pocketbase/errors'
@@ -150,6 +152,7 @@ interface ClientesIndicadores {
 export default function BlingPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
+  const { periodo, ano, mes, nomeMesAno } = usePeriodo()
   const perfil = user?.perfil
 
   // Acesso permitido para ceo_financeiro e coordenador_vendas (mesmos perfis do Bling)
@@ -290,6 +293,8 @@ export default function BlingPage() {
       let pedidosValidosTotal = 0
       let valorVendas2026 = 0
       let pedidosValidos2026 = 0
+      let valorVendasPeriodo = 0
+      let pedidosValidosPeriodo = 0
       let ultimaData: string | null = null
 
       try {
@@ -304,30 +309,36 @@ export default function BlingPage() {
         })
         pedidosSemCliente = pedPendentes.totalItems
 
-        // Consulta de pedidos válidos diretamente em bling_pedidos
-        // Pedidos válidos: situacao_bling_id = '6' (Em aberto) ou '9' (Atendido)
-        const pedidosValidos = await pb.collection('bling_pedidos').getFullList({
-          filter: 'situacao_bling_id = "6" || situacao_bling_id = "9"',
-          fields: 'data_pedido,valor_total',
-        })
-
-        pedidosValidosTotal = pedidosValidos.length
-        for (const p of pedidosValidos) {
-          const v = Number(p.valor_total) || 0
-          valorHistoricoValido += v
-
-          const d = (p.data_pedido || '').slice(0, 10)
-          if (d.startsWith('2026')) {
-            pedidosValidos2026++
-            valorVendas2026 += v
+        // Consulta agregada por período comercial usando /backend/v1/painel/comercial
+        const resCom = await pb.send<{
+          historico_total: { valor_vendas_total: number; pedidos_validos_total: number }
+          pedidos_periodo: { valor_vendas_valido: number; pedidos_validos: number }
+          propostas_periodo: {
+            total: number
+            rascunho: number
+            aguardando: number
+            nao_aprovada: number
+            convertida: number
+            outras: number
+            pendente_vinculo: number
           }
+        }>(
+          `/backend/v1/painel/comercial?ano=${ano}&mes=${mes}${periodo.dataInicioYmd ? `&data_inicio=${periodo.dataInicioYmd}&data_fim=${periodo.dataFimYmd}` : ''}`,
+          {
+            method: 'GET',
+          },
+        )
 
-          if (d && (!ultimaData || d > ultimaData)) {
-            ultimaData = d
-          }
+        if (resCom) {
+          valorHistoricoValido = resCom.historico_total.valor_vendas_total
+          pedidosValidosTotal = resCom.historico_total.pedidos_validos_total
+          valorVendasPeriodo = resCom.pedidos_periodo.valor_vendas_valido
+          pedidosValidosPeriodo = resCom.pedidos_periodo.pedidos_validos
+          valorVendas2026 = valorVendasPeriodo
+          pedidosValidos2026 = pedidosValidosPeriodo
         }
       } catch {
-        /* intentionally ignored */
+        /* fallback tolerante */
       }
 
       const novosIndicadores: ClientesIndicadores = {
@@ -453,7 +464,7 @@ export default function BlingPage() {
         setCarregando(false)
       })
     }
-  }, [podeAcessar, carregarStatus, carregarLogs, carregarIndicadores])
+  }, [podeAcessar, carregarStatus, carregarLogs, carregarIndicadores, ano, mes, periodo])
 
   // Recarregar status quando a janela recupera foco
   useEffect(() => {
@@ -1144,6 +1155,11 @@ export default function BlingPage() {
         </CardContent>
       </Card>
 
+      {/* SELETOR DE PERÍODO COMERCIAL (Regras 31 e 32) */}
+      <section aria-label="Seletor de Período Comercial Bling">
+        <SeletorDePeriodo mostrarModoVisao={false} />
+      </section>
+
       {/* 4. SEÇÃO CLIENTES & 5. SEÇÃO VENDAS & SEÇÃO PROPOSTAS (CARDS) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* SEÇÃO CLIENTES */}
@@ -1237,14 +1253,14 @@ export default function BlingPage() {
               <div className="col-span-2 p-3 rounded-xl bg-emerald-50/80 border border-emerald-200 flex items-center justify-between">
                 <div>
                   <span className="text-[10px] text-emerald-800 font-semibold block">
-                    Vendas 2026 (Válidos)
+                    Vendas ({nomeMesAno})
                   </span>
                   <span className="text-base font-bold text-emerald-950">
                     {formatarMoeda(indicadores.valorVendas2026)}
                   </span>
                 </div>
                 <Badge variant="outline" className="text-[9px] bg-white text-emerald-700">
-                  {indicadores.pedidosValidos2026} ped.
+                  {indicadores.pedidosValidos2026} ped. válidos
                 </Badge>
               </div>
             </div>

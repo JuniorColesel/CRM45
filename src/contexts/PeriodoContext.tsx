@@ -1,124 +1,225 @@
 import React, { createContext, useContext, useState, useMemo, useCallback } from 'react'
 
+export type MesFiltro = number | 'todos' // 1 a 12 ou 'todos'
+
 export interface PeriodoFiltro {
   ano: number
-  mes: number // 1 a 12
-  nomeMesAno: string // ex: "Setembro 2026"
-  dataInicioIso: string // ex: "2026-09-01T00:00:00.000Z"
-  dataFimIso: string // ex: "2026-09-30T23:59:59.999Z"
-  dataInicioYmd: string // ex: "2026-09-01"
-  dataFimYmd: string // ex: "2026-09-30"
+  mes: MesFiltro
+  nomeMesAno: string // ex: "2026 / Todos" ou "Setembro/2026" ou "01/01/2026 a 31/03/2026"
+  dataInicioIso: string
+  dataFimIso: string
+  dataInicioYmd: string // "2026-01-01"
+  dataFimYmd: string // "2026-12-31"
+  isPersonalizado: boolean
+  modoVisao: 'origem' | 'fechamento'
 }
 
 interface PeriodoContextData {
   ano: number
-  mes: number // 1 a 12
+  mes: MesFiltro
   nomeMesAno: string
   periodo: PeriodoFiltro
-  setAnoMes: (ano: number, mes: number) => void
-  avancarMes: () => void
-  retrocederMes: () => void
-  irParaMesAtual: () => void
-  isMesAtual: boolean
+  dataInicioPersonalizada: string
+  dataFimPersonalizada: string
+  isPersonalizado: boolean
+  modoVisao: 'origem' | 'fechamento'
+  setAno: (ano: number) => void
+  setMes: (mes: MesFiltro) => void
+  setAnoMes: (ano: number, mes: MesFiltro) => void
+  setPeriodoPersonalizado: (inicioYmd: string, fimYmd: string) => void
+  limparPeriodoPersonalizado: () => void
+  setModoVisao: (modo: 'origem' | 'fechamento') => void
+  avancarPeriodo: () => void
+  retrocederPeriodo: () => void
+  irParaPeriodoPadrao: () => void
+  isPeriodoPadrao: boolean
 }
 
 const PeriodoContext = createContext<PeriodoContextData | null>(null)
 
 export const MESES_PT_BR = [
-  { numero: 1, nome: 'Janeiro' },
-  { numero: 2, nome: 'Fevereiro' },
-  { numero: 3, nome: 'Março' },
-  { numero: 4, nome: 'Abril' },
-  { numero: 5, nome: 'Maio' },
-  { numero: 6, nome: 'Junho' },
-  { numero: 7, nome: 'Julho' },
-  { numero: 8, nome: 'Agosto' },
-  { numero: 9, nome: 'Setembro' },
-  { numero: 10, nome: 'Outubro' },
-  { numero: 11, nome: 'Novembro' },
-  { numero: 12, nome: 'Dezembro' },
+  { numero: 1, nome: 'Janeiro', sigla: 'Jan' },
+  { numero: 2, nome: 'Fevereiro', sigla: 'Fev' },
+  { numero: 3, nome: 'Março', sigla: 'Mar' },
+  { numero: 4, nome: 'Abril', sigla: 'Abr' },
+  { numero: 5, nome: 'Maio', sigla: 'Mai' },
+  { numero: 6, nome: 'Junho', sigla: 'Jun' },
+  { numero: 7, nome: 'Julho', sigla: 'Jul' },
+  { numero: 8, nome: 'Agosto', sigla: 'Ago' },
+  { numero: 9, nome: 'Setembro', sigla: 'Set' },
+  { numero: 10, nome: 'Outubro', sigla: 'Out' },
+  { numero: 11, nome: 'Novembro', sigla: 'Nov' },
+  { numero: 12, nome: 'Dezembro', sigla: 'Dez' },
 ]
 
-export function formatarMesExtensoAno(ano: number, mes: number): string {
-  const nomeMes = MESES_PT_BR.find((m) => m.numero === mes)?.nome || `Mês ${mes}`
-  return `${nomeMes} ${ano}`
+export function formatarDataComercialBr(ymd: string): string {
+  if (!ymd || ymd.length < 10) return ''
+  const [ano, mes, dia] = ymd.slice(0, 10).split('-')
+  return `${dia}/${mes}/${ano}`
 }
 
-export function calcularPeriodoFiltro(ano: number, mes: number): PeriodoFiltro {
-  // O construtor Date(ano, mes - 1, 1) cria no início do mês local
-  // Para filtros sem conflito de timezone, criamos as datas UTC correspondentes
-  const mesFormatado = String(mes).padStart(2, '0')
-  const ultimoDia = new Date(ano, mes, 0).getDate()
-  const ultimoDiaFormatado = String(ultimoDia).padStart(2, '0')
+export function formatarMesExtensoAno(ano: number, mes: MesFiltro): string {
+  if (mes === 'todos') {
+    return `${ano} / Todos os meses`
+  }
+  const nomeMes = MESES_PT_BR.find((m) => m.numero === mes)?.nome || `Mês ${mes}`
+  return `${nomeMes}/${ano}`
+}
+
+export function calcularDiasNoMes(ano: number, mes: number): number {
+  if (mes === 2) {
+    const isBissexto = (ano % 4 === 0 && ano % 100 !== 0) || ano % 400 === 0
+    return isBissexto ? 29 : 28
+  }
+  if ([4, 6, 9, 11].includes(mes)) {
+    return 30
+  }
+  return 31
+}
+
+export function calcularPeriodoFiltro(
+  ano: number,
+  mes: MesFiltro,
+  dataInicioPers?: string,
+  dataFimPers?: string,
+  modoVisao: 'origem' | 'fechamento' = 'origem',
+): PeriodoFiltro {
+  if (dataInicioPers && dataFimPers) {
+    const dIniYmd = dataInicioPers.slice(0, 10)
+    const dFimYmd = dataFimPers.slice(0, 10)
+    return {
+      ano,
+      mes,
+      nomeMesAno: `${formatarDataComercialBr(dIniYmd)} a ${formatarDataComercialBr(dFimYmd)}`,
+      dataInicioIso: `${dIniYmd}T00:00:00.000Z`,
+      dataFimIso: `${dFimYmd}T23:59:59.999Z`,
+      dataInicioYmd: dIniYmd,
+      dataFimYmd: dFimYmd,
+      isPersonalizado: true,
+      modoVisao,
+    }
+  }
+
+  if (mes === 'todos') {
+    const dataInicioYmd = `${ano}-01-01`
+    const dataFimYmd = `${ano}-12-31`
+    return {
+      ano,
+      mes: 'todos',
+      nomeMesAno: `${ano} / Todos`,
+      dataInicioIso: `${dataInicioYmd}T00:00:00.000Z`,
+      dataFimIso: `${dataFimYmd}T23:59:59.999Z`,
+      dataInicioYmd,
+      dataFimYmd,
+      isPersonalizado: false,
+      modoVisao,
+    }
+  }
+
+  const mesNum = typeof mes === 'number' ? mes : 1
+  const mesFormatado = String(mesNum).padStart(2, '0')
+  const diasNoMes = calcularDiasNoMes(ano, mesNum)
+  const ultimoDiaFormatado = String(diasNoMes).padStart(2, '0')
 
   const dataInicioYmd = `${ano}-${mesFormatado}-01`
   const dataFimYmd = `${ano}-${mesFormatado}-${ultimoDiaFormatado}`
 
   return {
     ano,
-    mes,
-    nomeMesAno: formatarMesExtensoAno(ano, mes),
-    dataInicioIso: new Date(Date.UTC(ano, mes - 1, 1, 0, 0, 0, 0)).toISOString(),
-    dataFimIso: new Date(Date.UTC(ano, mes - 1, ultimoDia, 23, 59, 59, 999)).toISOString(),
+    mes: mesNum,
+    nomeMesAno: formatarMesExtensoAno(ano, mesNum),
+    dataInicioIso: `${dataInicioYmd}T00:00:00.000Z`,
+    dataFimIso: `${dataFimYmd}T23:59:59.999Z`,
     dataInicioYmd,
     dataFimYmd,
+    isPersonalizado: false,
+    modoVisao,
   }
 }
 
 export function PeriodoProvider({ children }: { children: React.ReactNode }) {
-  const hoje = new Date()
-  const anoAtual = hoje.getFullYear()
-  const mesAtual = hoje.getMonth() + 1
+  // Regra 17: Período padrão: Ano Atual + Mês = 'todos'
+  const anoAtual = new Date().getFullYear()
 
-  const [ano, setAno] = useState<number>(anoAtual)
-  const [mes, setMes] = useState<number>(mesAtual)
+  const [ano, setAnoState] = useState<number>(anoAtual)
+  const [mes, setMesState] = useState<MesFiltro>('todos')
+  const [dataInicioPersonalizada, setDataInicioPersonalizada] = useState<string>('')
+  const [dataFimPersonalizada, setDataFimPersonalizada] = useState<string>('')
+  const [modoVisao, setModoVisao] = useState<'origem' | 'fechamento'>('origem')
 
-  const isMesAtual = ano === anoAtual && mes === mesAtual
+  const isPersonalizado = Boolean(dataInicioPersonalizada && dataFimPersonalizada)
+  const isPeriodoPadrao = ano === anoAtual && mes === 'todos' && !isPersonalizado
 
-  const setAnoMes = useCallback((novoAno: number, novoMes: number) => {
-    let ajustadoAno = novoAno
-    let ajustadoMes = novoMes
-
-    if (ajustadoMes > 12) {
-      ajustadoAno += Math.floor((ajustadoMes - 1) / 12)
-      ajustadoMes = ((ajustadoMes - 1) % 12) + 1
-    } else if (ajustadoMes < 1) {
-      const mesesSubtrair = Math.abs(ajustadoMes) + 1
-      ajustadoAno -= Math.ceil(mesesSubtrair / 12)
-      ajustadoMes = 12 - (Math.abs(ajustadoMes) % 12)
-    }
-
-    setAno(ajustadoAno)
-    setMes(ajustadoMes)
+  const setAno = useCallback((novoAno: number) => {
+    setAnoState(novoAno)
+    setDataInicioPersonalizada('')
+    setDataFimPersonalizada('')
   }, [])
 
-  const avancarMes = useCallback(() => {
-    if (mes === 12) {
-      setAno((a) => a + 1)
-      setMes(1)
-    } else {
-      setMes((m) => m + 1)
-    }
-  }, [mes])
-
-  const retrocederMes = useCallback(() => {
-    if (mes === 1) {
-      setAno((a) => a - 1)
-      setMes(12)
-    } else {
-      setMes((m) => m - 1)
-    }
-  }, [mes])
-
-  const irParaMesAtual = useCallback(() => {
-    const now = new Date()
-    setAno(now.getFullYear())
-    setMes(now.getMonth() + 1)
+  const setMes = useCallback((novoMes: MesFiltro) => {
+    setMesState(novoMes)
+    setDataInicioPersonalizada('')
+    setDataFimPersonalizada('')
   }, [])
+
+  const setAnoMes = useCallback((novoAno: number, novoMes: MesFiltro) => {
+    setAnoState(novoAno)
+    setMesState(novoMes)
+    setDataInicioPersonalizada('')
+    setDataFimPersonalizada('')
+  }, [])
+
+  const setPeriodoPersonalizado = useCallback((inicioYmd: string, fimYmd: string) => {
+    setDataInicioPersonalizada(inicioYmd)
+    setDataFimPersonalizada(fimYmd)
+  }, [])
+
+  const limparPeriodoPersonalizado = useCallback(() => {
+    setDataInicioPersonalizada('')
+    setDataFimPersonalizada('')
+  }, [])
+
+  const irParaPeriodoPadrao = useCallback(() => {
+    const atual = new Date().getFullYear()
+    setAnoState(atual)
+    setMesState('todos')
+    setDataInicioPersonalizada('')
+    setDataFimPersonalizada('')
+  }, [])
+
+  const avancarPeriodo = useCallback(() => {
+    if (isPersonalizado) return
+    if (mes === 'todos') {
+      setAnoState((a) => a + 1)
+    } else {
+      const mesNum = Number(mes)
+      if (mesNum === 12) {
+        setAnoState((a) => a + 1)
+        setMesState(1)
+      } else {
+        setMesState(mesNum + 1)
+      }
+    }
+  }, [mes, isPersonalizado])
+
+  const retrocederPeriodo = useCallback(() => {
+    if (isPersonalizado) return
+    if (mes === 'todos') {
+      setAnoState((a) => a - 1)
+    } else {
+      const mesNum = Number(mes)
+      if (mesNum === 1) {
+        setAnoState((a) => a - 1)
+        setMesState(12)
+      } else {
+        setMesState(mesNum - 1)
+      }
+    }
+  }, [mes, isPersonalizado])
 
   const periodo = useMemo(() => {
-    return calcularPeriodoFiltro(ano, mes)
-  }, [ano, mes])
+    return calcularPeriodoFiltro(ano, mes, dataInicioPersonalizada, dataFimPersonalizada, modoVisao)
+  }, [ano, mes, dataInicioPersonalizada, dataFimPersonalizada, modoVisao])
 
   const value = useMemo<PeriodoContextData>(
     () => ({
@@ -126,13 +227,40 @@ export function PeriodoProvider({ children }: { children: React.ReactNode }) {
       mes,
       nomeMesAno: periodo.nomeMesAno,
       periodo,
+      dataInicioPersonalizada,
+      dataFimPersonalizada,
+      isPersonalizado,
+      modoVisao,
+      setAno,
+      setMes,
       setAnoMes,
-      avancarMes,
-      retrocederMes,
-      irParaMesAtual,
-      isMesAtual,
+      setPeriodoPersonalizado,
+      limparPeriodoPersonalizado,
+      setModoVisao,
+      avancarPeriodo,
+      retrocederPeriodo,
+      irParaPeriodoPadrao,
+      isPeriodoPadrao,
     }),
-    [ano, mes, periodo, setAnoMes, avancarMes, retrocederMes, irParaMesAtual, isMesAtual],
+    [
+      ano,
+      mes,
+      periodo,
+      dataInicioPersonalizada,
+      dataFimPersonalizada,
+      isPersonalizado,
+      modoVisao,
+      setAno,
+      setMes,
+      setAnoMes,
+      setPeriodoPersonalizado,
+      limparPeriodoPersonalizado,
+      setModoVisao,
+      avancarPeriodo,
+      retrocederPeriodo,
+      irParaPeriodoPadrao,
+      isPeriodoPadrao,
+    ],
   )
 
   return <PeriodoContext.Provider value={value}>{children}</PeriodoContext.Provider>

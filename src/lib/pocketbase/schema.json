@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-30T21:26:19.777Z",
+  "generatedAt": "2026-09-30T22:11:50.834Z",
   "collections": [
     {
       "name": "users",
@@ -492,7 +492,9 @@
         "CREATE INDEX idx_oportunidades_etapa ON oportunidades (etapa_id)",
         "CREATE INDEX idx_oportunidades_status ON oportunidades (status)",
         "CREATE INDEX idx_oportunidades_origem ON oportunidades (origem)",
-        "CREATE INDEX idx_oportunidades_tipo_origem ON oportunidades (tipo_origem)"
+        "CREATE INDEX idx_oportunidades_tipo_origem ON oportunidades (tipo_origem)",
+        "CREATE INDEX `idx_oportunidades_data_origem` ON `oportunidades` (data_origem DESC)",
+        "CREATE INDEX `idx_oportunidades_data_fechamento` ON `oportunidades` (data_fechamento DESC)"
       ]
     },
     {
@@ -2534,7 +2536,8 @@
         "CREATE INDEX idx_bling_pedidos_cliente ON bling_pedidos (cliente_id)",
         "CREATE INDEX idx_bling_pedidos_responsavel ON bling_pedidos (responsavel_id)",
         "CREATE INDEX idx_bling_pedidos_data ON bling_pedidos (data_pedido DESC)",
-        "CREATE INDEX idx_bling_pedidos_vinculo ON bling_pedidos (status_vinculo)"
+        "CREATE INDEX idx_bling_pedidos_vinculo ON bling_pedidos (status_vinculo)",
+        "CREATE INDEX `idx_bling_pedidos_data_sit` ON `bling_pedidos` (data_pedido DESC, situacao_bling_id)"
       ]
     },
     {
@@ -2680,7 +2683,8 @@
         "CREATE INDEX idx_bling_propostas_responsavel ON bling_propostas (responsavel_id)",
         "CREATE INDEX idx_bling_propostas_data ON bling_propostas (data_proposta DESC)",
         "CREATE INDEX idx_bling_propostas_vinculo ON bling_propostas (status_vinculo)",
-        "CREATE INDEX idx_bling_propostas_visivel ON bling_propostas (visivel_funil)"
+        "CREATE INDEX idx_bling_propostas_visivel ON bling_propostas (visivel_funil)",
+        "CREATE INDEX `idx_bling_propostas_data_norm` ON `bling_propostas` (data_proposta DESC, status_normalizado)"
       ]
     }
   ]
