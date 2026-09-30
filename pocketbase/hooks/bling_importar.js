@@ -1877,6 +1877,35 @@ routerAdd(
       // Não aprovada / Reprovada / Recusada -> nao_aprovada, visivel_funil = true (futura condição CRM: Perdido)
       // Convertida / Fechada / Aprovada / Concluída gerando Pedido de Venda -> convertida, visivel_funil = false
       // Outras -> outro, visivel_funil = false
+      // Mapa determinístico exato de situações de Propostas Comerciais do Bling
+      // Item 5 / Seção B da especificação v0.0.76:
+      // Substituição de includes por correspondência determinística por nome exato / ID estável:
+      // "Rascunho" -> rascunho / visivel_funil = true
+      // "Aguardando" -> aguardando / visivel_funil = true
+      // "Não aprovado" / "Não aprovada" -> nao_aprovada / visivel_funil = true
+      // "Concluído" / "Concluída" -> convertida / visivel_funil = false (ou outro se ambíguo)
+      const MAPA_SITUACOES_PROPOSTAS_EXATO = {
+        'rascunho': { status: 'rascunho', visivel: true, nomePadrao: 'Rascunho' },
+        'aguardando': { status: 'aguardando', visivel: true, nomePadrao: 'Aguardando' },
+        'não aprovado': { status: 'nao_aprovada', visivel: true, nomePadrao: 'Não aprovado' },
+        'não aprovada': { status: 'nao_aprovada', visivel: true, nomePadrao: 'Não aprovada' },
+        'nao aprovado': { status: 'nao_aprovada', visivel: true, nomePadrao: 'Não aprovado' },
+        'nao aprovada': { status: 'nao_aprovada', visivel: true, nomePadrao: 'Não aprovada' },
+        'concluído': { status: 'convertida', visivel: false, nomePadrao: 'Concluído' },
+        'concluido': { status: 'convertida', visivel: false, nomePadrao: 'Concluído' },
+        'concluída': { status: 'convertida', visivel: false, nomePadrao: 'Concluída' },
+        'concluida': { status: 'convertida', visivel: false, nomePadrao: 'Concluída' },
+        'convertida': { status: 'convertida', visivel: false, nomePadrao: 'Convertida' },
+        'faturada': { status: 'convertida', visivel: false, nomePadrao: 'Faturada' },
+        'faturado': { status: 'convertida', visivel: false, nomePadrao: 'Faturado' },
+        'reprovada': { status: 'nao_aprovada', visivel: true, nomePadrao: 'Reprovada' },
+        'reprovado': { status: 'nao_aprovada', visivel: true, nomePadrao: 'Reprovado' },
+        'recusada': { status: 'nao_aprovada', visivel: true, nomePadrao: 'Recusada' },
+        'recusado': { status: 'nao_aprovada', visivel: true, nomePadrao: 'Recusado' },
+        'cancelada': { status: 'nao_aprovada', visivel: true, nomePadrao: 'Cancelada' },
+        'cancelado': { status: 'nao_aprovada', visivel: true, nomePadrao: 'Cancelado' },
+      }
+
       function resolverSituacaoProposta(sitRaw, sitIdRaw) {
         const sId = String(sitIdRaw || '').trim()
         let sitNome = ''
@@ -1890,42 +1919,14 @@ routerAdd(
           sitNome = mapSituacoesModulos[sId]
         }
 
-        const texto = sitNome.toLowerCase()
+        const chaveNomeExato = sitNome.trim().toLowerCase()
         let statusNormalizado = 'outro'
         let visivelFunil = false
 
-        if (texto.indexOf('rascunho') !== -1) {
-          statusNormalizado = 'rascunho'
-          visivelFunil = true
-        } else if (
-          texto.indexOf('aguard') !== -1 ||
-          texto.indexOf('pendente') !== -1 ||
-          texto.indexOf('em analise') !== -1 ||
-          texto.indexOf('em análise') !== -1 ||
-          texto.indexOf('enviada') !== -1
-        ) {
-          statusNormalizado = 'aguardando'
-          visivelFunil = true
-        } else if (
-          texto.indexOf('nao aprovad') !== -1 ||
-          texto.indexOf('não aprovad') !== -1 ||
-          texto.indexOf('reprovad') !== -1 ||
-          texto.indexOf('recusad') !== -1 ||
-          texto.indexOf('perdid') !== -1 ||
-          texto.indexOf('cancelad') !== -1
-        ) {
-          statusNormalizado = 'nao_aprovada'
-          visivelFunil = true
-        } else if (
-          texto.indexOf('convertid') !== -1 ||
-          texto.indexOf('fechad') !== -1 ||
-          texto.indexOf('aprovad') !== -1 ||
-          texto.indexOf('concluid') !== -1 ||
-          texto.indexOf('faturad') !== -1 ||
-          texto.indexOf('ganh') !== -1
-        ) {
-          statusNormalizado = 'convertida'
-          visivelFunil = false
+        if (MAPA_SITUACOES_PROPOSTAS_EXATO[chaveNomeExato]) {
+          const cfg = MAPA_SITUACOES_PROPOSTAS_EXATO[chaveNomeExato]
+          statusNormalizado = cfg.status
+          visivelFunil = cfg.visivel
         } else {
           statusNormalizado = 'outro'
           visivelFunil = false
@@ -2344,9 +2345,7 @@ routerAdd(
         ' atualizadas, ' +
         totalPropostasSemCliente +
         ' pendentes vínculo).'
-      if (auditStr) {
-        msgResumo += ' [AUDIT_V076:' + auditStr + ']'
-      }
+
 
       if (errosGerais.length > 0 || errosPedidos.length > 0) {
         msgResumo += ' Erros reais: ' + (errosGerais.length + errosPedidos.length) + '.'
