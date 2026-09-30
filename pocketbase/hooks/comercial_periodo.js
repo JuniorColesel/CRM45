@@ -34,8 +34,21 @@ routerAdd('GET', '/backend/v1/painel/comercial', (e) => {
     return isNaN(n) ? 0 : n
   }
 
-  // Helper inline: calcular intervalo de datas comerciais
-  const query = e.requestInfo().query || {}
+  // Helper inline: normalizar datas para filtros comerciais (formato YYYY-MM-DD ou YYYY-MM-DD HH:MM:SS)
+  // Suporta tanto substr(data, 1, 10) quanto comparações seguras com início-exclusivo-fim
+  function somarUmMesIso(ano, mes) {
+    if (mes === 12) {
+      return ano + 1 + '-01-01'
+    }
+    return ano + '-' + String(mes + 1).padStart(2, '0') + '-01'
+  }
+
+  console.log(
+    '[PAINEL-COMERCIAL] Requisição recebida com parâmetros: ' +
+      JSON.stringify(e.requestInfo().query || {}),
+  )
+
+  // Helper inline: calcular intervalo de datas comerciais  const query = e.requestInfo().query || {}
   const anoParam = query.ano ? parseInt(query.ano, 10) : new Date().getFullYear()
   const mesParam = query.mes || 'todos'
   const dataInicioParam = query.data_inicio || ''

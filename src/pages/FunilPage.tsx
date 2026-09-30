@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { TrendingUp, Plus, RefreshCw, Layers, Filter } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import pb from '@/lib/pocketbase/client'
 import { useAuth, type Usuario } from '@/contexts/AuthContext'
 import type {
@@ -451,13 +452,31 @@ export default function FunilPage() {
       />
 
       {/* Contador total no topo e Filtros */}
+      {/* Banner Informativo de Integração Bling */}
+      <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+        <div className="space-y-0.5">
+          <span className="font-semibold text-[#0F172A] block">
+            Sincronização automática com o Funil
+          </span>
+          <p className="text-[#64748B]">
+            Sincronização automática com o Funil. Registros originados do Bling são controlados pelo
+            ERP e somente leitura no CRM.
+          </p>
+        </div>
+        <Badge
+          variant="outline"
+          className="text-[10px] bg-white text-emerald-700 self-start sm:self-auto border-emerald-300 font-medium whitespace-nowrap"
+        >
+          ✓ Funil Integrado
+        </Badge>
+      </div>
+
       <div className="flex items-center justify-between text-xs text-[#64748B] px-1">
         <span>
           <strong className="text-[#0F172A]">{totalRegistros}</strong>{' '}
           {totalRegistros === 1 ? 'registro encontrado' : 'registros encontrados'}
         </span>
       </div>
-
       {/* 2) FILTROS EM TEMPO REAL */}
       <FunilFiltros
         filtros={filtros}
