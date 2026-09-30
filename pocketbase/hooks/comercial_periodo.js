@@ -108,48 +108,49 @@ routerAdd(
       let totalPropostasCadastradasBase = 0
 
       try {
-        const rowCli = $app
+        const rowCli = new DynamicModel({ total: 0, com_bling: 0 })
+        $app
           .db()
           .newQuery(
             "SELECT count(*) as total, sum(CASE WHEN bling_id != '' THEN 1 ELSE 0 END) as com_bling FROM clientes",
           )
-          .one()
-        if (rowCli) {
-          totalClientesCadastrados = Number(rowCli.total) || 0
-          clientesComBlingId = Number(rowCli.com_bling) || 0
-        }
-      } catch (_) {}
+          .one(rowCli)
+        totalClientesCadastrados = Number(rowCli.total) || 0
+        clientesComBlingId = Number(rowCli.com_bling) || 0
+      } catch (errCli) {
+        console.error('[PAINEL-COMERCIAL] Erro indicadores clientes base: ' + errCli)
+      }
 
       try {
-        const rowPedBase = $app.db().newQuery('SELECT count(*) as total FROM bling_pedidos').one()
-        if (rowPedBase) totalPedidosCadastradosBase = Number(rowPedBase.total) || 0
-      } catch (_) {}
+        totalPedidosCadastradosBase = $app.countRecords('bling_pedidos')
+      } catch (errPedCount) {
+        console.error('[PAINEL-COMERCIAL] Erro contagem bling_pedidos: ' + errPedCount)
+      }
 
       try {
-        const rowPropBase = $app
-          .db()
-          .newQuery('SELECT count(*) as total FROM bling_propostas')
-          .one()
-        if (rowPropBase) totalPropostasCadastradasBase = Number(rowPropBase.total) || 0
-      } catch (_) {}
+        totalPropostasCadastradasBase = $app.countRecords('bling_propostas')
+      } catch (errPropCount) {
+        console.error('[PAINEL-COMERCIAL] Erro contagem bling_propostas: ' + errPropCount)
+      }
 
       // 2. HISTÓRICO TOTAL DE VENDAS BLING (VÁLIDOS: situação 6 e 9) - SEPARADO
       let valorVendasHistoricoTotal = 0
       let qtdPedidosValidosHistoricoTotal = 0
       try {
-        const rowHist = $app
+        const rowHist = new DynamicModel({ soma: 0, qtd: 0 })
+        $app
           .db()
           .newQuery(`
           SELECT sum(valor_total) as soma, count(*) as qtd
           FROM bling_pedidos
           WHERE situacao_bling_id = '6' OR situacao_bling_id = '9'
         `)
-          .one()
-        if (rowHist) {
-          valorVendasHistoricoTotal = round2(rowHist.soma)
-          qtdPedidosValidosHistoricoTotal = Number(rowHist.qtd) || 0
-        }
-      } catch (_) {}
+          .one(rowHist)
+        valorVendasHistoricoTotal = round2(rowHist.soma)
+        qtdPedidosValidosHistoricoTotal = Number(rowHist.qtd) || 0
+      } catch (errHist) {
+        console.error('[PAINEL-COMERCIAL] Erro vendas historico total: ' + errHist)
+      }
 
       // 3. CONSULTAS DO PERÍODO COMERCIAL ESPECÍFICO (data_pedido entre inicio e fim)
       // Pedidos Bling do período
@@ -165,7 +166,14 @@ routerAdd(
       }
 
       try {
-        const rowsPed = $app
+        const rowsPed = arrayOf(
+          new DynamicModel({
+            situacao_bling_id: '',
+            qtd: 0,
+            soma: 0,
+          }),
+        )
+        $app
           .db()
           .newQuery(`
           SELECT
@@ -177,7 +185,7 @@ routerAdd(
           GROUP BY situacao_bling_id
         `)
           .bind({ ini: dataInicioYmd, fim: dataFimYmd })
-          .all()
+          .all(rowsPed)
 
         for (let i = 0; i < rowsPed.length; i++) {
           const r = rowsPed[i]
@@ -211,7 +219,8 @@ routerAdd(
         }
 
         // Clientes distintos com pedidos válidos no período
-        const rowCliDist = $app
+        const rowCliDist = new DynamicModel({ qtd: 0 })
+        $app
           .db()
           .newQuery(`
           SELECT count(DISTINCT cliente_id) as qtd
@@ -221,12 +230,10 @@ routerAdd(
             AND cliente_id != '' AND cliente_id IS NOT NULL
         `)
           .bind({ ini: dataInicioYmd, fim: dataFimYmd })
-          .one()
-        if (rowCliDist) {
-          pedidosDoPeriodo.clientes_distintos_com_compra = Number(rowCliDist.qtd) || 0
-        }
+          .one(rowCliDist)
+        pedidosDoPeriodo.clientes_distintos_com_compra = Number(rowCliDist.qtd) || 0
       } catch (errPedPeriodo) {
-        console.log('Erro ao calcular pedidos do período: ' + errPedPeriodo)
+        console.error('[PAINEL-COMERCIAL] Erro ao calcular pedidos do período: ' + errPedPeriodo)
       }
 
       // 4. PROPOSTAS BLING DO PERÍODO (data_proposta entre inicio e fim)
@@ -242,7 +249,15 @@ routerAdd(
       }
 
       try {
-        const rowsProp = $app
+        const rowsProp = arrayOf(
+          new DynamicModel({
+            status_normalizado: '',
+            qtd: 0,
+            soma: 0,
+            sem_vinc: 0,
+          }),
+        )
+        $app
           .db()
           .newQuery(`
           SELECT
@@ -255,7 +270,7 @@ routerAdd(
           GROUP BY status_normalizado
         `)
           .bind({ ini: dataInicioYmd, fim: dataFimYmd })
-          .all()
+          .all(rowsProp)
 
         for (let j = 0; j < rowsProp.length; j++) {
           const rp = rowsProp[j]
@@ -275,7 +290,7 @@ routerAdd(
           else propostasDoPeriodo.outras += q
         }
       } catch (errPropPeriodo) {
-        console.log('Erro ao calcular propostas do período: ' + errPropPeriodo)
+        console.error('[PAINEL-COMERCIAL] Erro ao calcular propostas do período: ' + errPropPeriodo)
       }
 
       // 5. OPORTUNIDADES CRM DO PERÍODO (duas visões: por data_origem ou por data_fechamento)
@@ -322,11 +337,18 @@ routerAdd(
           `
         }
 
-        const rowsOps = $app
+        const rowsOps = arrayOf(
+          new DynamicModel({
+            status: '',
+            qtd: 0,
+            soma: 0,
+          }),
+        )
+        $app
           .db()
           .newQuery(sqlOportunidades)
           .bind({ ini: dataInicioYmd, fim: dataFimYmd })
-          .all()
+          .all(rowsOps)
 
         for (let k = 0; k < rowsOps.length; k++) {
           const ro = rowsOps[k]
@@ -360,7 +382,9 @@ routerAdd(
           )
         }
       } catch (errOpsPeriodo) {
-        console.log('Erro ao calcular oportunidades do período: ' + errOpsPeriodo)
+        console.error(
+          '[PAINEL-COMERCIAL] Erro ao calcular oportunidades do período: ' + errOpsPeriodo,
+        )
       }
 
       // 6. SÉRIE MENSAL (Janeiro a Dezembro) QUANDO O ANO ESTIVER SELECIONADO
@@ -415,7 +439,14 @@ routerAdd(
 
         // Agregação mensal de pedidos válidos
         try {
-          const rowsPedMes = $app
+          const rowsPedMes = arrayOf(
+            new DynamicModel({
+              mes_num: 0,
+              qtd: 0,
+              soma: 0,
+            }),
+          )
+          $app
             .db()
             .newQuery(`
             SELECT
@@ -428,7 +459,7 @@ routerAdd(
             GROUP BY mes_num
           `)
             .bind({ anoStr: String(anoParam) })
-            .all()
+            .all(rowsPedMes)
 
           for (let pm = 0; pm < rowsPedMes.length; pm++) {
             const rowP = rowsPedMes[pm]
@@ -438,11 +469,20 @@ routerAdd(
               serieMensalAno[mIdx].valor_vendas = round2(rowP.soma)
             }
           }
-        } catch (_) {}
+        } catch (errPedMes) {
+          console.error('[PAINEL-COMERCIAL] Erro agregacao mensal pedidos: ' + errPedMes)
+        }
 
         // Agregação mensal de propostas
         try {
-          const rowsPropMes = $app
+          const rowsPropMes = arrayOf(
+            new DynamicModel({
+              mes_num: 0,
+              total: 0,
+              conv: 0,
+            }),
+          )
+          $app
             .db()
             .newQuery(`
             SELECT
@@ -454,7 +494,7 @@ routerAdd(
             GROUP BY mes_num
           `)
             .bind({ anoStr: String(anoParam) })
-            .all()
+            .all(rowsPropMes)
 
           for (let prM = 0; prM < rowsPropMes.length; prM++) {
             const rowPr = rowsPropMes[prM]
@@ -464,12 +504,22 @@ routerAdd(
               serieMensalAno[mIdx].propostas_convertidas = Number(rowPr.conv) || 0
             }
           }
-        } catch (_) {}
+        } catch (errPropMes) {
+          console.error('[PAINEL-COMERCIAL] Erro agregacao mensal propostas: ' + errPropMes)
+        }
 
         // Agregação mensal de oportunidades
         try {
           const campoDataOp = modoVisao === 'fechamento' ? 'data_fechamento' : 'data_origem'
-          const rowsOpsMes = $app
+          const rowsOpsMes = arrayOf(
+            new DynamicModel({
+              mes_num: 0,
+              status: '',
+              qtd: 0,
+              soma: 0,
+            }),
+          )
+          $app
             .db()
             .newQuery(`
             SELECT
@@ -482,7 +532,7 @@ routerAdd(
             GROUP BY mes_num, status
           `)
             .bind({ anoStr: String(anoParam) })
-            .all()
+            .all(rowsOpsMes)
 
           for (let om = 0; om < rowsOpsMes.length; om++) {
             const rowO = rowsOpsMes[om]
@@ -498,7 +548,9 @@ routerAdd(
               }
             }
           }
-        } catch (_) {}
+        } catch (errOpsMes) {
+          console.error('[PAINEL-COMERCIAL] Erro agregacao mensal oportunidades: ' + errOpsMes)
+        }
       }
 
       // Retorno JSON completo e consistente
