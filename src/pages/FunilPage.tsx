@@ -44,6 +44,8 @@ export default function FunilPage() {
   const [filtros, setFiltros] = useState<FunilFiltrosState>({
     busca: '',
     responsavelId: 'todos',
+    origem: 'todas',
+    tipoOrigem: 'todos',
     dataInicio: '',
     dataFim: '',
     status: 'todos',
@@ -91,28 +93,55 @@ export default function FunilPage() {
       condicoes.push(`status = '${filtros.status}'`)
     }
 
-    // 2. Filtro por responsável
+    // 2. Filtro por responsável (suporte a sem_responsavel)
     if (filtros.responsavelId !== 'todos') {
-      condicoes.push(`responsavel_id = '${filtros.responsavelId}'`)
+      if (filtros.responsavelId === 'sem_responsavel') {
+        condicoes.push("(responsavel_id = '' || responsavel_id = null)")
+      } else {
+        condicoes.push(`responsavel_id = '${filtros.responsavelId}'`)
+      }
     }
 
-    // 3. Filtro por data prevista (personalizado)
+    // 2.1 Filtro por Origem (crm | bling)
+    if (filtros.origem !== 'todas') {
+      if (filtros.origem === 'crm') {
+        condicoes.push("(origem = '' || origem = 'crm')")
+      } else {
+        condicoes.push("origem = 'bling'")
+      }
+    }
+
+    // 2.2 Filtro por Tipo de Origem (crm | bling_proposta | bling_pedido)
+    if (filtros.tipoOrigem !== 'todos') {
+      if (filtros.tipoOrigem === 'crm') {
+        condicoes.push("(tipo_origem = '' || tipo_origem = 'crm')")
+      } else {
+        condicoes.push(`tipo_origem = '${filtros.tipoOrigem}'`)
+      }
+    }
+
+    // 3. Filtro por data (comercial/origem ou prevista - personalizado)
     if (filtros.dataInicio) {
-      condicoes.push(`data_prevista_fechamento >= '${filtros.dataInicio} 00:00:00'`)
+      condicoes.push(
+        `(data_origem >= '${filtros.dataInicio}' || data_prevista_fechamento >= '${filtros.dataInicio} 00:00:00')`,
+      )
     }
     if (filtros.dataFim) {
-      condicoes.push(`data_prevista_fechamento <= '${filtros.dataFim} 23:59:59'`)
+      condicoes.push(
+        `(data_origem <= '${filtros.dataFim}' || data_prevista_fechamento <= '${filtros.dataFim} 23:59:59')`,
+      )
     }
 
     // 4. Período selecionado (ano e mês)
     const inicioMesStr = `${ano}-${String(mes).padStart(2, '0')}-01 00:00:00`
+    const inicioMesDataOnly = `${ano}-${String(mes).padStart(2, '0')}-01`
     const fimDoMesDia = new Date(ano, mes, 0).getDate()
     const fimMesStr = `${ano}-${String(mes).padStart(2, '0')}-${String(fimDoMesDia).padStart(2, '0')} 23:59:59`
+    const fimMesDataOnly = `${ano}-${String(mes).padStart(2, '0')}-${String(fimDoMesDia).padStart(2, '0')}`
 
     // Regra do período:
-    // Para ganho/perdido: data_fechamento no mês ou (data_fechamento='' && created no mês)
-    // Para aberto: data_prevista_fechamento no mês ou (data_prevista_fechamento='' && created no mês)
-    const filtroPeriodo = `((status = 'ganho' && ((data_fechamento >= '${inicioMesStr}' && data_fechamento <= '${fimMesStr}') || (data_fechamento = '' && created >= '${inicioMesStr}' && created <= '${fimMesStr}'))) || (status = 'perdido' && ((data_fechamento >= '${inicioMesStr}' && data_fechamento <= '${fimMesStr}') || (data_fechamento = '' && created >= '${inicioMesStr}' && created <= '${fimMesStr}'))) || (status = 'aberto' && ((data_prevista_fechamento >= '${inicioMesStr}' && data_prevista_fechamento <= '${fimMesStr}') || (data_prevista_fechamento = '' && created <= '${fimMesStr}'))))`
+    // Suporta data_origem para registros Bling, além de data_fechamento e data_prevista_fechamento
+    const filtroPeriodo = `((status = 'ganho' && ((data_origem >= '${inicioMesDataOnly}' && data_origem <= '${fimMesDataOnly}') || (data_fechamento >= '${inicioMesStr}' && data_fechamento <= '${fimMesStr}') || (data_fechamento = '' && created >= '${inicioMesStr}' && created <= '${fimMesStr}'))) || (status = 'perdido' && ((data_origem >= '${inicioMesDataOnly}' && data_origem <= '${fimMesDataOnly}') || (data_fechamento >= '${inicioMesStr}' && data_fechamento <= '${fimMesStr}') || (data_fechamento = '' && created >= '${inicioMesStr}' && created <= '${fimMesStr}'))) || (status = 'aberto' && ((data_origem >= '${inicioMesDataOnly}' && data_origem <= '${fimMesDataOnly}') || (data_prevista_fechamento >= '${inicioMesStr}' && data_prevista_fechamento <= '${fimMesStr}') || (data_prevista_fechamento = '' && created <= '${fimMesStr}'))))`
     condicoes.push(filtroPeriodo)
 
     // 5. Busca textual
@@ -246,6 +275,19 @@ export default function FunilPage() {
   }
 
   const handleEditarOportunidade = (op: OportunidadeModel) => {
+    if (
+      op.origem === 'bling' ||
+      op.tipo_origem === 'bling_proposta' ||
+      op.tipo_origem === 'bling_pedido'
+    ) {
+      toast({
+        variant: 'destructive',
+        title: 'Edição Bloqueada',
+        description:
+          'Esta oportunidade é controlada pelo Bling. Altere a informação no Bling e sincronize novamente.',
+      })
+      return
+    }
     setOportunidadeEditando(op)
     setEtapaInicialModal(op.etapa_id)
     setModalOpen(true)
@@ -261,12 +303,18 @@ export default function FunilPage() {
     const op = oportunidades.find((o) => o.id === opId)
     if (!op || op.etapa_id === novaEtapaId) return
 
-    // Checagem prévia de permissão RLS do frontend
+    // Checagem prévia de permissão RLS do frontend e trava Bling
     if (!podeEditarOportunidade(user, op)) {
+      const isBling =
+        op.origem === 'bling' ||
+        op.tipo_origem === 'bling_proposta' ||
+        op.tipo_origem === 'bling_pedido'
       toast({
         variant: 'destructive',
-        title: 'Permissão negada',
-        description: 'Você não tem permissão para alterar esta oportunidade.',
+        title: isBling ? 'Edição Bloqueada' : 'Permissão negada',
+        description: isBling
+          ? 'Esta oportunidade é controlada pelo Bling. Altere a informação no Bling e sincronize novamente.'
+          : 'Você não tem permissão para alterar esta oportunidade.',
       })
       return
     }

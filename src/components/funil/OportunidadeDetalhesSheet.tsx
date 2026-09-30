@@ -74,9 +74,17 @@ export default function OportunidadeDetalhesSheet({
   const etapaCor = oportunidade.expand?.etapa_id?.cor || '#2563EB'
   const clienteNome = oportunidade.expand?.cliente_id?.nome_contato || 'Cliente não identificado'
   const empresaNome = oportunidade.expand?.cliente_id?.nome_empresa
+  const isBling =
+    oportunidade.origem === 'bling' ||
+    oportunidade.tipo_origem === 'bling_proposta' ||
+    oportunidade.tipo_origem === 'bling_pedido'
   const respNome =
     oportunidade.expand?.responsavel_id?.nome ||
-    (oportunidade.responsavel_id === user?.id ? user?.nome : 'Responsável')
+    (isBling
+      ? 'Sem responsável'
+      : oportunidade.responsavel_id === user?.id
+        ? user?.nome
+        : 'Responsável')
 
   const motivoDescricao = oportunidade.expand?.motivo_perda_id?.descricao
 
@@ -156,6 +164,18 @@ export default function OportunidadeDetalhesSheet({
               <h2 className="text-3xl font-extrabold text-[#0F172A] tracking-tight mt-0.5">
                 {formatarMoeda(oportunidade.valor)}
               </h2>
+              {isBling && (
+                <div className="mt-2 p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <span>
+                    Esta oportunidade é controlada pelo Bling (
+                    {oportunidade.tipo_origem === 'bling_proposta'
+                      ? 'Proposta Comercial'
+                      : 'Pedido de Venda'}
+                    ). Altere a informação no Bling e sincronize novamente.
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -218,10 +238,12 @@ export default function OportunidadeDetalhesSheet({
                 <div className="p-3 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC]">
                   <span className="text-[11px] font-medium text-[#64748B] flex items-center gap-1">
                     <Calendar className="w-3 h-3 text-[#64748B]" />
-                    Previsão Fechamento
+                    {oportunidade.data_origem ? 'Data de Origem' : 'Previsão Fechamento'}
                   </span>
                   <p className="text-xs font-bold text-[#0F172A] mt-1">
-                    {formatarData(oportunidade.data_prevista_fechamento)}
+                    {formatarData(
+                      oportunidade.data_origem || oportunidade.data_prevista_fechamento,
+                    )}
                   </p>
                 </div>
 
@@ -281,6 +303,10 @@ export default function OportunidadeDetalhesSheet({
                   <Trash2 className="w-3.5 h-3.5 mr-1.5" />
                   Excluir
                 </Button>
+              ) : isBling ? (
+                <span className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded font-medium">
+                  Controlado pelo Bling (Somente Leitura)
+                </span>
               ) : (
                 <span className="text-[11px] text-[#94A3B8]">Somente leitura</span>
               )}

@@ -1022,7 +1022,7 @@ routerAdd(
     }
 
     function mapearVendedor(vendedorBling) {
-      if (!vendedorBling) return 'Renan'
+      if (!vendedorBling) return null
       const v = String(vendedorBling)
         .trim()
         .normalize('NFD')
@@ -1049,7 +1049,7 @@ routerAdd(
       if (v === 'VENDAS 2') {
         return 'Vendas 2'
       }
-      return 'Renan'
+      return null
     }
 
     // Resolução de vendedor CRM para usuário real da coleção usuarios
@@ -1086,13 +1086,11 @@ routerAdd(
     } catch (_) {}
 
     function resolverUsuarioIdPorVendedorCrm(vendedorCrm) {
+      if (!vendedorCrm) return null
       if (mapVendedorParaUsuarioId[vendedorCrm]) {
         return mapVendedorParaUsuarioId[vendedorCrm]
       }
-      if (mapVendedorParaUsuarioId['Renan']) {
-        return mapVendedorParaUsuarioId['Renan']
-      }
-      return authRecord.id
+      return null
     }
 
     // Chamador HTTP GET com retry robusto (429/5xx), backoff exponencial e retry único pós-401 via refresh
@@ -2301,6 +2299,236 @@ routerAdd(
         } else {
           paginaPropostas++
         }
+      }
+
+      // ==============================================================
+      // ==============================================================
+      // 4.5 SINCRONIZAR OPORTUNIDADES NO FUNIL HÍBRIDO (IDEMPOTENTE)
+      // ==============================================================
+      let totalOpsBlingCriadas = 0
+      let totalOpsBlingAtualizadas = 0
+      try {
+        const opCol = $app.findCollectionByNameOrId('oportunidades')
+        const etapasList = $app.findRecordsByFilter('etapas_funil', '', 'ordem', 20, 0)
+        let etapaPropostaId = ''
+        let etapaNegociacaoId = ''
+        let etapaFechadoId = ''
+
+        for (let ep = 0; ep < etapasList.length; ep++) {
+          const epRec = etapasList[ep]
+          const epNome = epRec.getString('nome').toLowerCase()
+          if (epNome.indexOf('propost') !== -1) etapaPropostaId = epRec.id
+          if (epNome.indexOf('negoc') !== -1) etapaNegociacaoId = epRec.id
+          if (epNome.indexOf('fechad') !== -1) etapaFechadoId = epRec.id
+        }
+
+        // Buscar motivos de perda Bling
+        let motivoNaoAprovadaId = ''
+        let motivoCanceladoId = ''
+        try {
+          const motNaoAprov = $app.findFirstRecordByData(
+            'motivos_perda',
+            'descricao',
+            'Não aprovada no Bling',
+          )
+          if (motNaoAprov) motivoNaoAprovadaId = motNaoAprov.id
+        } catch (_) {}
+        try {
+          const motCanc = $app.findFirstRecordByData(
+            'motivos_perda',
+            'descricao',
+            'Cancelado no Bling',
+          )
+          if (motCanc) motivoCanceladoId = motCanc.id
+        } catch (_) {}
+
+        // Mapa de oportunidades existentes por bling_proposta_id e bling_pedido_id
+        const mapOpsPorProposta = {}
+        const mapOpsPorPedido = {}
+        const opsExistentes = $app.findRecordsByFilter(
+          'oportunidades',
+          "origem = 'bling'",
+          '-created',
+          10000,
+          0,
+        )
+        for (let o = 0; o < opsExistentes.length; o++) {
+          const opItem = opsExistentes[o]
+          const propIdKey = opItem.getString('bling_proposta_id')
+          const pedIdKey = opItem.getString('bling_pedido_id')
+          if (propIdKey) mapOpsPorProposta[propIdKey] = opItem
+          if (pedIdKey) mapOpsPorPedido[pedIdKey] = opItem
+        }
+
+        // 4.5.1 PROPOSTAS BLING -> OPORTUNIDADES
+        // Somente situações comprovadas:
+        // - Rascunho -> etapa Proposta, status aberto
+        // - Aguardando -> etapa Negociação, status aberto
+        // - Não aprovado(a) -> etapa Fechado, status perdido (motivo: Não aprovada no Bling)
+        // Concluído, Aprovado(a) e Outro -> NÃO aparecem no funil (se já existir oportunidade, remove ou não sincroniza)
+        const propostasAtivas = $app.findRecordsByFilter(
+          'bling_propostas',
+          "visivel_funil = true && status_vinculo = 'vinculado'",
+          '-created',
+          5000,
+          0,
+        )
+        for (let pIdx = 0; pIdx < propostasAtivas.length; pIdx++) {
+          const propRec = propostasAtivas[pIdx]
+          const bPropId = propRec.getString('bling_proposta_id')
+          const stNorm = propRec.getString('status_normalizado')
+          const cliId = propRec.getString('cliente_id')
+          if (!bPropId || !cliId) continue
+
+          let targetEtapaId = ''
+          let targetStatus = 'aberto'
+          let targetMotivoId = null
+
+          if (stNorm === 'rascunho') {
+            targetEtapaId = etapaPropostaId
+            targetStatus = 'aberto'
+          } else if (stNorm === 'aguardando') {
+            targetEtapaId = etapaNegociacaoId
+            targetStatus = 'aberto'
+          } else if (stNorm === 'nao_aprovada') {
+            targetEtapaId = etapaFechadoId
+            targetStatus = 'perdido'
+            targetMotivoId = motivoNaoAprovadaId || null
+          } else {
+            // Não elegível
+            continue
+          }
+
+          let opRec = mapOpsPorProposta[bPropId]
+          let isNova = false
+          if (!opRec) {
+            opRec = new Record(opCol)
+            opRec.set('origem', 'bling')
+            opRec.set('tipo_origem', 'bling_proposta')
+            opRec.set('bling_proposta_id', bPropId)
+            isNova = true
+          }
+
+          opRec.set('cliente_id', cliId)
+          opRec.set('valor', propRec.getInt('valor_total') || 0)
+          opRec.set('etapa_id', targetEtapaId)
+          opRec.set('status', targetStatus)
+          opRec.set('motivo_perda_id', targetMotivoId)
+          opRec.set('responsavel_id', propRec.getString('responsavel_id') || null)
+          const dtProp = propRec.getString('data_proposta')
+          if (dtProp) {
+            opRec.set('data_origem', dtProp)
+          }
+          const dtVal = propRec.getString('data_validade')
+          if (dtVal) {
+            opRec.set('data_prevista_fechamento', dtVal)
+          }
+          if (targetStatus === 'perdido') {
+            opRec.set('data_fechamento', dtProp || new Date().toISOString())
+          }
+
+          const numProp = propRec.getString('numero')
+          opRec.set(
+            'observacoes',
+            'Proposta Bling nº ' +
+              (numProp || bPropId) +
+              ' (Situação: ' +
+              propRec.getString('situacao_bling_nome') +
+              ')',
+          )
+
+          try {
+            $app.save(opRec)
+            mapOpsPorProposta[bPropId] = opRec
+            if (isNova) totalOpsBlingCriadas++
+            else totalOpsBlingAtualizadas++
+          } catch (errOpSave) {
+            avisosGerais.push(
+              'Aviso ao sincronizar oportunidade da proposta ' +
+                bPropId +
+                ': ' +
+                String(errOpSave.message || errOpSave),
+            )
+          }
+        }
+
+        // 4.5.2 PEDIDOS BLING -> OPORTUNIDADES
+        // Situações comprovadas:
+        // - Em aberto -> Fechado/ganho
+        // - Atendido -> Fechado/ganho
+        // - Cancelado -> Fechado/perdido (motivo: Cancelado no Bling)
+        // Apenas pedidos vinculados a cliente existente
+        const pedidosElegiveis = $app.findRecordsByFilter(
+          'bling_pedidos',
+          "status_vinculo = 'vinculado' && (situacao_bling_nome = 'Em aberto' || situacao_bling_nome = 'Atendido' || situacao_bling_nome = 'Cancelado')",
+          '-created',
+          12000,
+          0,
+        )
+
+        for (let pedIdx = 0; pedIdx < pedidosElegiveis.length; pedIdx++) {
+          const pedRec = pedidosElegiveis[pedIdx]
+          const bPedId = pedRec.getString('bling_pedido_id')
+          const sitNome = pedRec.getString('situacao_bling_nome')
+          const cliId = pedRec.getString('cliente_id')
+          if (!bPedId || !cliId) continue
+
+          let targetStatus = 'ganho'
+          let targetMotivoId = null
+          if (sitNome === 'Cancelado') {
+            targetStatus = 'perdido'
+            targetMotivoId = motivoCanceladoId || null
+          }
+
+          let opRec = mapOpsPorPedido[bPedId]
+          let isNova = false
+          if (!opRec) {
+            opRec = new Record(opCol)
+            opRec.set('origem', 'bling')
+            opRec.set('tipo_origem', 'bling_pedido')
+            opRec.set('bling_pedido_id', bPedId)
+            isNova = true
+          }
+
+          opRec.set('cliente_id', cliId)
+          opRec.set('valor', pedRec.getInt('valor_total') || 0)
+          opRec.set('etapa_id', etapaFechadoId)
+          opRec.set('status', targetStatus)
+          opRec.set('motivo_perda_id', targetMotivoId)
+          opRec.set('responsavel_id', pedRec.getString('responsavel_id') || null)
+
+          const dtPed = pedRec.getString('data_pedido')
+          const dtAtend = pedRec.getString('data_atendimento')
+          if (dtPed) {
+            opRec.set('data_origem', dtPed)
+          }
+          opRec.set('data_fechamento', dtAtend || dtPed || new Date().toISOString())
+
+          const numPed = pedRec.getString('numero')
+          opRec.set(
+            'observacoes',
+            'Pedido Bling nº ' + (numPed || bPedId) + ' (Situação: ' + sitNome + ')',
+          )
+
+          try {
+            $app.save(opRec)
+            mapOpsPorPedido[bPedId] = opRec
+            if (isNova) totalOpsBlingCriadas++
+            else totalOpsBlingAtualizadas++
+          } catch (errPedOpSave) {
+            avisosGerais.push(
+              'Aviso ao sincronizar oportunidade do pedido ' +
+                bPedId +
+                ': ' +
+                String(errPedOpSave.message || errPedOpSave),
+            )
+          }
+        }
+      } catch (errFunilGeral) {
+        avisosGerais.push(
+          'Aviso na sincronização do funil híbrido: ' +
+            String(errFunilGeral.message || errFunilGeral),
+        )
       }
 
       // ==============================================================

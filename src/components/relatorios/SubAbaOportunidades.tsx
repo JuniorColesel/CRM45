@@ -69,6 +69,9 @@ export function SubAbaOportunidades({
     const fimDoMesDia = new Date(ano, mes, 0).getDate()
     const fimMesStr = `${ano}-${String(mes).padStart(2, '0')}-${String(fimDoMesDia).padStart(2, '0')} 23:59:59`
 
+    // Apenas oportunidades do CRM nos relatórios padrão do funil nativo
+    condicoes.push("(origem = '' || origem = 'crm')")
+
     const filtroPeriodo = `((status = 'ganho' && ((data_fechamento >= '${inicioMesStr}' && data_fechamento <= '${fimMesStr}') || (data_fechamento = '' && created >= '${inicioMesStr}' && created <= '${fimMesStr}'))) || (status = 'perdido' && ((data_fechamento >= '${inicioMesStr}' && data_fechamento <= '${fimMesStr}') || (data_fechamento = '' && created >= '${inicioMesStr}' && created <= '${fimMesStr}'))) || (status = 'aberto' && ((data_prevista_fechamento >= '${inicioMesStr}' && data_prevista_fechamento <= '${fimMesStr}') || (data_prevista_fechamento = '' && created <= '${fimMesStr}'))))`
     condicoes.push(filtroPeriodo)
 

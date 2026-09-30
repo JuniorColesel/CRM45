@@ -48,6 +48,16 @@ export default function KanbanColumn({
     setIsDragOver(false)
     const opId = e.dataTransfer.getData('text/plain') || draggedOpId
     if (opId) {
+      // Verificar se a oportunidade arrastada é Bling
+      const opArrastada = oportunidades.find((o) => o.id === opId)
+      if (
+        opArrastada &&
+        (opArrastada.origem === 'bling' ||
+          opArrastada.tipo_origem === 'bling_proposta' ||
+          opArrastada.tipo_origem === 'bling_pedido')
+      ) {
+        return
+      }
       onDropOnEtapa(etapa.id, opId)
     }
   }

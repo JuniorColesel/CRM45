@@ -361,7 +361,8 @@ export async function obterDadosPainel(params: {
   let listaOpsAbertas: OportunidadeModel[] = []
 
   try {
-    const condOpsAbertas = ["status = 'aberto'"]
+    // Para métricas do painel comercial CRM, considerar apenas oportunidades CRM (evitar que 2.000 propostas importadas inflem o pipeline nativo)
+    const condOpsAbertas = ["status = 'aberto'", "(origem = '' || origem = 'crm')"]
     if (escopoOp) condOpsAbertas.push(escopoOp)
 
     listaOpsAbertas = await pb.collection('oportunidades').getFullList<OportunidadeModel>({
@@ -401,6 +402,7 @@ export async function obterDadosPainel(params: {
     // Data de fechamento ou created
     const condGanhasAtual = [
       "status = 'ganho'",
+      "(origem = '' || origem = 'crm')",
       `((data_fechamento >= '${inicioStr}' && data_fechamento <= '${fimStr}') || (data_fechamento = '' && created >= '${inicioStr}' && created <= '${fimStr}'))`,
     ]
     if (escopoOp) condGanhasAtual.push(escopoOp)
@@ -417,6 +419,7 @@ export async function obterDadosPainel(params: {
     // Perdidas no período atual
     const condPerdidasAtual = [
       "status = 'perdido'",
+      "(origem = '' || origem = 'crm')",
       `((data_fechamento >= '${inicioStr}' && data_fechamento <= '${fimStr}') || (data_fechamento = '' && created >= '${inicioStr}' && created <= '${fimStr}'))`,
     ]
     if (escopoOp) condPerdidasAtual.push(escopoOp)
@@ -431,6 +434,7 @@ export async function obterDadosPainel(params: {
     // Período anterior
     const condGanhasAnt = [
       "status = 'ganho'",
+      "(origem = '' || origem = 'crm')",
       `((data_fechamento >= '${inicioAntStr}' && data_fechamento <= '${fimAntStr}') || (data_fechamento = '' && created >= '${inicioAntStr}' && created <= '${fimAntStr}'))`,
     ]
     if (escopoOp) condGanhasAnt.push(escopoOp)
@@ -445,6 +449,7 @@ export async function obterDadosPainel(params: {
 
     const condPerdidasAnt = [
       "status = 'perdido'",
+      "(origem = '' || origem = 'crm')",
       `((data_fechamento >= '${inicioAntStr}' && data_fechamento <= '${fimAntStr}') || (data_fechamento = '' && created >= '${inicioAntStr}' && created <= '${fimAntStr}'))`,
     ]
     if (escopoOp) condPerdidasAnt.push(escopoOp)
@@ -500,12 +505,12 @@ export async function obterDadosPainel(params: {
   // X = quantidade em cada etapa; cores em gradiente do claro ao escuro, vermelho para perdida
   let todasOportunidadesPeriodo: OportunidadeModel[] = []
   try {
-    const condTodas = []
+    const condTodas = ["(origem = '' || origem = 'crm')"]
     if (escopoOp) condTodas.push(escopoOp)
     todasOportunidadesPeriodo = await pb
       .collection('oportunidades')
       .getFullList<OportunidadeModel>({
-        filter: condTodas.length > 0 ? condTodas.join(' && ') : undefined,
+        filter: condTodas.join(' && '),
         fields:
           'id,etapa_id,status,valor,responsavel_id,created,data_fechamento,data_prevista_fechamento',
         expand: 'etapa_id,responsavel_id',

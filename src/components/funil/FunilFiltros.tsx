@@ -13,7 +13,9 @@ import type { Usuario } from '@/contexts/AuthContext'
 
 export interface FunilFiltrosState {
   busca: string
-  responsavelId: string // 'todos' ou id do usuario
+  responsavelId: string // 'todos', 'sem_responsavel' ou id do usuario
+  origem: 'todas' | 'crm' | 'bling'
+  tipoOrigem: 'todos' | 'crm' | 'bling_proposta' | 'bling_pedido'
   dataInicio: string // YYYY-MM-DD
   dataFim: string // YYYY-MM-DD
   status: 'todos' | 'aberto' | 'ganho' | 'perdido'
@@ -37,6 +39,8 @@ export default function FunilFiltros({
   const temFiltroAtivo =
     Boolean(filtros.busca.trim()) ||
     filtros.responsavelId !== 'todos' ||
+    filtros.origem !== 'todas' ||
+    filtros.tipoOrigem !== 'todos' ||
     Boolean(filtros.dataInicio) ||
     Boolean(filtros.dataFim) ||
     filtros.status !== 'todos'
@@ -45,6 +49,8 @@ export default function FunilFiltros({
     onFiltrosChange({
       busca: '',
       responsavelId: 'todos',
+      origem: 'todas',
+      tipoOrigem: 'todos',
       dataInicio: '',
       dataFim: '',
       status: 'todos',
@@ -87,6 +93,7 @@ export default function FunilFiltros({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="todos">Todos os Responsáveis</SelectItem>
+              <SelectItem value="sem_responsavel">Sem responsável</SelectItem>
               {usuarios.map((u) => (
                 <SelectItem key={u.id} value={u.id}>
                   {u.nome}
@@ -96,8 +103,67 @@ export default function FunilFiltros({
           </Select>
         </div>
 
-        {/* Filtro por Status */}
+        {/* Filtro por Origem */}
         <div className="lg:col-span-2">
+          <Select
+            value={filtros.origem}
+            onValueChange={(val: 'todas' | 'crm' | 'bling') =>
+              onFiltrosChange({
+                ...filtros,
+                origem: val,
+                tipoOrigem:
+                  val === 'crm'
+                    ? 'crm'
+                    : filtros.tipoOrigem === 'crm' && val === 'bling'
+                      ? 'todos'
+                      : filtros.tipoOrigem,
+              })
+            }
+          >
+            <SelectTrigger className="w-full bg-[#F8FAFC] border-[#E2E8F0] text-xs sm:text-sm h-9">
+              <SelectValue placeholder="Origem" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todas">Todas as Origens</SelectItem>
+              <SelectItem value="crm">Apenas CRM</SelectItem>
+              <SelectItem value="bling">Apenas Bling</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Filtro por Tipo de Origem */}
+        <div className="lg:col-span-3">
+          <Select
+            value={filtros.tipoOrigem}
+            onValueChange={(val: 'todos' | 'crm' | 'bling_proposta' | 'bling_pedido') =>
+              onFiltrosChange({
+                ...filtros,
+                tipoOrigem: val,
+                origem:
+                  val === 'crm'
+                    ? 'crm'
+                    : val === 'bling_proposta' || val === 'bling_pedido'
+                      ? 'bling'
+                      : filtros.origem,
+              })
+            }
+          >
+            <SelectTrigger className="w-full bg-[#F8FAFC] border-[#E2E8F0] text-xs sm:text-sm h-9">
+              <SelectValue placeholder="Tipo de Documento" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos os Tipos</SelectItem>
+              <SelectItem value="crm">Oportunidade CRM</SelectItem>
+              <SelectItem value="bling_proposta">Proposta Bling</SelectItem>
+              <SelectItem value="bling_pedido">Pedido Bling</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-3 items-center pt-1">
+        {/* Filtro por Status */}
+        <div className="lg:col-span-4">
           <Select
             value={filtros.status}
             onValueChange={(val: 'todos' | 'aberto' | 'ganho' | 'perdido') =>
@@ -119,12 +185,13 @@ export default function FunilFiltros({
           </Select>
         </div>
 
-        {/* Intervalo de Data Prevista de Fechamento */}
-        <div className="lg:col-span-3 flex items-center gap-1.5">
+        {/* Intervalo de Data (Comercial / Origem ou Prevista) */}
+        <div className="lg:col-span-8 flex items-center gap-2">
+          <span className="text-xs text-[#64748B] shrink-0">Período:</span>
           <div className="relative flex-1">
             <Input
               type="date"
-              title="Data inicial prevista"
+              title="Data inicial"
               value={filtros.dataInicio}
               onChange={(e) => onFiltrosChange({ ...filtros, dataInicio: e.target.value })}
               className="bg-[#F8FAFC] border-[#E2E8F0] text-xs h-9 px-2"
@@ -134,7 +201,7 @@ export default function FunilFiltros({
           <div className="relative flex-1">
             <Input
               type="date"
-              title="Data final prevista"
+              title="Data final"
               value={filtros.dataFim}
               onChange={(e) => onFiltrosChange({ ...filtros, dataFim: e.target.value })}
               className="bg-[#F8FAFC] border-[#E2E8F0] text-xs h-9 px-2"

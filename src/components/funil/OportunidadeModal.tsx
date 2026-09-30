@@ -164,6 +164,24 @@ export default function OportunidadeModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    // Trava Bling
+    if (
+      isEditing &&
+      oportunidade &&
+      (oportunidade.origem === 'bling' ||
+        oportunidade.tipo_origem === 'bling_proposta' ||
+        oportunidade.tipo_origem === 'bling_pedido')
+    ) {
+      toast({
+        variant: 'destructive',
+        title: 'Edição Bloqueada',
+        description:
+          'Esta oportunidade é controlada pelo Bling. Altere a informação no Bling e sincronize novamente.',
+      })
+      return
+    }
+
     if (!validar()) return
 
     setSaving(true)
@@ -191,6 +209,8 @@ export default function OportunidadeModal({
         data_prevista_fechamento: dataPrevista ? new Date(dataPrevista).toISOString() : null,
         data_fechamento: dataFechamentoValor,
         observacoes: observacoes.trim() || '',
+        origem: isEditing && oportunidade?.origem ? oportunidade.origem : 'crm',
+        tipo_origem: isEditing && oportunidade?.tipo_origem ? oportunidade.tipo_origem : 'crm',
       }
 
       let saved: OportunidadeModel

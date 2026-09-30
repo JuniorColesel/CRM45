@@ -47,15 +47,22 @@ export interface MotivoPerdaModel extends RecordModel {
 }
 
 export type StatusOportunidade = 'aberto' | 'ganho' | 'perdido'
+export type OrigemOportunidade = 'crm' | 'bling'
+export type TipoOrigemOportunidade = 'crm' | 'bling_proposta' | 'bling_pedido'
 
 export interface OportunidadeModel extends RecordModel {
   cliente_id: string
   valor: number
   etapa_id: string
-  responsavel_id: string
+  responsavel_id?: string
   motivo_perda_id?: string
   data_prevista_fechamento?: string
   data_fechamento?: string
+  data_origem?: string
+  origem?: OrigemOportunidade
+  tipo_origem?: TipoOrigemOportunidade
+  bling_proposta_id?: string
+  bling_pedido_id?: string
   status: StatusOportunidade
   observacoes?: string
   expand?: {
@@ -246,11 +253,26 @@ export function podeCriarCliente(user: Usuario | null): boolean {
 export function podeEditarOportunidade(user: Usuario | null, op: OportunidadeModel): boolean {
   if (!user) return false
   if (user.perfil === 'estoque') return false
+  // Oportunidades com origem Bling são 100% imutáveis e somente-leitura pelo usuário
+  if (
+    op.origem === 'bling' ||
+    op.tipo_origem === 'bling_proposta' ||
+    op.tipo_origem === 'bling_pedido'
+  ) {
+    return false
+  }
   if (user.perfil === 'ceo_financeiro') return true
   return op.responsavel_id === user.id
 }
 
 export function podeExcluirOportunidade(user: Usuario | null, op: OportunidadeModel): boolean {
+  if (
+    op.origem === 'bling' ||
+    op.tipo_origem === 'bling_proposta' ||
+    op.tipo_origem === 'bling_pedido'
+  ) {
+    return false
+  }
   return podeEditarOportunidade(user, op)
 }
 

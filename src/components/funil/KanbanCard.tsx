@@ -21,13 +21,32 @@ export default function KanbanCard({
 }: KanbanCardProps) {
   // Controle para diferenciar clique simples de arrasto (drag)
   const isDraggingRef = useRef(false)
+  const isBling =
+    oportunidade.origem === 'bling' ||
+    oportunidade.tipo_origem === 'bling_proposta' ||
+    oportunidade.tipo_origem === 'bling_pedido'
 
   const clienteNome = oportunidade.expand?.cliente_id?.nome_contato || 'Cliente não identificado'
   const empresaNome = oportunidade.expand?.cliente_id?.nome_empresa
   const respNome =
     oportunidade.expand?.responsavel_id?.nome ||
     oportunidade.expand?.responsavel_id?.email ||
-    'Responsável'
+    (isBling ? 'Sem responsável' : 'Responsável')
+
+  const renderOrigemBadge = () => {
+    if (!isBling) return null
+    const rotulo =
+      oportunidade.tipo_origem === 'bling_proposta'
+        ? 'Proposta Bling'
+        : oportunidade.tipo_origem === 'bling_pedido'
+          ? 'Pedido Bling'
+          : 'Bling'
+    return (
+      <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-[9px] font-semibold px-1.5 py-0">
+        {rotulo}
+      </Badge>
+    )
+  }
 
   const renderStatusBadge = () => {
     switch (oportunidade.status) {
@@ -53,6 +72,10 @@ export default function KanbanCard({
   }
 
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
+    if (isBling) {
+      e.preventDefault()
+      return
+    }
     isDraggingRef.current = true
     e.dataTransfer.setData('text/plain', oportunidade.id)
     e.dataTransfer.effectAllowed = 'move'
@@ -74,20 +97,23 @@ export default function KanbanCard({
 
   return (
     <div
-      draggable
+      draggable={!isBling}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       onClick={handleClick}
-      className={`group relative bg-white rounded-xl border border-[#E2E8F0] p-3.5 shadow-sm hover:shadow-md hover:border-[#CBD5E1] transition-all duration-150 cursor-grab active:cursor-grabbing select-none ${
-        isDragging ? 'opacity-40 scale-[0.98] border-dashed border-[#2563EB]' : 'opacity-100'
-      }`}
+      className={`group relative bg-white rounded-xl border border-[#E2E8F0] p-3.5 shadow-sm hover:shadow-md hover:border-[#CBD5E1] transition-all duration-150 select-none ${
+        isBling ? 'cursor-pointer hover:border-amber-300' : 'cursor-grab active:cursor-grabbing'
+      } ${isDragging ? 'opacity-40 scale-[0.98] border-dashed border-[#2563EB]' : 'opacity-100'}`}
     >
-      {/* Topo do Card: Cliente e Status */}
+      {/* Topo do Card: Cliente, Origem e Status */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <h4 className="font-bold text-sm text-[#0F172A] truncate group-hover:text-[#2563EB] transition-colors">
-            {clienteNome}
-          </h4>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <h4 className="font-bold text-sm text-[#0F172A] truncate group-hover:text-[#2563EB] transition-colors">
+              {clienteNome}
+            </h4>
+            {renderOrigemBadge()}
+          </div>
           {empresaNome && (
             <p className="text-[11px] text-[#64748B] truncate flex items-center gap-1 mt-0.5">
               <Building className="w-3 h-3 text-[#94A3B8] shrink-0" />
@@ -118,8 +144,16 @@ export default function KanbanCard({
           <span className="truncate font-medium">{respNome}</span>
         </div>
 
-        {/* Previsão */}
-        {oportunidade.data_prevista_fechamento ? (
+        {/* Previsão ou Data de Origem */}
+        {oportunidade.data_origem ? (
+          <div
+            className="flex items-center gap-1 shrink-0 text-[#64748B]"
+            title={`Data de origem Bling: ${formatarData(oportunidade.data_origem)}`}
+          >
+            <Calendar className="w-3 h-3 text-[#94A3B8]" />
+            <span>{formatarData(oportunidade.data_origem)}</span>
+          </div>
+        ) : oportunidade.data_prevista_fechamento ? (
           <div
             className="flex items-center gap-1 shrink-0 text-[#64748B]"
             title={`Previsão de fechamento: ${formatarData(oportunidade.data_prevista_fechamento)}`}
