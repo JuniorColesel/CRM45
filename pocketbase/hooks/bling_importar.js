@@ -531,6 +531,18 @@ routerAdd(
       }
     } catch (_) {}
 
+    // Buscar último backup_log manual de auditoria se existir
+    let auditoriaExtraida = null
+    try {
+      const bLogs = $app.findRecordsByFilter('backup_logs', 'tipo = "manual"', '-created', 1, 0)
+      if (bLogs && bLogs.length > 0) {
+        const det = bLogs[0].getString('detalhes')
+        if (det) {
+          auditoriaExtraida = JSON.parse(det)
+        }
+      }
+    } catch (_) {}
+
     // NUNCA retornar tokens na resposta
     return e.json(200, {
       conectado: statusConn === 'conectado',
@@ -543,6 +555,7 @@ routerAdd(
       ultima_renovacao: lastRefreshStr,
       ultimo_erro: ultimoErro,
       auditoria_resumo: auditoriaResumo,
+      auditoria_extraida: auditoriaExtraida,
     })
   },
   $apis.requireAuth(),
@@ -2296,6 +2309,15 @@ routerAdd(
             ? 'sucesso_parcial'
             : 'erro'
 
+      // Buscar resumo de auditoria gravado
+      let auditStr = ''
+      try {
+        const bLogs = $app.findRecordsByFilter('backup_logs', 'tipo = "manual"', '-created', 1, 0)
+        if (bLogs && bLogs.length > 0) {
+          auditStr = bLogs[0].getString('detalhes') || ''
+        }
+      } catch (_) {}
+
       let msgResumo =
         'Concluído em ' +
         Math.round(duracaoMs / 1000) +
@@ -2322,6 +2344,9 @@ routerAdd(
         ' atualizadas, ' +
         totalPropostasSemCliente +
         ' pendentes vínculo).'
+      if (auditStr) {
+        msgResumo += ' [AUDIT_V076:' + auditStr + ']'
+      }
 
       if (errosGerais.length > 0 || errosPedidos.length > 0) {
         msgResumo += ' Erros reais: ' + (errosGerais.length + errosPedidos.length) + '.'
