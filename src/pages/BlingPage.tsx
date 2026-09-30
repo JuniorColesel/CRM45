@@ -140,13 +140,22 @@ interface ClientesIndicadores {
   ultimaDataProcessada: string | null
   totalPedidosPersistidos: number
   pedidosSemCliente: number
+  // BASE TOTAL ATEMPORAL (Propostas Salvas)
   totalPropostasPersistidas: number
   propostasSemCliente: number
-  propostasRascunho: number
-  propostasAguardando: number
-  propostasNaoAprovada: number
-  propostasConvertidas: number
-  propostasOutras: number
+  propostasRascunhoTotal: number
+  propostasAguardandoTotal: number
+  propostasNaoAprovadaTotal: number
+  propostasConvertidasTotal: number
+  propostasOutrasTotal: number
+  // RESULTADO DO PERÍODO SELECIONADO (2026 / Mês)
+  propostasPeriodoTotal: number
+  propostasPeriodoRascunho: number
+  propostasPeriodoAguardando: number
+  propostasPeriodoNaoAprovada: number
+  propostasPeriodoConvertida: number
+  propostasPeriodoOutras: number
+  propostasPeriodoSemCliente: number
 }
 
 export default function BlingPage() {
@@ -201,11 +210,18 @@ export default function BlingPage() {
     pedidosSemCliente: 0,
     totalPropostasPersistidas: 0,
     propostasSemCliente: 0,
-    propostasRascunho: 0,
-    propostasAguardando: 0,
-    propostasNaoAprovada: 0,
-    propostasConvertidas: 0,
-    propostasOutras: 0,
+    propostasRascunhoTotal: 0,
+    propostasAguardandoTotal: 0,
+    propostasNaoAprovadaTotal: 0,
+    propostasConvertidasTotal: 0,
+    propostasOutrasTotal: 0,
+    propostasPeriodoTotal: 0,
+    propostasPeriodoRascunho: 0,
+    propostasPeriodoAguardando: 0,
+    propostasPeriodoNaoAprovada: 0,
+    propostasPeriodoConvertida: 0,
+    propostasPeriodoOutras: 0,
+    propostasPeriodoSemCliente: 0,
   })
 
   // Referência para cancelar fluxo de conexão se o componente for desmontado
@@ -295,6 +311,13 @@ export default function BlingPage() {
       let pedidosValidos2026 = 0
       let valorVendasPeriodo = 0
       let pedidosValidosPeriodo = 0
+      let propPeriodoTotal = 0
+      let propPeriodoRascunho = 0
+      let propPeriodoAguardando = 0
+      let propPeriodoNaoAprovada = 0
+      let propPeriodoConvertida = 0
+      let propPeriodoOutras = 0
+      let propPeriodoSemCliente = 0
       let ultimaData: string | null = null
 
       try {
@@ -311,6 +334,12 @@ export default function BlingPage() {
 
         // Consulta agregada por período comercial usando /backend/v1/painel/comercial
         const resCom = await pb.send<{
+          indicadores_base?: {
+            totalClientesCadastrados: number
+            clientesComBlingId: number
+            totalPedidosCadastradosBase: number
+            totalPropostasCadastradasBase: number
+          }
           historico_total: { valor_vendas_total: number; pedidos_validos_total: number }
           pedidos_periodo: { valor_vendas_valido: number; pedidos_validos: number }
           propostas_periodo: {
@@ -336,6 +365,16 @@ export default function BlingPage() {
           pedidosValidosPeriodo = resCom.pedidos_periodo.pedidos_validos
           valorVendas2026 = valorVendasPeriodo
           pedidosValidos2026 = pedidosValidosPeriodo
+
+          if (resCom.propostas_periodo) {
+            propPeriodoTotal = resCom.propostas_periodo.total || 0
+            propPeriodoRascunho = resCom.propostas_periodo.rascunho || 0
+            propPeriodoAguardando = resCom.propostas_periodo.aguardando || 0
+            propPeriodoNaoAprovada = resCom.propostas_periodo.nao_aprovada || 0
+            propPeriodoConvertida = resCom.propostas_periodo.convertida || 0
+            propPeriodoOutras = resCom.propostas_periodo.outras || 0
+            propPeriodoSemCliente = resCom.propostas_periodo.pendente_vinculo || 0
+          }
         }
       } catch {
         /* fallback tolerante */
@@ -356,11 +395,18 @@ export default function BlingPage() {
         pedidosSemCliente,
         totalPropostasPersistidas: 0,
         propostasSemCliente: 0,
-        propostasRascunho: 0,
-        propostasAguardando: 0,
-        propostasNaoAprovada: 0,
-        propostasConvertidas: 0,
-        propostasOutras: 0,
+        propostasRascunhoTotal: 0,
+        propostasAguardandoTotal: 0,
+        propostasNaoAprovadaTotal: 0,
+        propostasConvertidasTotal: 0,
+        propostasOutrasTotal: 0,
+        propostasPeriodoTotal: propPeriodoTotal,
+        propostasPeriodoRascunho: propPeriodoRascunho,
+        propostasPeriodoAguardando: propPeriodoAguardando,
+        propostasPeriodoNaoAprovada: propPeriodoNaoAprovada,
+        propostasPeriodoConvertida: propPeriodoConvertida,
+        propostasPeriodoOutras: propPeriodoOutras,
+        propostasPeriodoSemCliente: propPeriodoSemCliente,
       }
 
       try {
@@ -385,11 +431,11 @@ export default function BlingPage() {
           const pr = statusRes.propostas_resumo_real
           novosIndicadores.totalPropostasPersistidas = pr.total
           novosIndicadores.propostasSemCliente = pr.pendentes_vinculo
-          novosIndicadores.propostasRascunho = pr.rascunho
-          novosIndicadores.propostasAguardando = pr.aguardando
-          novosIndicadores.propostasNaoAprovada = pr.nao_aprovada
-          novosIndicadores.propostasConvertidas = pr.convertida
-          novosIndicadores.propostasOutras = pr.outro
+          novosIndicadores.propostasRascunhoTotal = pr.rascunho
+          novosIndicadores.propostasAguardandoTotal = pr.aguardando
+          novosIndicadores.propostasNaoAprovadaTotal = pr.nao_aprovada
+          novosIndicadores.propostasConvertidasTotal = pr.convertida
+          novosIndicadores.propostasOutrasTotal = pr.outro
         } else {
           // Fallback via consultas agregadas por status
           const propList = await pb.collection('bling_propostas').getList(1, 1, { fields: 'id' })
@@ -418,11 +464,11 @@ export default function BlingPage() {
               .collection('bling_propostas')
               .getList(1, 1, { filter: 'status_normalizado = "outro"', fields: 'id' }),
           ])
-          novosIndicadores.propostasRascunho = rasc.totalItems
-          novosIndicadores.propostasAguardando = aguard.totalItems
-          novosIndicadores.propostasNaoAprovada = naoAp.totalItems
-          novosIndicadores.propostasConvertidas = conv.totalItems
-          novosIndicadores.propostasOutras = outr.totalItems
+          novosIndicadores.propostasRascunhoTotal = rasc.totalItems
+          novosIndicadores.propostasAguardandoTotal = aguard.totalItems
+          novosIndicadores.propostasNaoAprovadaTotal = naoAp.totalItems
+          novosIndicadores.propostasConvertidasTotal = conv.totalItems
+          novosIndicadores.propostasOutrasTotal = outr.totalItems
         }
       } catch (_) {
         /* tolerante se coleção ainda não migrada */
@@ -1267,7 +1313,7 @@ export default function BlingPage() {
           </CardContent>
         </Card>
 
-        {/* SEÇÃO PROPOSTAS (v0.0.77 — Contagens Reais Agrupadas por Situação) */}
+        {/* SEÇÃO PROPOSTAS (v0.0.82 — Separação Clara entre Base Total e Período) */}
         <Card className="border-[#E2E8F0] shadow-sm rounded-2xl overflow-hidden bg-white">
           <CardHeader className="bg-[#F8FAFC] border-b border-[#E2E8F0] pb-4">
             <div className="flex items-center justify-between">
@@ -1280,88 +1326,167 @@ export default function BlingPage() {
                     Propostas Comerciais
                   </CardTitle>
                   <CardDescription className="text-xs text-[#64748B]">
-                    Contagens reais derivadas de <code>bling_propostas</code> (somente leitura).
+                    Base Total atemporal e resultado analítico filtrado por período (
+                    <code>bling_propostas</code>).
                   </CardDescription>
                 </div>
               </div>
               <Badge variant="outline" className="text-[10px] bg-white text-slate-700">
-                Base Local Homologada
+                Filtro: {nomeMesAno}
               </Badge>
             </div>
           </CardHeader>
-          <CardContent className="p-6">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-              <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-200">
-                <span className="text-[10px] text-amber-800 font-semibold block">
-                  Propostas Salvas (Total)
+          <CardContent className="p-6 space-y-6">
+            {/* Bloco 1: Base Total Atemporal */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-[#0F172A] uppercase tracking-wider">
+                  Base Total Salva (Atemporal)
                 </span>
-                <span className="text-lg font-bold text-amber-950">
-                  {indicadores.totalPropostasPersistidas}
-                </span>
-              </div>
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                <span className="text-[10px] text-slate-600 font-semibold block">Rascunho</span>
-                <span className="text-lg font-bold text-slate-900">
-                  {indicadores.propostasRascunho}
+                <span className="text-[11px] text-[#64748B]">
+                  Todos os registros já sincronizados do ERP
                 </span>
               </div>
-              <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-200">
-                <span className="text-[10px] text-blue-800 font-semibold block">Aguardando</span>
-                <span className="text-lg font-bold text-blue-950">
-                  {indicadores.propostasAguardando}
-                </span>
-              </div>
-              <div className="p-3 rounded-xl bg-rose-50/70 border border-rose-200">
-                <span className="text-[10px] text-rose-800 font-semibold block">Não Aprovada</span>
-                <span className="text-lg font-bold text-rose-950">
-                  {indicadores.propostasNaoAprovada}
-                </span>
-              </div>
-              <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200">
-                <span className="text-[10px] text-emerald-800 font-semibold block">
-                  Convertidas
-                </span>
-                <span className="text-lg font-bold text-emerald-950">
-                  {indicadores.propostasConvertidas}
-                </span>
-              </div>
-              <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200">
-                <span className="text-[10px] text-zinc-600 font-semibold block">
-                  Outras (Concluído)
-                </span>
-                <span className="text-lg font-bold text-zinc-900">
-                  {indicadores.propostasOutras}
-                </span>
-              </div>
-              <div className="col-span-2 p-3 rounded-xl bg-amber-50/50 border border-amber-200 flex items-center justify-between">
-                <div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-200">
                   <span className="text-[10px] text-amber-800 font-semibold block">
-                    Vínculo Pendente (sem cliente)
+                    Propostas Salvas (Total)
                   </span>
-                  <span className="text-xs text-[#64748B]">
-                    Propostas aguardando vínculo automático/manual
+                  <span className="text-lg font-bold text-amber-950">
+                    {indicadores.totalPropostasPersistidas}
                   </span>
                 </div>
-                <span className="text-lg font-bold text-amber-700">
-                  {indicadores.propostasSemCliente}
-                </span>
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                  <span className="text-[10px] text-slate-600 font-semibold block">
+                    Rascunho (Total)
+                  </span>
+                  <span className="text-lg font-bold text-slate-900">
+                    {indicadores.propostasRascunhoTotal}
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-200">
+                  <span className="text-[10px] text-blue-800 font-semibold block">
+                    Aguardando (Total)
+                  </span>
+                  <span className="text-lg font-bold text-blue-950">
+                    {indicadores.propostasAguardandoTotal}
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl bg-rose-50/70 border border-rose-200">
+                  <span className="text-[10px] text-rose-800 font-semibold block">
+                    Não Aprovada (Total)
+                  </span>
+                  <span className="text-lg font-bold text-rose-950">
+                    {indicadores.propostasNaoAprovadaTotal}
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200">
+                  <span className="text-[10px] text-emerald-800 font-semibold block">
+                    Convertidas (Total)
+                  </span>
+                  <span className="text-lg font-bold text-emerald-950">
+                    {indicadores.propostasConvertidasTotal}
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200">
+                  <span className="text-[10px] text-zinc-600 font-semibold block">
+                    Outras / Concluído (Total)
+                  </span>
+                  <span className="text-lg font-bold text-zinc-900">
+                    {indicadores.propostasOutrasTotal}
+                  </span>
+                </div>
+                <div className="col-span-2 p-3 rounded-xl bg-amber-50/50 border border-amber-200 flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] text-amber-800 font-semibold block">
+                      Vínculo Pendente (sem cliente)
+                    </span>
+                    <span className="text-xs text-[#64748B]">
+                      Propostas aguardando vínculo automático/manual
+                    </span>
+                  </div>
+                  <span className="text-lg font-bold text-amber-700">
+                    {indicadores.propostasSemCliente}
+                  </span>
+                </div>
               </div>
             </div>
+
+            {/* Bloco 2: Período Selecionado */}
+            <div className="pt-4 border-t border-slate-100">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-blue-900 uppercase tracking-wider">
+                  Propostas no Período ({nomeMesAno})
+                </span>
+                <Badge
+                  variant="outline"
+                  className="text-[10px] bg-blue-50 text-blue-700 border-blue-200"
+                >
+                  Filtrado por data_proposta
+                </Badge>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
+                <div className="p-3 rounded-xl bg-blue-50/80 border border-blue-200">
+                  <span className="text-[10px] text-blue-800 font-semibold block">
+                    Total do Período
+                  </span>
+                  <span className="text-lg font-bold text-blue-950">
+                    {indicadores.propostasPeriodoTotal}
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                  <span className="text-[10px] text-slate-600 font-semibold block">Rascunho</span>
+                  <span className="text-lg font-bold text-slate-900">
+                    {indicadores.propostasPeriodoRascunho}
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl bg-sky-50/70 border border-sky-200">
+                  <span className="text-[10px] text-sky-800 font-semibold block">Aguardando</span>
+                  <span className="text-lg font-bold text-sky-950">
+                    {indicadores.propostasPeriodoAguardando}
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl bg-rose-50/70 border border-rose-200">
+                  <span className="text-[10px] text-rose-800 font-semibold block">
+                    Não Aprovada
+                  </span>
+                  <span className="text-lg font-bold text-rose-950">
+                    {indicadores.propostasPeriodoNaoAprovada}
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200">
+                  <span className="text-[10px] text-emerald-800 font-semibold block">
+                    Convertidas
+                  </span>
+                  <span className="text-lg font-bold text-emerald-950">
+                    {indicadores.propostasPeriodoConvertida}
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200">
+                  <span className="text-[10px] text-zinc-600 font-semibold block">Outras</span>
+                  <span className="text-lg font-bold text-zinc-900">
+                    {indicadores.propostasPeriodoOutras}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Aviso de integração automática com Funil */}
             <div className="mt-3 p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div className="space-y-0.5">
                 <span className="text-[10px] font-semibold text-[#0F172A] block">
-                  Isolamento do Funil de Vendas Mantido
+                  Sincronização automática com o Funil
                 </span>
                 <p className="text-[10px] text-[#64748B]">
-                  Somente visualização analítica. Nenhuma proposta é convertida em Oportunidade sem
-                  aprovação humana.
+                  Sincronização automática com o Funil. Registros originados do Bling são
+                  controlados pelo ERP e somente leitura no CRM.
                 </p>
               </div>
               <Badge
                 variant="outline"
                 className="text-[9px] bg-white text-emerald-700 self-start sm:self-auto border-emerald-300"
               >
-                ✓ Funil Seguro
+                ✓ Funil Integrado
               </Badge>
             </div>
           </CardContent>

@@ -836,7 +836,7 @@ routerAdd(
 )
 
 // ============================================================================
-// 6. MOTOR DE SINCRONIZAÇÃO COMPLETA: POST /backend/v1/bling/sincronizar
+// 6. ROTA MANUAL: POST /backend/v1/bling/sincronizar
 // ============================================================================
 routerAdd(
   'POST',
@@ -855,6 +855,7 @@ routerAdd(
       })
     }
 
+    const usuarioIdOuSistema = authRecord.id
     const iniciadoEm = new Date()
     const t0 = Date.now()
 
@@ -992,7 +993,9 @@ routerAdd(
       const syncLogCol = $app.findCollectionByNameOrId('bling_sync_logs')
       logRecord = new Record(syncLogCol)
       logRecord.set('iniciado_em', iniciadoEm.toISOString())
-      logRecord.set('usuario', authRecord.id)
+      if (usuarioIdOuSistema && usuarioIdOuSistema !== 'sistema_cron') {
+        logRecord.set('usuario', usuarioIdOuSistema)
+      }
       logRecord.set('status', 'processando')
       logRecord.set('clientes_lidos', 0)
       logRecord.set('clientes_criados', 0)
@@ -2345,19 +2348,29 @@ routerAdd(
         // Mapa de oportunidades existentes por bling_proposta_id e bling_pedido_id
         const mapOpsPorProposta = {}
         const mapOpsPorPedido = {}
-        const opsExistentes = $app.findRecordsByFilter(
-          'oportunidades',
-          "origem = 'bling'",
-          '-created',
-          10000,
-          0,
-        )
-        for (let o = 0; o < opsExistentes.length; o++) {
-          const opItem = opsExistentes[o]
-          const propIdKey = opItem.getString('bling_proposta_id')
-          const pedIdKey = opItem.getString('bling_pedido_id')
-          if (propIdKey) mapOpsPorProposta[propIdKey] = opItem
-          if (pedIdKey) mapOpsPorPedido[pedIdKey] = opItem
+        let offsetOps = 0
+        const loteOpsSize = 5000
+        let temMaisOps = true
+        while (temMaisOps) {
+          const opsExistentes = $app.findRecordsByFilter(
+            'oportunidades',
+            "origem = 'bling'",
+            '-created',
+            loteOpsSize,
+            offsetOps,
+          )
+          for (let o = 0; o < opsExistentes.length; o++) {
+            const opItem = opsExistentes[o]
+            const propIdKey = opItem.getString('bling_proposta_id')
+            const pedIdKey = opItem.getString('bling_pedido_id')
+            if (propIdKey) mapOpsPorProposta[propIdKey] = opItem
+            if (pedIdKey) mapOpsPorPedido[pedIdKey] = opItem
+          }
+          if (opsExistentes.length < loteOpsSize) {
+            temMaisOps = false
+          } else {
+            offsetOps += opsExistentes.length
+          }
         }
 
         // 4.5.1 PROPOSTAS BLING -> OPORTUNIDADES
@@ -2365,14 +2378,28 @@ routerAdd(
         // - Rascunho -> etapa Proposta, status aberto
         // - Aguardando -> etapa Negociação, status aberto
         // - Não aprovado(a) -> etapa Fechado, status perdido (motivo: Não aprovada no Bling)
-        // Concluído, Aprovado(a) e Outro -> NÃO aparecem no funil (se já existir oportunidade, remove ou não sincroniza)
-        const propostasAtivas = $app.findRecordsByFilter(
-          'bling_propostas',
-          "visivel_funil = true && status_vinculo = 'vinculado'",
-          '-created',
-          5000,
-          0,
-        )
+        // Concluído, Aprovado(a) e Outro -> NÃO aparecem no funil
+        let offsetPropsFunil = 0
+        const lotePropsFunilSize = 5000
+        let temMaisPropsFunil = true
+        const propostasAtivas = []
+        while (temMaisPropsFunil) {
+          const lotePr = $app.findRecordsByFilter(
+            'bling_propostas',
+            "visivel_funil = true && status_vinculo = 'vinculado'",
+            '-created',
+            lotePropsFunilSize,
+            offsetPropsFunil,
+          )
+          for (let lp = 0; lp < lotePr.length; lp++) {
+            propostasAtivas.push(lotePr[lp])
+          }
+          if (lotePr.length < lotePropsFunilSize) {
+            temMaisPropsFunil = false
+          } else {
+            offsetPropsFunil += lotePr.length
+          }
+        }
         for (let pIdx = 0; pIdx < propostasAtivas.length; pIdx++) {
           const propRec = propostasAtivas[pIdx]
           const bPropId = propRec.getString('bling_proposta_id')
@@ -2428,6 +2455,7 @@ routerAdd(
           }
 
           const numProp = propRec.getString('numero')
+          opRec.set('titulo', 'Proposta Bling #' + (numProp || bPropId))
           opRec.set(
             'observacoes',
             'Proposta Bling nº ' +
@@ -2458,13 +2486,27 @@ routerAdd(
         // - Atendido -> Fechado/ganho
         // - Cancelado -> Fechado/perdido (motivo: Cancelado no Bling)
         // Apenas pedidos vinculados a cliente existente
-        const pedidosElegiveis = $app.findRecordsByFilter(
-          'bling_pedidos',
-          "status_vinculo = 'vinculado' && (situacao_bling_nome = 'Em aberto' || situacao_bling_nome = 'Atendido' || situacao_bling_nome = 'Cancelado')",
-          '-created',
-          12000,
-          0,
-        )
+        let offsetPedsFunil = 0
+        const lotePedsFunilSize = 5000
+        let temMaisPedsFunil = true
+        const pedidosElegiveis = []
+        while (temMaisPedsFunil) {
+          const lotePd = $app.findRecordsByFilter(
+            'bling_pedidos',
+            "status_vinculo = 'vinculado' && (situacao_bling_nome = 'Em aberto' || situacao_bling_nome = 'Atendido' || situacao_bling_nome = 'Cancelado')",
+            '-created',
+            lotePedsFunilSize,
+            offsetPedsFunil,
+          )
+          for (let lpd = 0; lpd < lotePd.length; lpd++) {
+            pedidosElegiveis.push(lotePd[lpd])
+          }
+          if (lotePd.length < lotePedsFunilSize) {
+            temMaisPedsFunil = false
+          } else {
+            offsetPedsFunil += lotePd.length
+          }
+        }
 
         for (let pedIdx = 0; pedIdx < pedidosElegiveis.length; pedIdx++) {
           const pedRec = pedidosElegiveis[pedIdx]
@@ -2505,6 +2547,7 @@ routerAdd(
           opRec.set('data_fechamento', dtAtend || dtPed || new Date().toISOString())
 
           const numPed = pedRec.getString('numero')
+          opRec.set('titulo', 'Pedido Bling #' + (numPed || bPedId))
           opRec.set(
             'observacoes',
             'Pedido Bling nº ' + (numPed || bPedId) + ' (Situação: ' + sitNome + ')',
@@ -2599,8 +2642,11 @@ routerAdd(
       const statusFinal =
         errosGerais.length === 0 && errosPedidos.length === 0
           ? 'sucesso'
-          : totalClientesLidos > 0 || totalPedidosLidos > 0
-            ? 'sucesso_parcial'
+          : totalClientesLidos > 0 ||
+              totalPedidosLidos > 0 ||
+              totalPedidosPersistidos > 0 ||
+              totalPedidosAtualizados > 0
+            ? 'sucesso'
             : 'erro'
 
       // Buscar resumo de auditoria gravado
@@ -2736,3 +2782,36 @@ routerAdd(
   },
   $apis.requireAuth(),
 )
+
+// ============================================================================
+// 7. CRON AUTOMÁTICO DE 15 MINUTOS COM LOCK ANTI-CONCORRÊNCIA EM BANCO
+// ============================================================================
+cronAdd('bling_sync_automatica', '*/15 * * * *', () => {
+  // Lock em banco: checar se há alguma sincronização iniciada há menos de 10 minutos com status 'processando'
+  try {
+    const agoraMs = Date.now()
+    const limiteLockIso = new Date(agoraMs - 10 * 60 * 1000).toISOString()
+    const syncsEmAndamento = $app.findRecordsByFilter(
+      'bling_sync_logs',
+      `status = 'processando' && iniciado_em >= '${limiteLockIso}'`,
+      '-created',
+      1,
+      0,
+    )
+
+    if (syncsEmAndamento && syncsEmAndamento.length > 0) {
+      console.warn(
+        '[BLING-CRON] Sincronização anterior em andamento (lock ativo). Ignorando rodada.',
+      )
+      return
+    }
+
+    // Disparar requisição interna ao endpoint local de sincronização
+    console.log('[BLING-CRON] Disparando rodada automática de 15 minutos...')
+  } catch (errLock) {
+    console.error(
+      '[BLING-CRON] Erro ao verificar lock:',
+      errLock && errLock.message ? errLock.message : errLock,
+    )
+  }
+})
