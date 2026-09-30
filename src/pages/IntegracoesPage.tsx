@@ -158,19 +158,29 @@ export default function IntegracoesPage() {
   // Carregar status da conexão Bling OAuth
   const carregarBlingStatus = useCallback(async () => {
     try {
-      const resStatus = await pb.send<{
-        conectado: boolean
-        status: string
-        configurado_no_servidor: boolean
-        tipo_autenticacao: string
-        expires_at: string | null
-        ultima_renovacao: string | null
-        ultimo_erro: string | null
-      }>('/backend/v1/bling/status', {
+      const resStatus = await pb.send<
+        Partial<{
+          conectado: boolean
+          status: string
+          configurado_no_servidor: boolean
+          tipo_autenticacao: string
+          expires_at: string | null
+          ultima_renovacao: string | null
+          ultimo_erro: string | null
+        }>
+      >('/backend/v1/bling/status', {
         method: 'GET',
       })
-      if (resStatus) {
-        setBlingStatusData(resStatus)
+      if (resStatus && typeof resStatus === 'object') {
+        setBlingStatusData({
+          conectado: Boolean(resStatus.conectado),
+          status: resStatus.status || 'desconectado',
+          configurado_no_servidor: Boolean(resStatus.configurado_no_servidor),
+          tipo_autenticacao: resStatus.tipo_autenticacao || 'nenhum',
+          expires_at: resStatus.expires_at || null,
+          ultima_renovacao: resStatus.ultima_renovacao || null,
+          ultimo_erro: resStatus.ultimo_erro || null,
+        })
       }
     } catch (_) {
       // Falha silenciosa no status para não bloquear a página
@@ -672,8 +682,32 @@ export default function IntegracoesPage() {
     )
   }
 
+  // Helper para formatar data/hora de diagnóstico com validação de NaN
+  const formatarDataDiagnostico = (valor: string | null | undefined, fallback: string): string => {
+    if (!valor || typeof valor !== 'string' || !valor.trim()) {
+      return fallback
+    }
+    const d = new Date(valor)
+    if (isNaN(d.getTime())) {
+      return fallback
+    }
+    return d.toLocaleString('pt-BR')
+  }
+
+  // Helper para formatar data/hora geral de ISO string com validação de NaN
+  const formatarDataHora = (valor: string | null | undefined): string => {
+    if (!valor || typeof valor !== 'string' || !valor.trim()) {
+      return '—'
+    }
+    const d = new Date(valor)
+    if (isNaN(d.getTime())) {
+      return '—'
+    }
+    return d.toLocaleString('pt-BR')
+  }
+
   // Status calculado de WhatsApp: Configurado se tiver token salvo e telefone preenchidos
-  const isWhatsappConfigurado = Boolean(temWhatsappSalvo && whatsappTelefone.trim())
+  const isWhatsappConfigurado = Boolean(temWhatsappSalvo && (whatsappTelefone || '').trim())
 
   return (
     <div className="space-y-8 animate-fade-in pb-16 max-w-5xl mx-auto">
@@ -997,8 +1031,7 @@ export default function IntegracoesPage() {
                     <strong>Clientes sem alterações:</strong> {resultadoSync.clientes_ignorados}
                   </div>
                   <div>
-                    <strong>Data/Hora:</strong>{' '}
-                    {new Date(resultadoSync.finalizado_em).toLocaleString('pt-BR')}
+                    <strong>Data/Hora:</strong> {formatarDataHora(resultadoSync.finalizado_em)}
                   </div>
                 </div>
 
@@ -1008,7 +1041,7 @@ export default function IntegracoesPage() {
                   </p>
                 )}
 
-                {resultadoSync.erros && resultadoSync.erros.length > 0 && (
+                {Array.isArray(resultadoSync.erros) && resultadoSync.erros.length > 0 && (
                   <div className="p-2.5 rounded-lg bg-red-100/70 border border-red-200 text-[11px] text-red-900 space-y-1">
                     <p className="font-bold flex items-center gap-1 text-red-800">
                       <AlertTriangle className="w-3.5 h-3.5" />
@@ -1058,9 +1091,7 @@ export default function IntegracoesPage() {
                     Expiração do Access Token
                   </span>
                   <span className="font-mono text-xs text-[#0F172A]">
-                    {blingStatusData.expires_at
-                      ? new Date(blingStatusData.expires_at).toLocaleString('pt-BR')
-                      : 'Não aplicável'}
+                    {formatarDataDiagnostico(blingStatusData.expires_at, 'Não aplicável')}
                   </span>
                 </div>
 
@@ -1069,9 +1100,10 @@ export default function IntegracoesPage() {
                     Última Renovação (Refresh)
                   </span>
                   <span className="font-mono text-xs text-[#0F172A]">
-                    {blingStatusData.ultima_renovacao
-                      ? new Date(blingStatusData.ultima_renovacao).toLocaleString('pt-BR')
-                      : 'Nenhuma renovação registrada'}
+                    {formatarDataDiagnostico(
+                      blingStatusData.ultima_renovacao,
+                      'Nenhuma renovação registrada',
+                    )}
                   </span>
                 </div>
               </div>
