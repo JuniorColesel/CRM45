@@ -84,12 +84,32 @@ export default function IntegracoesPage() {
   const [salvandoIa, setSalvandoIa] = useState(false)
 
   // ==========================================
-  // ESTADO: SEÇÃO A - BLING
+  // ESTADO: SEÇÃO A - BLING (OAuth v3 + Sincronização)
   // ==========================================
   const [blingToken, setBlingToken] = useState<string>('')
   const [showBlingToken, setShowBlingToken] = useState(false)
   const [temBlingSalvo, setTemBlingSalvo] = useState(false)
   const [sincronizandoBling, setSincronizandoBling] = useState(false)
+  const [iniciandoConexaoBling, setIniciandoConexaoBling] = useState(false)
+  const [desconectandoBling, setDesconectandoBling] = useState(false)
+  const [mostrarTokenLegado, setMostrarTokenLegado] = useState(false)
+  const [blingStatusData, setBlingStatusData] = useState<{
+    conectado: boolean
+    status: 'conectado' | 'desconectado' | 'erro_renovacao' | string
+    configurado_no_servidor: boolean
+    tipo_autenticacao: string
+    expires_at: string | null
+    ultima_renovacao: string | null
+    ultimo_erro: string | null
+  }>({
+    conectado: false,
+    status: 'desconectado',
+    configurado_no_servidor: false,
+    tipo_autenticacao: 'nenhum',
+    expires_at: null,
+    ultima_renovacao: null,
+    ultimo_erro: null,
+  })
   const [resultadoSync, setResultadoSync] = useState<{
     iniciado_em: string
     finalizado_em: string
@@ -134,6 +154,28 @@ export default function IntegracoesPage() {
     tomDeVoz: 'profissional',
     promptSistema: PROMPT_IA_PADRAO,
   })
+
+  // Carregar status da conexão Bling OAuth
+  const carregarBlingStatus = useCallback(async () => {
+    try {
+      const resStatus = await pb.send<{
+        conectado: boolean
+        status: string
+        configurado_no_servidor: boolean
+        tipo_autenticacao: string
+        expires_at: string | null
+        ultima_renovacao: string | null
+        ultimo_erro: string | null
+      }>('/backend/v1/bling/status', {
+        method: 'GET',
+      })
+      if (resStatus) {
+        setBlingStatusData(resStatus)
+      }
+    } catch (_) {
+      // Falha silenciosa no status para não bloquear a página
+    }
+  }, [])
 
   // Carregar configurações reais do backend (com máscaras para campos sensíveis)
   const carregarConfiguracoes = useCallback(async () => {
@@ -184,14 +226,135 @@ export default function IntegracoesPage() {
   useEffect(() => {
     if (podeAcessar) {
       carregarConfiguracoes()
+      carregarBlingStatus()
     }
-  }, [podeAcessar, carregarConfiguracoes])
+  }, [podeAcessar, carregarConfiguracoes, carregarBlingStatus])
+
+  // Listener para quando a janela de autorização do Bling for fechada ou foco retornar
+  useEffect(() => {
+    const handleFocus = () => {
+      if (iniciandoConexaoBling) {
+        setIniciandoConexaoBling(false)
+        carregarBlingStatus()
+      }
+    }
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [iniciandoConexaoBling, carregarBlingStatus])
 
   const handleVoltar = () => {
     if (window.history.length > 2) {
       navigate(-1)
     } else {
       navigate('/configuracoes')
+    }
+  }
+
+  // ==========================================
+  // HANDLER: INICIAR FLUXO OAUTH BLING
+  // ==========================================
+  const handleConectarBlingOAuth = async () => {
+    if (!isCeo) {
+      toast({
+        variant: 'destructive',
+        title: 'Permissão insuficiente',
+        description: 'Apenas o perfil CEO / Financeiro pode conectar o CRM ao Bling.',
+      })
+      return
+    }
+
+    try {
+      setIniciandoConexaoBling(true)
+      const res = await pb.send<{
+        success: boolean
+        auth_url?: string
+        message?: string
+        configurado?: boolean
+      }>('/backend/v1/bling/connect?format=json', {
+        method: 'GET',
+      })
+
+      if (res && res.success && res.auth_url) {
+        // Abrir janela popup centralizada para autorização segura no Bling
+        const width = 650
+        const height = 750
+        const left = Math.max(0, (window.screen.width - width) / 2)
+        const top = Math.max(0, (window.screen.height - height) / 2)
+
+        const authWindow = window.open(
+          res.auth_url,
+          'oauth_bling_popup',
+          `width=${width},height=${height},top=${top},left=${left},scrollbars=yes,status=no`,
+        )
+
+        if (authWindow) {
+          authWindow.focus()
+          toast({
+            title: 'Aguardando autorização no Bling',
+            description: 'Conclua a autorização na janela aberta e retorne ao CRM.',
+          })
+        } else {
+          // Se popup foi bloqueado pelo navegador, redirecionar na própria aba
+          window.location.href = res.auth_url
+        }
+      } else {
+        toast({
+          variant: 'destructive',
+          title: 'Não configurado no servidor',
+          description:
+            res?.message ||
+            'Segredos do Bling (BLING_CLIENT_ID / BLING_CLIENT_SECRET) ainda não configurados.',
+        })
+        setIniciandoConexaoBling(false)
+      }
+    } catch (err: unknown) {
+      setIniciandoConexaoBling(false)
+      toast({
+        variant: 'destructive',
+        title: 'Falha ao iniciar conexão OAuth',
+        description: getErrorMessage(err),
+      })
+    }
+  }
+
+  // ==========================================
+  // HANDLER: DESCONECTAR BLING
+  // ==========================================
+  const handleDesconectarBling = async () => {
+    if (!isCeo) {
+      toast({
+        variant: 'destructive',
+        title: 'Permissão insuficiente',
+        description: 'Apenas o perfil CEO / Financeiro pode desconectar a integração.',
+      })
+      return
+    }
+
+    if (!confirm('Deseja realmente desconectar a integração com o Bling ERP?')) {
+      return
+    }
+
+    try {
+      setDesconectandoBling(true)
+      const res = await pb.send<{ success: boolean; message: string }>(
+        '/backend/v1/bling/disconnect',
+        { method: 'POST' },
+      )
+      if (res && res.success) {
+        toast({
+          title: 'Bling desconectado',
+          description: 'A autorização foi revogada com sucesso no backend.',
+        })
+        await carregarBlingStatus()
+      }
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao desconectar',
+        description: getErrorMessage(err),
+      })
+    } finally {
+      setDesconectandoBling(false)
     }
   }
 
@@ -208,11 +371,11 @@ export default function IntegracoesPage() {
       return
     }
 
-    if (!temBlingSalvo && !blingToken) {
+    if (!blingStatusData.conectado && !temBlingSalvo && !blingToken) {
       toast({
         variant: 'destructive',
-        title: 'Token não configurado',
-        description: 'Por favor, salve o token de API do Bling antes de sincronizar.',
+        title: 'Bling desconectado',
+        description: 'Conecte sua conta Bling via OAuth antes de disparar a sincronização.',
       })
       return
     }
@@ -246,6 +409,7 @@ export default function IntegracoesPage() {
             title: 'Sincronização com Bling concluída',
             description: `${res.clientes_consultados} clientes e ${res.pedidos_consultados} pedidos processados.`,
           })
+          carregarBlingStatus()
         } else {
           toast({
             variant: 'destructive',
@@ -567,7 +731,7 @@ export default function IntegracoesPage() {
       </div>
 
       {/* ======================================================== */}
-      {/* SEÇÃO A: BLING */}
+      {/* SEÇÃO A: BLING ERP (OAuth v3 + Sincronização Read-Only) */}
       {/* ======================================================== */}
       <Card className="border-[#E2E8F0] shadow-sm rounded-2xl overflow-hidden bg-white">
         <CardHeader className="bg-[#F8FAFC] border-b border-[#E2E8F0] pb-4">
@@ -579,100 +743,153 @@ export default function IntegracoesPage() {
               <div>
                 <div className="flex items-center gap-2">
                   <CardTitle className="text-lg font-bold text-[#0F172A]">1. Bling ERP</CardTitle>
-                  {temBlingSalvo ? (
+                  {blingStatusData.conectado ? (
                     <Badge className="bg-emerald-50 text-[#16A34A] border-emerald-200 text-[11px] font-semibold gap-1">
                       <CheckCircle2 className="w-3 h-3" />
-                      Token Ativo no Servidor
+                      Status: Conectado
+                    </Badge>
+                  ) : iniciandoConexaoBling ? (
+                    <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-[11px] font-semibold gap-1">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Status: Aguardando autorização
                     </Badge>
                   ) : (
-                    <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-[11px] font-semibold">
-                      Sem Token
+                    <Badge className="bg-slate-100 text-slate-700 border-slate-300 text-[11px] font-semibold">
+                      Status: Desconectado
+                    </Badge>
+                  )}
+                  {blingStatusData.conectado && (
+                    <Badge variant="outline" className="text-[10px] text-emerald-800 bg-white">
+                      OAuth v3 Seguro
                     </Badge>
                   )}
                 </div>
                 <CardDescription className="text-xs text-[#64748B]">
-                  Integração de pedidos de venda, contatos e sincronização de dados via proxy
-                  seguro.
+                  Conexão oficial via OAuth 2.0 com a API v3 do Bling e sincronização somente
+                  leitura.
                 </CardDescription>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
-              <a
-                href="https://ajuda.bling.com.br"
-                target="_blank"
-                rel="noreferrer noopener"
-                className="inline-flex items-center gap-1.5 text-xs text-[#2563EB] hover:text-[#1D4ED8] hover:underline font-semibold bg-blue-50/70 border border-blue-200 px-3 py-1.5 rounded-lg transition-colors"
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={carregarBlingStatus}
+                className="text-xs text-[#64748B] hover:text-[#0F172A] h-8 px-2.5 gap-1.5"
+                title="Atualizar status da conexão"
               >
-                <span>Como obter o token</span>
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Atualizar status</span>
+              </Button>
             </div>
           </div>
         </CardHeader>
 
         <CardContent className="p-6 space-y-6">
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm text-[#0F172A] flex items-start gap-3">
-            <Info className="w-5 h-5 text-[#16A34A] flex-shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <p className="font-semibold text-slate-800">Como exportar suas planilhas no Bling:</p>
-              <p className="text-xs text-[#64748B] leading-relaxed">
-                Exporte seus clientes em{' '}
-                <strong>Cadastros &gt; Contatos &gt; Exportar planilha</strong> e suas vendas em{' '}
-                <strong>Vendas &gt; Pedidos &gt; Exportar</strong>. Depois use a tela{' '}
-                <button
-                  type="button"
-                  onClick={() => navigate('/importacao')}
-                  className="text-[#16A34A] underline font-semibold hover:text-[#15803D]"
-                >
-                  Importação
-                </button>{' '}
-                para subir os arquivos.
-              </p>
+          {/* BLOCO A: CONEXÃO OAUTH */}
+          <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-[#0F172A] flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-[#16A34A]" />
+                    Conexão OAuth v3 com o Bling
+                  </h4>
+                </div>
+                <p className="text-xs text-[#64748B]">
+                  {blingStatusData.conectado
+                    ? 'O CRM está conectado com segurança ao Bling ERP via tokens gerenciados no backend.'
+                    : 'Autorize o CRM a consultar clientes e vendas no Bling.'}
+                </p>
+              </div>
+
+              {isCeo && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {!blingStatusData.conectado ? (
+                    <Button
+                      type="button"
+                      onClick={handleConectarBlingOAuth}
+                      disabled={iniciandoConexaoBling}
+                      className="bg-[#16A34A] hover:bg-[#15803D] text-white font-semibold text-xs shadow-sm gap-2 h-9 px-4"
+                    >
+                      {iniciandoConexaoBling ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Plug className="w-4 h-4" />
+                      )}
+                      {iniciandoConexaoBling ? 'Aguardando autorização...' : 'CONECTAR AO BLING'}
+                    </Button>
+                  ) : (
+                    <>
+                      <Button
+                        type="button"
+                        onClick={handleConectarBlingOAuth}
+                        disabled={iniciandoConexaoBling}
+                        variant="outline"
+                        className="border-slate-300 text-[#0F172A] font-semibold text-xs shadow-2xs gap-1.5 h-9 px-3 hover:bg-slate-100"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        RECONECTAR
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={handleDesconectarBling}
+                        disabled={desconectandoBling}
+                        variant="ghost"
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50 text-xs font-semibold h-9 px-3"
+                      >
+                        {desconectandoBling ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : null}
+                        DESCONECTAR
+                      </Button>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
+
+            {/* Aviso quando os segredos ainda não existem no ambiente */}
+            {!blingStatusData.configurado_no_servidor && !blingStatusData.conectado && (
+              <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-start gap-2.5">
+                <Info className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-semibold text-amber-950">
+                    Segredos do Bling ainda não configurados no servidor:
+                  </p>
+                  <p className="text-[11px] text-amber-800 leading-relaxed">
+                    Para habilitar o fluxo oficial, configure os secrets{' '}
+                    <code>BLING_CLIENT_ID</code>, <code>BLING_CLIENT_SECRET</code> e{' '}
+                    <code>BLING_REDIRECT_URI</code> no backend. O CRM falhará de forma segura e não
+                    expõe nenhuma credencial no navegador.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
-          <form onSubmit={handleSalvarBling} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="bling-token" className="text-xs font-bold text-[#0F172A]">
-                Token de API (Bling) — Mascarado
-              </Label>
-              <div className="relative">
-                <Input
-                  id="bling-token"
-                  type={showBlingToken ? 'text' : 'password'}
-                  value={blingToken}
-                  onChange={(e) => setBlingToken(e.target.value)}
-                  placeholder={
-                    temBlingSalvo
-                      ? 'Token já configurado no backend'
-                      : 'Cole aqui seu token de API v2/v3'
-                  }
-                  className="pr-10 h-10 text-xs font-mono bg-white"
-                  disabled={!isCeo}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowBlingToken(!showBlingToken)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#64748B] hover:text-[#0F172A]"
-                  title={showBlingToken ? 'Ocultar máscara' : 'Exibir máscara'}
-                >
-                  {showBlingToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
+          {/* BLOCO B: SINCRONIZAÇÃO */}
+          <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-[#0F172A] flex items-center gap-1.5">
+                  <RefreshCw className="w-4 h-4 text-[#2563EB]" />
+                  Motor de Sincronização Read-Only
+                </h4>
+                <p className="text-xs text-[#64748B]">
+                  Executa a leitura paginada de clientes e vendas do Bling com deduplicação, de-para
+                  de vendedores e atualização idempotente de histórico comercial.
+                </p>
               </div>
-              <p className="text-[11px] text-[#64748B]">
-                Gravado exclusivamente na coleção protegida <code>integracoes_config</code> (RLS
-                restrita a CEO). O frontend nunca armazena nem visualiza o token real.
-              </p>
-            </div>
 
-            {isCeo && (
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
+              {isCeo && (
                 <Button
                   type="button"
                   onClick={handleSincronizarBling}
-                  disabled={sincronizandoBling || salvandoBling}
-                  className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-semibold text-xs shadow-sm gap-2 h-9 px-4"
+                  disabled={sincronizandoBling || iniciandoConexaoBling}
+                  className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-semibold text-xs shadow-sm gap-2 h-9 px-4 flex-shrink-0"
                 >
                   {sincronizandoBling ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -681,149 +898,257 @@ export default function IntegracoesPage() {
                   )}
                   {sincronizandoBling ? 'Sincronizando com o Bling...' : 'SINCRONIZAR BLING'}
                 </Button>
+              )}
+            </div>
 
-                <Button
-                  type="submit"
-                  disabled={salvandoBling || sincronizandoBling}
-                  className="bg-[#16A34A] hover:bg-[#15803D] text-white font-semibold text-xs shadow-sm gap-2 h-9 px-4"
-                >
-                  {salvandoBling ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Save className="w-4 h-4" />
-                  )}
-                  Salvar Token do Bling no Servidor
-                </Button>
+            {/* Painel de Resultados da Sincronização Bling */}
+            {sincronizandoBling && (
+              <div className="p-4 rounded-xl bg-blue-50 border border-blue-200 text-xs text-[#0F172A] flex items-center gap-3 animate-pulse">
+                <Loader2 className="w-5 h-5 text-blue-600 animate-spin flex-shrink-0" />
+                <div className="space-y-0.5">
+                  <p className="font-semibold text-blue-900">
+                    Processando sincronização com a API do Bling ERP...
+                  </p>
+                  <p className="text-[11px] text-blue-700">
+                    Percorrendo páginas de contatos e pedidos de venda em modo{' '}
+                    <strong>somente leitura (GET)</strong> através do token OAuth seguro.
+                  </p>
+                </div>
               </div>
             )}
-          </form>
 
-          {/* Painel de Resultados da Sincronização Bling (Item 3 da especificação) */}
-          {sincronizandoBling && (
-            <div className="p-4 rounded-xl bg-blue-50 border border-blue-200 text-xs text-[#0F172A] flex items-center gap-3 animate-pulse">
-              <Loader2 className="w-5 h-5 text-blue-600 animate-spin flex-shrink-0" />
-              <div className="space-y-0.5">
-                <p className="font-semibold text-blue-900">
-                  Processando sincronização com a API do Bling ERP...
-                </p>
-                <p className="text-[11px] text-blue-700">
-                  Percorrendo páginas de contatos e pedidos de venda em modo{' '}
-                  <strong>somente leitura (GET)</strong>. Aguarde a consolidação idempotente dos
-                  dados.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {resultadoSync && !sincronizandoBling && (
-            <div
-              className={`p-4 rounded-xl border text-xs space-y-3 ${
-                resultadoSync.status === 'erro'
-                  ? 'bg-red-50/80 border-red-200 text-red-950'
-                  : resultadoSync.status === 'sucesso_parcial'
-                    ? 'bg-amber-50/80 border-amber-200 text-amber-950'
-                    : 'bg-emerald-50/80 border-emerald-200 text-emerald-950'
-              }`}
-            >
-              <div className="flex items-center justify-between gap-2 border-b border-black/5 pb-2">
-                <div className="flex items-center gap-2">
-                  {resultadoSync.status === 'erro' ? (
-                    <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0" />
-                  ) : (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                  )}
-                  <span className="font-bold text-sm">
-                    {resultadoSync.status === 'erro'
-                      ? 'Falha na Sincronização'
-                      : resultadoSync.status === 'sucesso_parcial'
-                        ? 'Sincronização Concluída com Avisos'
-                        : 'Sincronização Concluída com Sucesso'}
-                  </span>
-                  <Badge variant="outline" className="text-[10px] bg-white">
-                    {resultadoSync.status}
-                  </Badge>
-                </div>
-                <div className="flex items-center gap-1.5 text-[11px] text-[#64748B]">
-                  <Clock className="w-3.5 h-3.5" />
-                  <span>
-                    Duração: {Math.round(resultadoSync.duracao_ms / 1000)}s (
-                    {resultadoSync.duracao_ms} ms)
-                  </span>
-                </div>
-              </div>
-
-              {/* Resumo em cards métricos */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-center">
-                <div className="bg-white/90 p-2.5 rounded-lg border border-black/5 shadow-2xs">
-                  <span className="block text-[10px] text-[#64748B] font-semibold">
-                    Clientes Consultados
-                  </span>
-                  <span className="text-base font-bold text-[#0F172A]">
-                    {resultadoSync.clientes_consultados}
-                  </span>
-                </div>
-                <div className="bg-white/90 p-2.5 rounded-lg border border-black/5 shadow-2xs">
-                  <span className="block text-[10px] text-emerald-700 font-semibold">
-                    Clientes Criados
-                  </span>
-                  <span className="text-base font-bold text-emerald-700">
-                    {resultadoSync.clientes_criados}
-                  </span>
-                </div>
-                <div className="bg-white/90 p-2.5 rounded-lg border border-black/5 shadow-2xs">
-                  <span className="block text-[10px] text-blue-700 font-semibold">
-                    Clientes Atualizados
-                  </span>
-                  <span className="text-base font-bold text-blue-700">
-                    {resultadoSync.clientes_atualizados}
-                  </span>
-                </div>
-                <div className="bg-white/90 p-2.5 rounded-lg border border-black/5 shadow-2xs">
-                  <span className="block text-[10px] text-purple-700 font-semibold">
-                    Pedidos Consultados
-                  </span>
-                  <span className="text-base font-bold text-purple-700">
-                    {resultadoSync.pedidos_consultados}
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] pt-1">
-                <div>
-                  <strong>Clientes com vendas consolidadas:</strong>{' '}
-                  {resultadoSync.clientes_com_compras_atualizadas} |{' '}
-                  <strong>Clientes sem alterações:</strong> {resultadoSync.clientes_ignorados}
-                </div>
-                <div>
-                  <strong>Data/Hora:</strong>{' '}
-                  {new Date(resultadoSync.finalizado_em).toLocaleString('pt-BR')}
-                </div>
-              </div>
-
-              {resultadoSync.mensagem && (
-                <p className="text-[11px] text-[#334155] italic bg-white/60 p-2 rounded border border-black/5">
-                  {resultadoSync.mensagem}
-                </p>
-              )}
-
-              {resultadoSync.erros && resultadoSync.erros.length > 0 && (
-                <div className="p-2.5 rounded-lg bg-red-100/70 border border-red-200 text-[11px] text-red-900 space-y-1">
-                  <p className="font-bold flex items-center gap-1 text-red-800">
-                    <AlertTriangle className="w-3.5 h-3.5" />
-                    Ocorrências ({resultadoSync.erros.length}):
-                  </p>
-                  <ul className="list-disc list-inside space-y-0.5 text-[10px]">
-                    {resultadoSync.erros.slice(0, 5).map((err, i) => (
-                      <li key={i}>{err}</li>
-                    ))}
-                    {resultadoSync.erros.length > 5 && (
-                      <li>
-                        + {resultadoSync.erros.length - 5} outras ocorrências registradas em log.
-                      </li>
+            {resultadoSync && !sincronizandoBling && (
+              <div
+                className={`p-4 rounded-xl border text-xs space-y-3 ${
+                  resultadoSync.status === 'erro'
+                    ? 'bg-red-50/80 border-red-200 text-red-950'
+                    : resultadoSync.status === 'sucesso_parcial'
+                      ? 'bg-amber-50/80 border-amber-200 text-amber-950'
+                      : 'bg-emerald-50/80 border-emerald-200 text-emerald-950'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2 border-b border-black/5 pb-2">
+                  <div className="flex items-center gap-2">
+                    {resultadoSync.status === 'erro' ? (
+                      <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0" />
+                    ) : (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
                     )}
-                  </ul>
+                    <span className="font-bold text-sm">
+                      {resultadoSync.status === 'erro'
+                        ? 'Falha na Sincronização'
+                        : resultadoSync.status === 'sucesso_parcial'
+                          ? 'Sincronização Concluída com Avisos'
+                          : 'Sincronização Concluída com Sucesso'}
+                    </span>
+                    <Badge variant="outline" className="text-[10px] bg-white">
+                      {resultadoSync.status}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[11px] text-[#64748B]">
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>
+                      Duração: {Math.round(resultadoSync.duracao_ms / 1000)}s (
+                      {resultadoSync.duracao_ms} ms)
+                    </span>
+                  </div>
+                </div>
+
+                {/* Resumo em cards métricos */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-center">
+                  <div className="bg-white/90 p-2.5 rounded-lg border border-black/5 shadow-2xs">
+                    <span className="block text-[10px] text-[#64748B] font-semibold">
+                      Clientes Consultados
+                    </span>
+                    <span className="text-base font-bold text-[#0F172A]">
+                      {resultadoSync.clientes_consultados}
+                    </span>
+                  </div>
+                  <div className="bg-white/90 p-2.5 rounded-lg border border-black/5 shadow-2xs">
+                    <span className="block text-[10px] text-emerald-700 font-semibold">
+                      Clientes Criados
+                    </span>
+                    <span className="text-base font-bold text-emerald-700">
+                      {resultadoSync.clientes_criados}
+                    </span>
+                  </div>
+                  <div className="bg-white/90 p-2.5 rounded-lg border border-black/5 shadow-2xs">
+                    <span className="block text-[10px] text-blue-700 font-semibold">
+                      Clientes Atualizados
+                    </span>
+                    <span className="text-base font-bold text-blue-700">
+                      {resultadoSync.clientes_atualizados}
+                    </span>
+                  </div>
+                  <div className="bg-white/90 p-2.5 rounded-lg border border-black/5 shadow-2xs">
+                    <span className="block text-[10px] text-purple-700 font-semibold">
+                      Pedidos Consultados
+                    </span>
+                    <span className="text-base font-bold text-purple-700">
+                      {resultadoSync.pedidos_consultados}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] pt-1">
+                  <div>
+                    <strong>Clientes com vendas consolidadas:</strong>{' '}
+                    {resultadoSync.clientes_com_compras_atualizadas} |{' '}
+                    <strong>Clientes sem alterações:</strong> {resultadoSync.clientes_ignorados}
+                  </div>
+                  <div>
+                    <strong>Data/Hora:</strong>{' '}
+                    {new Date(resultadoSync.finalizado_em).toLocaleString('pt-BR')}
+                  </div>
+                </div>
+
+                {resultadoSync.mensagem && (
+                  <p className="text-[11px] text-[#334155] italic bg-white/60 p-2 rounded border border-black/5">
+                    {resultadoSync.mensagem}
+                  </p>
+                )}
+
+                {resultadoSync.erros && resultadoSync.erros.length > 0 && (
+                  <div className="p-2.5 rounded-lg bg-red-100/70 border border-red-200 text-[11px] text-red-900 space-y-1">
+                    <p className="font-bold flex items-center gap-1 text-red-800">
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      Ocorrências ({resultadoSync.erros.length}):
+                    </p>
+                    <ul className="list-disc list-inside space-y-0.5 text-[10px]">
+                      {resultadoSync.erros.slice(0, 5).map((err, i) => (
+                        <li key={i}>{err}</li>
+                      ))}
+                      {resultadoSync.erros.length > 5 && (
+                        <li>
+                          + {resultadoSync.erros.length - 5} outras ocorrências registradas em log.
+                        </li>
+                      )}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* BLOCO C: DIAGNÓSTICO (EXCLUSIVO CEO) */}
+          {isCeo && (
+            <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-[#64748B] flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-slate-500" />
+                  Diagnóstico Seguro da Conexão (Somente CEO)
+                </h4>
+                <Badge variant="outline" className="text-[10px] bg-white text-slate-600">
+                  Zero Tokens Expostos
+                </Badge>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div className="bg-white p-3 rounded-lg border border-slate-200">
+                  <span className="block text-[10px] font-semibold text-[#64748B]">
+                    Status da Conexão
+                  </span>
+                  <span className="font-bold text-[#0F172A] capitalize">
+                    {blingStatusData.conectado ? 'Conectado (Ativo)' : blingStatusData.status}
+                  </span>
+                </div>
+
+                <div className="bg-white p-3 rounded-lg border border-slate-200">
+                  <span className="block text-[10px] font-semibold text-[#64748B]">
+                    Expiração do Access Token
+                  </span>
+                  <span className="font-mono text-xs text-[#0F172A]">
+                    {blingStatusData.expires_at
+                      ? new Date(blingStatusData.expires_at).toLocaleString('pt-BR')
+                      : 'Não aplicável'}
+                  </span>
+                </div>
+
+                <div className="bg-white p-3 rounded-lg border border-slate-200">
+                  <span className="block text-[10px] font-semibold text-[#64748B]">
+                    Última Renovação (Refresh)
+                  </span>
+                  <span className="font-mono text-xs text-[#0F172A]">
+                    {blingStatusData.ultima_renovacao
+                      ? new Date(blingStatusData.ultima_renovacao).toLocaleString('pt-BR')
+                      : 'Nenhuma renovação registrada'}
+                  </span>
+                </div>
+              </div>
+
+              {blingStatusData.ultimo_erro && (
+                <div className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-xs text-red-900">
+                  <strong>Último Erro Registrado:</strong> {blingStatusData.ultimo_erro}
                 </div>
               )}
+
+              {/* Seção retrátil para o Token Manual Legado (Deprecated) */}
+              <div className="pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setMostrarTokenLegado(!mostrarTokenLegado)}
+                  className="text-xs text-[#64748B] hover:text-[#0F172A] underline font-medium"
+                >
+                  {mostrarTokenLegado
+                    ? 'Ocultar configurações do token manual (legado)'
+                    : 'Visualizar token de API manual (legado / deprecated)'}
+                </button>
+
+                {mostrarTokenLegado && (
+                  <form onSubmit={handleSalvarBling} className="space-y-3 pt-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="bling-token" className="text-xs font-bold text-[#0F172A]">
+                        Token de API Legado (Bling) — Mascarado
+                      </Label>
+                      <div className="relative">
+                        <Input
+                          id="bling-token"
+                          type={showBlingToken ? 'text' : 'password'}
+                          value={blingToken}
+                          onChange={(e) => setBlingToken(e.target.value)}
+                          placeholder={
+                            temBlingSalvo
+                              ? 'Token legado já configurado'
+                              : 'Cole aqui seu token antigo'
+                          }
+                          className="pr-10 h-9 text-xs font-mono bg-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowBlingToken(!showBlingToken)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#64748B] hover:text-[#0F172A]"
+                        >
+                          {showBlingToken ? (
+                            <EyeOff className="w-4 h-4" />
+                          ) : (
+                            <Eye className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-[#64748B]">
+                        Mecanismo legado mantido para retrocompatibilidade. Recomendamos utilizar o
+                        fluxo oficial de conexão OAuth acima.
+                      </p>
+                    </div>
+
+                    <div className="flex justify-end">
+                      <Button
+                        type="submit"
+                        disabled={salvandoBling}
+                        variant="outline"
+                        className="text-xs h-8 px-3 gap-1.5"
+                      >
+                        {salvandoBling ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Save className="w-3.5 h-3.5" />
+                        )}
+                        Salvar Token Legado
+                      </Button>
+                    </div>
+                  </form>
+                )}
+              </div>
             </div>
           )}
         </CardContent>

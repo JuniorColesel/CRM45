@@ -22,6 +22,10 @@ describe('14. Integração Bling ERP - Somente Leitura (Read-Only)', () => {
     expect(hookBlingConteudo).not.toMatch(/api\.bling\.com\.br[^`"']*PATCH/)
     expect(hookBlingConteudo).not.toMatch(/api\.bling\.com\.br[^`"']*DELETE/)
 
+    // Permite POST exclusivamente para a troca de credencial do protocolo OAuth em bling.com.br/Api/v3/oauth/token
+    expect(hookBlingConteudo).toContain("url: 'https://www.bling.com.br/Api/v3/oauth/token'")
+    expect(hookBlingConteudo).not.toMatch(/https:\/\/www\.bling\.com\.br\/Api\/v3\/(?!oauth\/token)[^`"']*POST/i)
+
     // 2. Varredura nos arquivos de frontend (src/pages/IntegracoesPage.tsx e src/pages/ImportacaoPage.tsx)
     const arquivosParaVerificar = [
       'src/pages/IntegracoesPage.tsx',

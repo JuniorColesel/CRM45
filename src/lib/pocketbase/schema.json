@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-29T22:15:13.966Z",
+  "generatedAt": "2026-09-30T00:22:09.573Z",
   "collections": [
     {
       "name": "users",
@@ -2139,6 +2139,132 @@
       "indexes": [
         "CREATE INDEX idx_bling_sync_logs_status ON bling_sync_logs (status)",
         "CREATE INDEX idx_bling_sync_logs_created ON bling_sync_logs (created DESC)"
+      ]
+    },
+    {
+      "name": "bling_connections",
+      "type": "base",
+      "apiRules": {
+        "list": null,
+        "view": null,
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "fields": [
+        {
+          "name": "user_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "usuarios"
+        },
+        {
+          "name": "token_type",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "expires_at",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "last_refresh_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["conectado", "desconectado", "erro_renovacao"]
+        },
+        {
+          "name": "ultimo_erro",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_bling_conn_status ON bling_connections (status)",
+        "CREATE INDEX idx_bling_conn_user ON bling_connections (user_id)",
+        "CREATE INDEX idx_bling_conn_created ON bling_connections (created DESC)"
+      ]
+    },
+    {
+      "name": "bling_oauth_states",
+      "type": "base",
+      "apiRules": {
+        "list": null,
+        "view": null,
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "fields": [
+        {
+          "name": "state",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "user_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "usuarios"
+        },
+        {
+          "name": "expires_at",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "used_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_bling_state_uniq ON bling_oauth_states (state)",
+        "CREATE INDEX idx_bling_state_expires ON bling_oauth_states (expires_at)"
       ]
     }
   ]
