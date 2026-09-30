@@ -18,13 +18,16 @@ import {
   Menu,
   X,
   BookOpen,
+  Layers,
 } from 'lucide-react'
+import type { PerfilUsuario } from '@/contexts/AuthContext'
 
 export interface NavigationItem {
   name: string
   href: string
   icon: React.ComponentType<{ className?: string }>
   ariaLabel: string
+  perfisPermitidos?: PerfilUsuario[]
 }
 
 export const NAVIGATION_ITEMS: NavigationItem[] = [
@@ -67,6 +70,13 @@ export const NAVIGATION_ITEMS: NavigationItem[] = [
     href: '/relatorios',
     icon: BarChart3,
     ariaLabel: 'Acessar Relatórios de desempenho',
+  },
+  {
+    name: 'Bling ERP',
+    href: '/bling',
+    icon: Layers,
+    ariaLabel: 'Acessar integração dedicada Bling ERP',
+    perfisPermitidos: ['ceo_financeiro', 'coordenador_vendas'],
   },
   {
     name: 'Configurações',
@@ -127,7 +137,10 @@ export default function Layout({ children }: LayoutProps) {
 
       {/* Navigation items list */}
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto" aria-label="Menu principal">
-        {NAVIGATION_ITEMS.map((item) => {
+        {NAVIGATION_ITEMS.filter((item) => {
+          if (!item.perfisPermitidos) return true
+          return user?.perfil ? item.perfisPermitidos.includes(user.perfil) : false
+        }).map((item) => {
           const Icon = item.icon
           const isActive = location.pathname === item.href
 

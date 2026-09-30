@@ -27,6 +27,7 @@ import UsuariosPage from './pages/UsuariosPage'
 import PrimeirosPassosPage from './pages/PrimeirosPassosPage'
 import MetasPage from './pages/MetasPage'
 import IntegracoesPage from './pages/IntegracoesPage'
+import BlingPage from './pages/BlingPage'
 import PopTreinamentoPage from './pages/PopTreinamentoPage'
 import ConversasPage from './pages/ConversasPage'
 import CatalogoProdutosPage from './pages/CatalogoProdutosPage'
@@ -94,6 +95,7 @@ const App = () => (
                 <Route path="/primeiros-passos" element={<PrimeirosPassosPage />} />
                 <Route path="/metas" element={<MetasPage />} />
                 <Route path="/integracoes" element={<IntegracoesPage />} />
+                <Route path="/bling" element={<BlingPage />} />
                 <Route path="/admin/backup-test" element={<BackupTestPage />} />
               </Route>
             </Route>

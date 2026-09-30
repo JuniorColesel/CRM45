@@ -29,6 +29,8 @@ describe('14. Integração Bling ERP - Somente Leitura (Read-Only)', () => {
     // 2. Varredura nos arquivos de frontend (src/pages/IntegracoesPage.tsx e src/pages/ImportacaoPage.tsx)
     const arquivosParaVerificar = [
       'src/pages/IntegracoesPage.tsx',
+      'src/pages/BlingPage.tsx',
+      'src/lib/bling/iniciarConexaoBling.ts',
       'src/pages/ImportacaoPage.tsx',
       'src/lib/bling/blingUtils.ts',
     ]

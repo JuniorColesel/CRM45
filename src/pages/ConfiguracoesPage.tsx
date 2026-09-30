@@ -40,13 +40,24 @@ const CARDS_CONFIGURACOES: ConfigCardItem[] = [
     perfisPermitidos: ['ceo_financeiro'],
   },
   {
+    id: 'bling',
+    titulo: 'Bling ERP (Integração Direta)',
+    descricao:
+      'Central dedicada de conexão OAuth, sincronização de contatos, vendas e auditoria de logs.',
+    rota: '/bling',
+    icone: Database,
+    corIcone: 'text-[#16A34A]',
+    bgIcone: 'bg-emerald-100',
+    perfisPermitidos: ['ceo_financeiro', 'coordenador_vendas'],
+  },
+  {
     id: 'importacao',
-    titulo: 'Importar dados do Bling',
+    titulo: 'Importar CSV/Planilhas',
     descricao: 'Suba arquivos CSV/TXT de clientes e compras com mapeamento flexível de colunas.',
     rota: '/importacao',
     icone: Upload,
-    corIcone: 'text-[#16A34A]',
-    bgIcone: 'bg-emerald-100',
+    corIcone: 'text-[#0284C7]',
+    bgIcone: 'bg-sky-100',
     perfisPermitidos: ['ceo_financeiro'],
   },
   {
@@ -86,7 +97,7 @@ const CARDS_CONFIGURACOES: ConfigCardItem[] = [
     id: 'integracoes',
     titulo: 'Integrações',
     descricao:
-      'Configure tokens de API do Bling ERP, WhatsApp Business (Meta), Assistente IA e provedores SMTP/SMS.',
+      'Visão consolidada de conexões externas: Bling ERP, WhatsApp Business (Meta), Assistente IA e E-mail/SMS.',
     rota: '/integracoes',
     icone: Settings,
     corIcone: 'text-[#0F172A]',
