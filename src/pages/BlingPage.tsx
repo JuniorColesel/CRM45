@@ -116,6 +116,9 @@ interface ClientesIndicadores {
   paraReativacao: number
   comCompras: number
   valorTotalConsolidado: number
+  valorVendas2026: number
+  pedidosValidos2026: number
+  pedidosValidosTotal: number
   ultimaDataProcessada: string | null
   totalPedidosPersistidos: number
   pedidosSemCliente: number
@@ -164,6 +167,9 @@ export default function BlingPage() {
     paraReativacao: 0,
     comCompras: 0,
     valorTotalConsolidado: 0,
+    valorVendas2026: 0,
+    pedidosValidos2026: 0,
+    pedidosValidosTotal: 0,
     ultimaDataProcessada: null,
     totalPedidosPersistidos: 0,
     pedidosSemCliente: 0,
@@ -235,8 +241,6 @@ export default function BlingPage() {
       let ativos = 0
       let paraReativacao = 0
       let comCompras = 0
-      let somaVendas = 0
-      let ultimaData: string | null = null
 
       for (const c of lista) {
         if (c.bling_id) comBlingId++
@@ -246,28 +250,52 @@ export default function BlingPage() {
         const v = Number(c.valor_total_vendas) || 0
         if (v > 0) {
           comCompras++
-          somaVendas += v
-        }
-
-        const dCompra = c.data_ultima_compra
-        if (dCompra && (!ultimaData || dCompra > ultimaData)) {
-          ultimaData = dCompra
         }
       }
 
-      // Buscar indicadores de bling_pedidos
+      // Buscar indicadores financeiros diretamente da fonte de verdade: bling_pedidos
       let totalPedidosPersistidos = 0
       let pedidosSemCliente = 0
+      let valorHistoricoValido = 0
+      let pedidosValidosTotal = 0
+      let valorVendas2026 = 0
+      let pedidosValidos2026 = 0
+      let ultimaData: string | null = null
+
       try {
         const pedList = await pb.collection('bling_pedidos').getList(1, 1, {
           fields: 'id',
         })
         totalPedidosPersistidos = pedList.totalItems
+
         const pedPendentes = await pb.collection('bling_pedidos').getList(1, 1, {
           filter: 'status_vinculo != "vinculado"',
           fields: 'id',
         })
         pedidosSemCliente = pedPendentes.totalItems
+
+        // Consulta de pedidos válidos diretamente em bling_pedidos
+        // Pedidos válidos: situacao_bling_id = '6' (Em aberto) ou '9' (Atendido)
+        const pedidosValidos = await pb.collection('bling_pedidos').getFullList({
+          filter: 'situacao_bling_id = "6" || situacao_bling_id = "9"',
+          fields: 'data_pedido,valor_total',
+        })
+
+        pedidosValidosTotal = pedidosValidos.length
+        for (const p of pedidosValidos) {
+          const v = Number(p.valor_total) || 0
+          valorHistoricoValido += v
+
+          const d = (p.data_pedido || '').slice(0, 10)
+          if (d.startsWith('2026')) {
+            pedidosValidos2026++
+            valorVendas2026 += v
+          }
+
+          if (d && (!ultimaData || d > ultimaData)) {
+            ultimaData = d
+          }
+        }
       } catch {
         /* intentionally ignored */
       }
@@ -278,7 +306,10 @@ export default function BlingPage() {
         ativos,
         paraReativacao,
         comCompras,
-        valorTotalConsolidado: Math.round(somaVendas * 100) / 100,
+        valorTotalConsolidado: Math.round(valorHistoricoValido * 100) / 100,
+        valorVendas2026: Math.round(valorVendas2026 * 100) / 100,
+        pedidosValidos2026,
+        pedidosValidosTotal,
         ultimaDataProcessada: ultimaData,
         totalPedidosPersistidos,
         pedidosSemCliente,
@@ -504,6 +535,20 @@ export default function BlingPage() {
     const d = new Date(val)
     if (isNaN(d.getTime())) return fallback
     return d.toLocaleString('pt-BR')
+  }
+
+  // Formatação estrita DD/MM/AAAA para datas comerciais do Bling (sem fuso horário ou cauda de hora)
+  const formatarDataComercial = (val: string | null | undefined, fallback = '—'): string => {
+    if (!val || typeof val !== 'string' || !val.trim()) return fallback
+    const limpo = val.trim().slice(0, 10)
+    const partes = limpo.split('-')
+    if (partes.length === 3 && partes[0].length === 4) {
+      const [ano, mes, dia] = partes
+      return `${dia.padStart(2, '0')}/${mes.padStart(2, '0')}/${ano}`
+    }
+    const d = new Date(val)
+    if (isNaN(d.getTime())) return fallback
+    return d.toLocaleDateString('pt-BR', { timeZone: 'UTC' })
   }
 
   const formatarMoeda = (val: number): string => {
@@ -1073,15 +1118,45 @@ export default function BlingPage() {
                   Última Data Compra
                 </span>
                 <span className="text-sm font-bold text-[#0F172A] mt-1 block">
-                  {indicadores.ultimaDataProcessada || '—'}
+                  {formatarDataComercial(indicadores.ultimaDataProcessada)}
                 </span>
               </div>
-              <div className="col-span-2 p-3.5 rounded-xl bg-blue-50/60 border border-blue-200">
-                <span className="text-[10px] text-blue-800 font-semibold block">
-                  Valor Total Consolidado em Vendas
+              <div className="p-3.5 rounded-xl bg-emerald-50/80 border border-emerald-200">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-emerald-800 font-semibold block">
+                    Vendas 2026 (Em aberto + Atendido)
+                  </span>
+                  <Badge
+                    variant="outline"
+                    className="text-[9px] bg-white text-emerald-700 border-emerald-300"
+                  >
+                    {indicadores.pedidosValidos2026} pedidos
+                  </Badge>
+                </div>
+                <span className="text-xl font-bold text-emerald-950 mt-1 block">
+                  {formatarMoeda(indicadores.valorVendas2026)}
                 </span>
-                <span className="text-xl font-bold text-blue-900 mt-0.5 block">
+                <span className="text-[10px] text-emerald-700 mt-0.5 block">
+                  Derivado de bling_pedidos (Ano 2026)
+                </span>
+              </div>
+              <div className="p-3.5 rounded-xl bg-blue-50/80 border border-blue-200">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-blue-800 font-semibold block">
+                    Histórico Total (Válidos)
+                  </span>
+                  <Badge
+                    variant="outline"
+                    className="text-[9px] bg-white text-blue-700 border-blue-300"
+                  >
+                    {indicadores.pedidosValidosTotal} pedidos
+                  </Badge>
+                </div>
+                <span className="text-xl font-bold text-blue-950 mt-1 block">
                   {formatarMoeda(indicadores.valorTotalConsolidado)}
+                </span>
+                <span className="text-[10px] text-blue-700 mt-0.5 block">
+                  Todos os anos (Em aberto + Atendido)
                 </span>
               </div>
             </div>

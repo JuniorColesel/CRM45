@@ -271,14 +271,16 @@ export function formatarMoeda(valor?: number | null): string {
 export function formatarData(dataStr?: string | null): string {
   if (!dataStr) return '-'
   try {
+    // Se contiver YYYY-MM-DD (com ou sem timestamp UTC 00:00:00.000Z), extrair apenas a data comercial
+    const limpo = dataStr.trim().slice(0, 10)
+    const partes = limpo.split('-')
+    if (partes.length === 3 && partes[0].length === 4) {
+      const [ano, mes, dia] = partes
+      return `${dia.padStart(2, '0')}/${mes.padStart(2, '0')}/${ano}`
+    }
     const d = new Date(dataStr)
     if (isNaN(d.getTime())) return '-'
-    // Se a string contiver apenas YYYY-MM-DD, tratamos em UTC para evitar deslocamento de timezone
-    if (dataStr.length === 10) {
-      const [ano, mes, dia] = dataStr.split('-')
-      return `${dia}/${mes}/${ano}`
-    }
-    return d.toLocaleDateString('pt-BR')
+    return d.toLocaleDateString('pt-BR', { timeZone: 'UTC' })
   } catch {
     return '-'
   }

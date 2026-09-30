@@ -1605,10 +1605,10 @@ routerAdd(
             recPedido.set('responsavel_id', responsavelUsuarioId)
 
             if (dataPedidoStr) {
-              recPedido.set('data_pedido', dataPedidoStr)
+              recPedido.set('data_pedido', dataPedidoStr.slice(0, 10))
             }
             if (dataSaidaStr) {
-              recPedido.set('data_atendimento', dataSaidaStr)
+              recPedido.set('data_atendimento', dataSaidaStr.slice(0, 10))
             }
             recPedido.set('valor_total', totalPedido)
             recPedido.set('situacao_bling_id', sitId)
@@ -1638,16 +1638,19 @@ routerAdd(
             }
           }
 
-          // Consolidação de vendas para o cliente (somente se vinculado)
-          if (clienteAlvo) {
+          // Consolidação de vendas para o cliente (somente se vinculado e pedido VÁLIDO: sit 6=Em aberto, sit 9=Atendido)
+          // Cancelados (12) e demais situações NÃO entram na consolidação
+          const isPedidoValidoParaVenda = sitId === '6' || sitId === '9'
+          if (clienteAlvo && isPedidoValidoParaVenda) {
             const cid = clienteAlvo.id
+            const dataLimpa = dataPedidoStr ? dataPedidoStr.slice(0, 10) : ''
             if (!dadosVendasPorCliente[cid]) {
               dadosVendasPorCliente[cid] = {
                 cliente: clienteAlvo,
                 totalVendas: 0,
                 qtdVendas: 0,
-                primeiraCompra: dataPedidoStr,
-                ultimaCompra: dataPedidoStr,
+                primeiraCompra: dataLimpa,
+                ultimaCompra: dataLimpa,
               }
             }
 
@@ -1655,12 +1658,12 @@ routerAdd(
             reg.totalVendas += totalPedido
             reg.qtdVendas += 1
 
-            if (dataPedidoStr) {
-              if (!reg.primeiraCompra || dataPedidoStr < reg.primeiraCompra) {
-                reg.primeiraCompra = dataPedidoStr
+            if (dataLimpa) {
+              if (!reg.primeiraCompra || dataLimpa < reg.primeiraCompra) {
+                reg.primeiraCompra = dataLimpa
               }
-              if (!reg.ultimaCompra || dataPedidoStr > reg.ultimaCompra) {
-                reg.ultimaCompra = dataPedidoStr
+              if (!reg.ultimaCompra || dataLimpa > reg.ultimaCompra) {
+                reg.ultimaCompra = dataLimpa
               }
             }
           }
