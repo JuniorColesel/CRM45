@@ -98,9 +98,9 @@ routerAdd(
       })
     }
 
-    // Escopos de menor privilégio: estritamente contatos e pedidos de venda
-    // Conforme especificação, sem permissões de contas a pagar, baixas, borderôs ou contábil
-    const scopes = encodeURIComponent('contatos:read pedidos-vendas:read')
+    // Escopos de menor privilégio: estritamente contatos, pedidos de venda e propostas comerciais (v0.0.75)
+    // Conforme especificação, sem permissões financeiras ou de escrita (somente leitura)
+    const scopes = encodeURIComponent('contatos:read pedidos-vendas:read propostas-comerciais:read')
     const authUrl =
       'https://www.bling.com.br/Api/v3/oauth/authorize?response_type=code&client_id=' +
       encodeURIComponent(clientId) +
@@ -723,6 +723,12 @@ routerAdd(
     if (tipo === 'pedidos') {
       endpointBling =
         'https://api.bling.com.br/Api/v3/pedidos/vendas?pagina=' + pagina + '&limite=' + limite
+    } else if (tipo === 'propostas') {
+      endpointBling =
+        'https://api.bling.com.br/Api/v3/propostas-comerciais?pagina=' +
+        pagina +
+        '&limite=' +
+        limite
     } else {
       endpointBling =
         'https://api.bling.com.br/Api/v3/contatos?pagina=' + pagina + '&limite=' + limite
@@ -1117,6 +1123,7 @@ routerAdd(
     const errosGerais = []
     const avisosGerais = []
     const errosPedidos = []
+    const errosPropostas = []
     let statusNaoMapeados = 0
     let totalClientesLidos = 0
     let totalClientesCriados = 0
@@ -1129,6 +1136,13 @@ routerAdd(
     let totalPedidosDuplicados = 0
     let totalPedidosSemCliente = 0
     let paginasPedidosLidas = 0
+
+    let totalPropostasLidas = 0
+    let totalPropostasPersistidas = 0
+    let totalPropostasAtualizadas = 0
+    let totalPropostasDuplicadas = 0
+    let totalPropostasSemCliente = 0
+    let paginasPropostasLidas = 0
 
     let clientesComComprasAtualizadas = 0
 
@@ -1812,6 +1826,405 @@ routerAdd(
       }
 
       // ==============================================================
+      // 4.1 BUSCA DE PROPOSTAS COMERCIAIS DO BLING COM PERSISTÊNCIA IDEMPOTENTE EM bling_propostas
+      // ==============================================================
+      // Mapeamento em memória de TODAS as propostas já existentes em bling_propostas sem teto (paginado)
+      const mapBlingPropostasExistentes = {}
+      try {
+        const batchPropostasSize = 5000
+        let offsetPropostas = 0
+        let temMaisPropostasLocais = true
+        while (temMaisPropostasLocais) {
+          const lotePropostasLocais = $app.findRecordsByFilter(
+            'bling_propostas',
+            '',
+            'id',
+            batchPropostasSize,
+            offsetPropostas,
+          )
+          for (let prl = 0; prl < lotePropostasLocais.length; prl++) {
+            const recProp = lotePropostasLocais[prl]
+            const propId = recProp.getString('bling_proposta_id')
+            if (propId) {
+              mapBlingPropostasExistentes[propId] = recProp
+            }
+          }
+          if (lotePropostasLocais.length < batchPropostasSize) {
+            temMaisPropostasLocais = false
+          } else {
+            offsetPropostas += lotePropostasLocais.length
+          }
+        }
+      } catch (_) {}
+
+      // Função de resolução da situação e normalização de proposta comercial
+      // Regras de negócio aprovadas da seção 5, 6 e 7:
+      // Rascunho -> rascunho, visivel_funil = true (futura etapa CRM: Proposta)
+      // Aguardando / Pendente -> aguardando, visivel_funil = true (futura etapa CRM: Negociação)
+      // Não aprovada / Reprovada / Recusada -> nao_aprovada, visivel_funil = true (futura condição CRM: Perdido)
+      // Convertida / Fechada / Aprovada / Concluída gerando Pedido de Venda -> convertida, visivel_funil = false
+      // Outras -> outro, visivel_funil = false
+      function resolverSituacaoProposta(sitRaw, sitIdRaw) {
+        const sId = String(sitIdRaw || '').trim()
+        let sitNome = ''
+        if (typeof sitRaw === 'object' && sitRaw !== null) {
+          sitNome = String(sitRaw.nome || sitRaw.descricao || sitRaw.valor || '').trim()
+        } else if (typeof sitRaw === 'string') {
+          sitNome = sitRaw.trim()
+        }
+
+        if (!sitNome && sId && mapSituacoesModulos[sId]) {
+          sitNome = mapSituacoesModulos[sId]
+        }
+
+        const texto = sitNome.toLowerCase()
+        let statusNormalizado = 'outro'
+        let visivelFunil = false
+
+        if (texto.indexOf('rascunho') !== -1) {
+          statusNormalizado = 'rascunho'
+          visivelFunil = true
+        } else if (
+          texto.indexOf('aguard') !== -1 ||
+          texto.indexOf('pendente') !== -1 ||
+          texto.indexOf('em analise') !== -1 ||
+          texto.indexOf('em análise') !== -1 ||
+          texto.indexOf('enviada') !== -1
+        ) {
+          statusNormalizado = 'aguardando'
+          visivelFunil = true
+        } else if (
+          texto.indexOf('nao aprovad') !== -1 ||
+          texto.indexOf('não aprovad') !== -1 ||
+          texto.indexOf('reprovad') !== -1 ||
+          texto.indexOf('recusad') !== -1 ||
+          texto.indexOf('perdid') !== -1 ||
+          texto.indexOf('cancelad') !== -1
+        ) {
+          statusNormalizado = 'nao_aprovada'
+          visivelFunil = true
+        } else if (
+          texto.indexOf('convertid') !== -1 ||
+          texto.indexOf('fechad') !== -1 ||
+          texto.indexOf('aprovad') !== -1 ||
+          texto.indexOf('concluid') !== -1 ||
+          texto.indexOf('faturad') !== -1 ||
+          texto.indexOf('ganh') !== -1
+        ) {
+          statusNormalizado = 'convertida'
+          visivelFunil = false
+        } else {
+          statusNormalizado = 'outro'
+          visivelFunil = false
+          statusNaoMapeados++
+          avisosGerais.push(
+            'Situação de proposta não mapeada: "' +
+              (sitNome || sId || 'desconhecida') +
+              '" classificada como "outro" (visivel_funil=false).',
+          )
+        }
+
+        if (!sitNome) {
+          sitNome = sId ? 'Situação #' + sId : 'Desconhecida'
+        }
+
+        return {
+          id: sId,
+          nome: sitNome,
+          status_normalizado: statusNormalizado,
+          visivel_funil: visivelFunil,
+        }
+      }
+
+      let paginaPropostas = 1
+      const limitePropostas = 100
+      let temMaisPropostas = true
+      const maxPaginasPropostas = 300
+      let blingPropostasCol = null
+      try {
+        blingPropostasCol = $app.findCollectionByNameOrId('bling_propostas')
+      } catch (_) {}
+
+      // Execução independente e protegida da leitura de propostas
+      let escopoPropostasAtivo = true
+      while (temMaisPropostas && paginaPropostas <= maxPaginasPropostas && blingPropostasCol) {
+        const urlPropostas =
+          'https://api.bling.com.br/Api/v3/propostas-comerciais?pagina=' +
+          paginaPropostas +
+          '&limite=' +
+          limitePropostas
+
+        const tInicioPaginaProp = Date.now()
+        let resPropostas = null
+        try {
+          resPropostas = getBlingGet(urlPropostas, 3)
+        } catch (errPropReq) {
+          const duracaoPaginaProp = Date.now() - tInicioPaginaProp
+          const msgErroPropReq =
+            'Página ' +
+            paginaPropostas +
+            ' de propostas falhou após ' +
+            duracaoPaginaProp +
+            'ms: ' +
+            String(errPropReq.message || errPropReq)
+          avisosGerais.push(msgErroPropReq)
+          errosPropostas.push({
+            pagina: paginaPropostas,
+            status_http: 0,
+            duracao_ms: duracaoPaginaProp,
+            erro: msgErroPropReq,
+          })
+          break
+        }
+
+        const duracaoPaginaProp = Date.now() - tInicioPaginaProp
+        paginasPropostasLidas++
+
+        // Verificação de escopo OAuth não concedido / 403 Forbidden
+        if (resPropostas.statusCode === 403) {
+          escopoPropostasAtivo = false
+          const msg403 =
+            'Escopo OAuth "propostas-comerciais:read" não concedido pelo Bling (HTTP 403). Conexão requer reautorização manual pelo usuário em /bling.'
+          avisosGerais.push(msg403)
+          errosPropostas.push({
+            pagina: paginaPropostas,
+            status_http: 403,
+            duracao_ms: duracaoPaginaProp,
+            erro: msg403,
+          })
+          break
+        }
+
+        if (resPropostas.statusCode === 401) {
+          const msg401Prop =
+            'Token do Bling não autorizado ou expirado ao ler propostas comerciais (HTTP 401).'
+          avisosGerais.push(msg401Prop)
+          errosPropostas.push({
+            pagina: paginaPropostas,
+            status_http: 401,
+            duracao_ms: duracaoPaginaProp,
+            erro: msg401Prop,
+          })
+          break
+        }
+
+        if (resPropostas.statusCode !== 200) {
+          const msgHttpProp =
+            'Bling retornou HTTP ' +
+            resPropostas.statusCode +
+            ' ao buscar propostas comerciais na página ' +
+            paginaPropostas +
+            ' (' +
+            duracaoPaginaProp +
+            'ms)'
+          avisosGerais.push(msgHttpProp)
+          errosPropostas.push({
+            pagina: paginaPropostas,
+            status_http: resPropostas.statusCode,
+            duracao_ms: duracaoPaginaProp,
+            erro: msgHttpProp,
+          })
+          break
+        }
+
+        const dataPropostasJson = resPropostas.json || {}
+        const listaPropostas = dataPropostasJson.data || []
+
+        if (!listaPropostas || listaPropostas.length === 0) {
+          temMaisPropostas = false
+          break
+        }
+
+        totalPropostasLidas += listaPropostas.length
+
+        for (let pr = 0; pr < listaPropostas.length; pr++) {
+          const propItem = listaPropostas[pr]
+          const propostaIdRaw = propItem.id ? String(propItem.id) : ''
+          const numeroProposta = propItem.numero ? String(propItem.numero) : ''
+          const contatoProp = propItem.contato || {}
+          const propContatoBlingId = contatoProp.id ? String(contatoProp.id) : ''
+          const propDocOriginal = (contatoProp.numeroDocumento || '').trim()
+          const propDoc = normalizarDoc(propDocOriginal)
+          const propNome = (contatoProp.nome || propItem.aosCuidadosDe || '').trim()
+          const dataPropostaStr = (propItem.data || '').trim()
+          const dataValidadeStr = (
+            propItem.dataValidade ||
+            propItem.dataProximoContato ||
+            ''
+          ).trim()
+          const totalProposta = Number(
+            propItem.total !== undefined
+              ? propItem.total
+              : propItem.valor !== undefined
+                ? propItem.valor
+                : propItem.totalProdutos !== undefined
+                  ? propItem.totalProdutos
+                  : 0,
+          )
+
+          // Resolução de Situação
+          const sitObjProp = propItem.situacao || {}
+          let sitIdProp = ''
+          if (typeof sitObjProp === 'object' && sitObjProp !== null) {
+            sitIdProp = sitObjProp.id ? String(sitObjProp.id) : ''
+          }
+          const resolucaoSitProp = resolverSituacaoProposta(sitObjProp, sitIdProp)
+
+          // Vendedor da proposta
+          let vendedorBlingNome = ''
+          if (propItem.vendedor && propItem.vendedor.nome) {
+            vendedorBlingNome = propItem.vendedor.nome
+          }
+          const vendedorCrm = mapearVendedor(vendedorBlingNome)
+          const responsavelUsuarioId = resolverUsuarioIdPorVendedorCrm(vendedorCrm)
+
+          // Matching de Cliente
+          // Prioridade: 1. bling_id; 2. CNPJ/CPF; 3. Consumidor Final; 4. Razão Social/Nome
+          let clienteAlvoProp = null
+          if (propContatoBlingId && mapPorBlingId[propContatoBlingId]) {
+            clienteAlvoProp = mapPorBlingId[propContatoBlingId]
+          } else if (propDoc && mapPorDoc[propDoc]) {
+            clienteAlvoProp = mapPorDoc[propDoc]
+          } else if (isConsumidorFinalNome(propNome) && recConsumidorFinal) {
+            clienteAlvoProp = recConsumidorFinal
+          } else if (propNome && mapPorNomeEmpresa[propNome.toLowerCase()]) {
+            clienteAlvoProp = mapPorNomeEmpresa[propNome.toLowerCase()]
+          }
+
+          // Se cliente não encontrado: NÃO descartar proposta.
+          // Salvar cliente_id = null, status_vinculo = pendente, bling_contato_id = valor real.
+          let statusVinculoProp = 'vinculado'
+          let clienteIdParaSalvarProp = null
+          if (clienteAlvoProp) {
+            clienteIdParaSalvarProp = clienteAlvoProp.id
+            statusVinculoProp = 'vinculado'
+          } else {
+            statusVinculoProp = 'pendente'
+            totalPropostasSemCliente++
+          }
+
+          // Persistência Idempotente em bling_propostas (UPSERT por bling_proposta_id)
+          if (blingPropostasCol && propostaIdRaw) {
+            let recProposta = mapBlingPropostasExistentes[propostaIdRaw]
+            let isNovaProposta = false
+
+            if (!recProposta) {
+              recProposta = new Record(blingPropostasCol)
+              recProposta.set('bling_proposta_id', propostaIdRaw)
+              isNovaProposta = true
+            }
+
+            recProposta.set('numero', numeroProposta)
+            recProposta.set('cliente_id', clienteIdParaSalvarProp)
+            recProposta.set('bling_contato_id', propContatoBlingId)
+            recProposta.set('contato_nome', propNome)
+            recProposta.set('documento', propDocOriginal)
+            recProposta.set('vendedor_bling', vendedorBlingNome)
+            recProposta.set('vendedor_crm', vendedorCrm)
+            recProposta.set('responsavel_id', responsavelUsuarioId)
+
+            if (dataPropostaStr) {
+              recProposta.set('data_proposta', dataPropostaStr.slice(0, 10))
+            }
+            if (dataValidadeStr) {
+              recProposta.set('data_validade', dataValidadeStr.slice(0, 10))
+            }
+            recProposta.set('valor_total', totalProposta)
+            recProposta.set('situacao_bling_id', resolucaoSitProp.id)
+            recProposta.set('situacao_bling_nome', resolucaoSitProp.nome)
+            recProposta.set('status_normalizado', resolucaoSitProp.status_normalizado)
+            recProposta.set('status_vinculo', statusVinculoProp)
+            recProposta.set('visivel_funil', resolucaoSitProp.visivel_funil)
+            recProposta.set('sincronizado_em', new Date().toISOString())
+
+            try {
+              $app.save(recProposta)
+              mapBlingPropostasExistentes[propostaIdRaw] = recProposta
+              if (isNovaProposta) {
+                totalPropostasPersistidas++
+              } else {
+                totalPropostasAtualizadas++
+                totalPropostasDuplicadas++
+              }
+            } catch (errPropSave) {
+              const errPropStr = String(errPropSave.message || errPropSave)
+              if (
+                errPropStr.indexOf('bling_proposta_id: Value must be unique') !== -1 ||
+                errPropStr.indexOf(
+                  'UNIQUE constraint failed: bling_propostas.bling_proposta_id',
+                ) !== -1
+              ) {
+                try {
+                  const recExistenteBancoProp = $app.findFirstRecordByData(
+                    'bling_propostas',
+                    'bling_proposta_id',
+                    propostaIdRaw,
+                  )
+                  if (recExistenteBancoProp) {
+                    recExistenteBancoProp.set('numero', numeroProposta)
+                    recExistenteBancoProp.set('cliente_id', clienteIdParaSalvarProp)
+                    recExistenteBancoProp.set('bling_contato_id', propContatoBlingId)
+                    recExistenteBancoProp.set('contato_nome', propNome)
+                    recExistenteBancoProp.set('documento', propDocOriginal)
+                    recExistenteBancoProp.set('vendedor_bling', vendedorBlingNome)
+                    recExistenteBancoProp.set('vendedor_crm', vendedorCrm)
+                    recExistenteBancoProp.set('responsavel_id', responsavelUsuarioId)
+                    if (dataPropostaStr) {
+                      recExistenteBancoProp.set('data_proposta', dataPropostaStr.slice(0, 10))
+                    }
+                    if (dataValidadeStr) {
+                      recExistenteBancoProp.set('data_validade', dataValidadeStr.slice(0, 10))
+                    }
+                    recExistenteBancoProp.set('valor_total', totalProposta)
+                    recExistenteBancoProp.set('situacao_bling_id', resolucaoSitProp.id)
+                    recExistenteBancoProp.set('situacao_bling_nome', resolucaoSitProp.nome)
+                    recExistenteBancoProp.set(
+                      'status_normalizado',
+                      resolucaoSitProp.status_normalizado,
+                    )
+                    recExistenteBancoProp.set('status_vinculo', statusVinculoProp)
+                    recExistenteBancoProp.set('visivel_funil', resolucaoSitProp.visivel_funil)
+                    recExistenteBancoProp.set('sincronizado_em', new Date().toISOString())
+                    $app.save(recExistenteBancoProp)
+                    mapBlingPropostasExistentes[propostaIdRaw] = recExistenteBancoProp
+                    totalPropostasAtualizadas++
+                    totalPropostasDuplicadas++
+                    avisosGerais.push(
+                      'Aviso: proposta bling_id ' +
+                        propostaIdRaw +
+                        ' já existia (mapa desatualizado) e foi atualizada diretamente pelo índice único.',
+                    )
+                  }
+                } catch (errRetryProp) {
+                  avisosGerais.push(
+                    'Erro ao atualizar proposta pré-existente bling_id ' +
+                      propostaIdRaw +
+                      ': ' +
+                      String(errRetryProp.message || errRetryProp),
+                  )
+                }
+              } else {
+                avisosGerais.push(
+                  'Erro ao salvar proposta bling_id ' +
+                    propostaIdRaw +
+                    ' (número ' +
+                    numeroProposta +
+                    '): ' +
+                    errPropStr,
+                )
+              }
+            }
+          }
+        }
+
+        if (listaPropostas.length < limitePropostas) {
+          temMaisPropostas = false
+        } else {
+          paginaPropostas++
+        }
+      }
+
+      // ==============================================================
       // 5. ATUALIZAR STATUS E HISTÓRICO COMERCIAL NOS CLIENTES (IDEMPOTENTE)
       // ==============================================================
       const agora = new Date()
@@ -1900,6 +2313,14 @@ routerAdd(
         totalPedidosAtualizados +
         ' atualizados, ' +
         totalPedidosSemCliente +
+        ' pendentes vínculo), ' +
+        totalPropostasLidas +
+        ' propostas lidas (' +
+        totalPropostasPersistidas +
+        ' persistidas, ' +
+        totalPropostasAtualizadas +
+        ' atualizadas, ' +
+        totalPropostasSemCliente +
         ' pendentes vínculo).'
 
       if (errosGerais.length > 0 || errosPedidos.length > 0) {
@@ -1924,6 +2345,15 @@ routerAdd(
           logRecord.set('pedidos_sem_cliente', totalPedidosSemCliente)
           logRecord.set('paginas_pedidos_lidas', paginasPedidosLidas)
           logRecord.set('erros_pedidos', errosPedidos.slice(0, 30))
+
+          logRecord.set('propostas_lidas', totalPropostasLidas)
+          logRecord.set('propostas_persistidas', totalPropostasPersistidas)
+          logRecord.set('propostas_atualizadas', totalPropostasAtualizadas)
+          logRecord.set('propostas_duplicadas', totalPropostasDuplicadas)
+          logRecord.set('propostas_sem_cliente', totalPropostasSemCliente)
+          logRecord.set('paginas_propostas_lidas', paginasPropostasLidas)
+          logRecord.set('erros_propostas', errosPropostas.slice(0, 30))
+
           logRecord.set('erros', errosGerais.slice(0, 50))
           logRecord.set('avisos', avisosGerais.slice(0, 50))
           logRecord.set('status_nao_mapeados', statusNaoMapeados)
@@ -1949,11 +2379,18 @@ routerAdd(
         pedidos_duplicados: totalPedidosDuplicados,
         pedidos_sem_cliente: totalPedidosSemCliente,
         paginas_pedidos_lidas: paginasPedidosLidas,
+        propostas_consultadas: totalPropostasLidas,
+        propostas_persistidas: totalPropostasPersistidas,
+        propostas_atualizadas: totalPropostasAtualizadas,
+        propostas_duplicadas: totalPropostasDuplicadas,
+        propostas_sem_cliente: totalPropostasSemCliente,
+        paginas_propostas_lidas: paginasPropostasLidas,
         clientes_com_compras_atualizadas: clientesComComprasAtualizadas,
         status_nao_mapeados: statusNaoMapeados,
         erros: errosGerais,
         avisos: avisosGerais,
         erros_pedidos: errosPedidos,
+        erros_propostas: errosPropostas,
         mensagem: msgResumo,
       })
     } catch (errFatal) {

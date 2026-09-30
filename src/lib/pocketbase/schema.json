@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-30T20:02:09.148Z",
+  "generatedAt": "2026-09-30T20:20:24.195Z",
   "collections": [
     {
       "name": "users",
@@ -2182,6 +2182,48 @@
           "type": "number",
           "required": false,
           "system": false
+        },
+        {
+          "name": "propostas_lidas",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "propostas_persistidas",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "propostas_atualizadas",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "propostas_duplicadas",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "propostas_sem_cliente",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "paginas_propostas_lidas",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "erros_propostas",
+          "type": "json",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -2459,6 +2501,152 @@
         "CREATE INDEX idx_bling_pedidos_responsavel ON bling_pedidos (responsavel_id)",
         "CREATE INDEX idx_bling_pedidos_data ON bling_pedidos (data_pedido DESC)",
         "CREATE INDEX idx_bling_pedidos_vinculo ON bling_pedidos (status_vinculo)"
+      ]
+    },
+    {
+      "name": "bling_propostas",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || responsavel_id = @request.auth.id || cliente_id.responsavel_id = @request.auth.id || (@request.auth.perfil = 'vendedor_1' && (vendedor_crm = 'Karoline (Vendas 1)' || vendedor_crm = 'Alice' || cliente_id.vendedor = 'Karoline (Vendas 1)' || cliente_id.vendedor = 'Alice')) || (@request.auth.perfil = 'vendedor_2' && (vendedor_crm = 'Vendas 2' || cliente_id.vendedor = 'Vendas 2')))",
+        "view": "@request.auth.id != '' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || responsavel_id = @request.auth.id || cliente_id.responsavel_id = @request.auth.id || (@request.auth.perfil = 'vendedor_1' && (vendedor_crm = 'Karoline (Vendas 1)' || vendedor_crm = 'Alice' || cliente_id.vendedor = 'Karoline (Vendas 1)' || cliente_id.vendedor = 'Alice')) || (@request.auth.perfil = 'vendedor_2' && (vendedor_crm = 'Vendas 2' || cliente_id.vendedor = 'Vendas 2')))",
+        "create": "@request.auth.id != '' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas')",
+        "update": "@request.auth.id != '' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas')",
+        "delete": "@request.auth.id != '' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas')"
+      },
+      "fields": [
+        {
+          "name": "bling_proposta_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "numero",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cliente_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "clientes"
+        },
+        {
+          "name": "bling_contato_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "contato_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "documento",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "vendedor_bling",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "vendedor_crm",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "responsavel_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "usuarios"
+        },
+        {
+          "name": "data_proposta",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_validade",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "valor_total",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "situacao_bling_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "situacao_bling_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status_normalizado",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status_vinculo",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["vinculado", "pendente", "sem_cliente"]
+        },
+        {
+          "name": "visivel_funil",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sincronizado_em",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_bling_propostas_proposta_id ON bling_propostas (bling_proposta_id)",
+        "CREATE INDEX idx_bling_propostas_cliente ON bling_propostas (cliente_id)",
+        "CREATE INDEX idx_bling_propostas_responsavel ON bling_propostas (responsavel_id)",
+        "CREATE INDEX idx_bling_propostas_data ON bling_propostas (data_proposta DESC)",
+        "CREATE INDEX idx_bling_propostas_vinculo ON bling_propostas (status_vinculo)",
+        "CREATE INDEX idx_bling_propostas_visivel ON bling_propostas (visivel_funil)"
       ]
     }
   ]

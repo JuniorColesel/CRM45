@@ -74,9 +74,17 @@ interface SincronizacaoResultado {
   pedidos_duplicados?: number
   pedidos_sem_cliente?: number
   paginas_pedidos_lidas?: number
+  propostas_consultadas?: number
+  propostas_persistidas?: number
+  propostas_atualizadas?: number
+  propostas_duplicadas?: number
+  propostas_sem_cliente?: number
+  paginas_propostas_lidas?: number
   clientes_com_compras_atualizadas: number
   erros: string[]
+  avisos?: string[]
   erros_pedidos?: Array<{ pagina: number; status_http: number; duracao_ms: number; erro: string }>
+  erros_propostas?: Array<{ pagina: number; status_http: number; duracao_ms: number; erro: string }>
   status: string
   mensagem: string
 }
@@ -97,9 +105,17 @@ interface BlingSyncLogItem {
   pedidos_sem_cliente?: number
   paginas_pedidos_lidas?: number
   erros_pedidos?: Array<{ pagina: number; status_http: number; duracao_ms: number; erro: string }>
+  propostas_lidas?: number
+  propostas_persistidas?: number
+  propostas_atualizadas?: number
+  propostas_duplicadas?: number
+  propostas_sem_cliente?: number
+  paginas_propostas_lidas?: number
+  erros_propostas?: Array<{ pagina: number; status_http: number; duracao_ms: number; erro: string }>
   duracao_ms: number
   mensagem_resumo: string
   erros: string[] | string
+  avisos?: string[] | string
   usuario?: string
   expand?: {
     usuario?: {
@@ -122,6 +138,8 @@ interface ClientesIndicadores {
   ultimaDataProcessada: string | null
   totalPedidosPersistidos: number
   pedidosSemCliente: number
+  totalPropostasPersistidas: number
+  propostasSemCliente: number
 }
 
 export default function BlingPage() {
@@ -173,6 +191,8 @@ export default function BlingPage() {
     ultimaDataProcessada: null,
     totalPedidosPersistidos: 0,
     pedidosSemCliente: 0,
+    totalPropostasPersistidas: 0,
+    propostasSemCliente: 0,
   })
 
   // Referência para cancelar fluxo de conexão se o componente for desmontado
@@ -300,7 +320,7 @@ export default function BlingPage() {
         /* intentionally ignored */
       }
 
-      setIndicadores({
+      const novosIndicadores: ClientesIndicadores = {
         total,
         comBlingId,
         ativos,
@@ -313,7 +333,26 @@ export default function BlingPage() {
         ultimaDataProcessada: ultimaData,
         totalPedidosPersistidos,
         pedidosSemCliente,
-      })
+        totalPropostasPersistidas: 0,
+        propostasSemCliente: 0,
+      }
+
+      try {
+        const propList = await pb.collection('bling_propostas').getList(1, 1, {
+          fields: 'id',
+        })
+        novosIndicadores.totalPropostasPersistidas = propList.totalItems
+
+        const propPendentes = await pb.collection('bling_propostas').getList(1, 1, {
+          filter: 'status_vinculo != "vinculado"',
+          fields: 'id',
+        })
+        novosIndicadores.propostasSemCliente = propPendentes.totalItems
+      } catch (_) {
+        /* tolerante se coleção ainda não migrada */
+      }
+
+      setIndicadores(novosIndicadores)
     } catch (_) {
       // Falha tolerante
     }
@@ -491,7 +530,7 @@ export default function BlingPage() {
         if (res.success) {
           toast({
             title: 'Sincronização concluída com sucesso',
-            description: `${res.clientes_consultados} clientes e ${res.pedidos_consultados} pedidos processados.`,
+            description: `${res.clientes_consultados} clientes, ${res.pedidos_consultados} pedidos e ${res.propostas_consultadas ?? 0} propostas processados.`,
           })
         } else {
           toast({
@@ -910,7 +949,7 @@ export default function BlingPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center">
                 <div className="bg-white/90 p-2.5 rounded-lg border border-black/5">
                   <span className="block text-[10px] text-[#64748B] font-semibold">
                     Contatos Lidos
@@ -935,11 +974,19 @@ export default function BlingPage() {
                 </div>
                 <div className="bg-white/90 p-2.5 rounded-lg border border-black/5">
                   <span className="block text-[10px] text-purple-700 font-semibold">
-                    Pedidos Lidos / Novos
+                    Pedidos (Lidos / Novos)
                   </span>
                   <span className="text-base font-bold text-purple-700">
-                    {resultadoSync.pedidos_consultados} ({resultadoSync.pedidos_persistidos ?? 0}{' '}
-                    novos)
+                    {resultadoSync.pedidos_consultados} ({resultadoSync.pedidos_persistidos ?? 0})
+                  </span>
+                </div>
+                <div className="bg-white/90 p-2.5 rounded-lg border border-black/5">
+                  <span className="block text-[10px] text-amber-700 font-semibold">
+                    Propostas (Lidas / Novas)
+                  </span>
+                  <span className="text-base font-bold text-amber-700">
+                    {resultadoSync.propostas_consultadas ?? 0} (
+                    {resultadoSync.propostas_persistidas ?? 0})
                   </span>
                 </div>
               </div>
@@ -972,7 +1019,7 @@ export default function BlingPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center">
                 <div className="bg-white p-2 rounded-lg border border-slate-200">
                   <span className="block text-[10px] text-[#64748B] font-semibold">
                     Contatos Lidos
@@ -1004,6 +1051,17 @@ export default function BlingPage() {
                       : ''}
                   </span>
                 </div>
+                <div className="bg-white p-2 rounded-lg border border-slate-200">
+                  <span className="block text-[10px] text-amber-700 font-semibold">
+                    Propostas Lidas
+                  </span>
+                  <span className="text-sm font-bold text-amber-700">
+                    {ultimaSyncDoHistorico.propostas_lidas ?? 0}
+                    {ultimaSyncDoHistorico.propostas_persistidas !== undefined
+                      ? ` (${ultimaSyncDoHistorico.propostas_persistidas} novas)`
+                      : ''}
+                  </span>
+                </div>
               </div>
 
               {ultimaSyncDoHistorico.mensagem_resumo && (
@@ -1021,8 +1079,8 @@ export default function BlingPage() {
         </CardContent>
       </Card>
 
-      {/* 4. SEÇÃO CLIENTES & 5. SEÇÃO VENDAS (LADO A LADO) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* 4. SEÇÃO CLIENTES & 5. SEÇÃO VENDAS & SEÇÃO PROPOSTAS (CARDS) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* SEÇÃO CLIENTES */}
         <Card className="border-[#E2E8F0] shadow-sm rounded-2xl overflow-hidden bg-white">
           <CardHeader className="bg-[#F8FAFC] border-b border-[#E2E8F0] pb-4">
@@ -1035,7 +1093,7 @@ export default function BlingPage() {
                   Clientes do Bling
                 </CardTitle>
                 <CardDescription className="text-xs text-[#64748B]">
-                  Indicadores da base de clientes vinculada ao ERP.
+                  Indicadores da base vinculada ao ERP.
                 </CardDescription>
               </div>
             </div>
@@ -1056,13 +1114,13 @@ export default function BlingPage() {
               </div>
               <div className="p-3 rounded-xl bg-emerald-50/60 border border-emerald-200">
                 <span className="text-[10px] text-emerald-800 font-semibold block">
-                  Clientes Ativos (&lt; 6 meses)
+                  Ativos (&lt; 6 meses)
                 </span>
                 <span className="text-lg font-bold text-emerald-700">{indicadores.ativos}</span>
               </div>
               <div className="p-3 rounded-xl bg-amber-50/60 border border-amber-200">
                 <span className="text-[10px] text-amber-800 font-semibold block">
-                  Para Reativação (&gt; 6 meses)
+                  Reativação (&gt; 6 m)
                 </span>
                 <span className="text-lg font-bold text-amber-700">
                   {indicadores.paraReativacao}
@@ -1084,7 +1142,7 @@ export default function BlingPage() {
                   Vendas / Pedidos
                 </CardTitle>
                 <CardDescription className="text-xs text-[#64748B]">
-                  Consolidação do histórico comercial (sem mutação de dados).
+                  Consolidação do histórico comercial.
                 </CardDescription>
               </div>
             </div>
@@ -1093,71 +1151,87 @@ export default function BlingPage() {
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div className="p-3 rounded-xl bg-purple-50/60 border border-purple-200">
                 <span className="text-[10px] text-purple-800 font-semibold block">
-                  Pedidos Salvos (bling_pedidos)
+                  Pedidos Salvos
                 </span>
                 <span className="text-lg font-bold text-purple-900">
                   {indicadores.totalPedidosPersistidos}
                 </span>
               </div>
               <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                <span className="text-[10px] text-[#64748B] font-semibold block">
-                  Clientes com Histórico
-                </span>
+                <span className="text-[10px] text-[#64748B] font-semibold block">Com Compras</span>
                 <span className="text-lg font-bold text-[#0F172A]">{indicadores.comCompras}</span>
               </div>
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                <span className="text-[10px] text-[#64748B] font-semibold block">
+              <div className="col-span-2 p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+                <span className="text-[10px] text-[#64748B] font-semibold">
                   Vínculo Pendente / Sem Cliente
                 </span>
-                <span className="text-lg font-bold text-amber-700">
+                <span className="text-sm font-bold text-amber-700">
                   {indicadores.pedidosSemCliente}
                 </span>
               </div>
+              <div className="col-span-2 p-3 rounded-xl bg-emerald-50/80 border border-emerald-200 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] text-emerald-800 font-semibold block">
+                    Vendas 2026 (Válidos)
+                  </span>
+                  <span className="text-base font-bold text-emerald-950">
+                    {formatarMoeda(indicadores.valorVendas2026)}
+                  </span>
+                </div>
+                <Badge variant="outline" className="text-[9px] bg-white text-emerald-700">
+                  {indicadores.pedidosValidos2026} ped.
+                </Badge>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* SEÇÃO PROPOSTAS (v0.0.75) */}
+        <Card className="border-[#E2E8F0] shadow-sm rounded-2xl overflow-hidden bg-white">
+          <CardHeader className="bg-[#F8FAFC] border-b border-[#E2E8F0] pb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center flex-shrink-0">
+                <FileText className="w-4 h-4" />
+              </div>
+              <div>
+                <CardTitle className="text-base font-bold text-[#0F172A]">
+                  Propostas Comerciais
+                </CardTitle>
+                <CardDescription className="text-xs text-[#64748B]">
+                  Base local em <code>bling_propostas</code> (somente leitura).
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-6">
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="p-3 rounded-xl bg-amber-50/60 border border-amber-200">
+                <span className="text-[10px] text-amber-800 font-semibold block">
+                  Propostas Salvas
+                </span>
+                <span className="text-lg font-bold text-amber-950">
+                  {indicadores.totalPropostasPersistidas}
+                </span>
+              </div>
               <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
                 <span className="text-[10px] text-[#64748B] font-semibold block">
-                  Última Data Compra
+                  Vínculo Pendente
                 </span>
-                <span className="text-sm font-bold text-[#0F172A] mt-1 block">
-                  {formatarDataComercial(indicadores.ultimaDataProcessada)}
-                </span>
-              </div>
-              <div className="p-3.5 rounded-xl bg-emerald-50/80 border border-emerald-200">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-emerald-800 font-semibold block">
-                    Vendas 2026 (Em aberto + Atendido)
-                  </span>
-                  <Badge
-                    variant="outline"
-                    className="text-[9px] bg-white text-emerald-700 border-emerald-300"
-                  >
-                    {indicadores.pedidosValidos2026} pedidos
-                  </Badge>
-                </div>
-                <span className="text-xl font-bold text-emerald-950 mt-1 block">
-                  {formatarMoeda(indicadores.valorVendas2026)}
-                </span>
-                <span className="text-[10px] text-emerald-700 mt-0.5 block">
-                  Derivado de bling_pedidos (Ano 2026)
+                <span className="text-lg font-bold text-amber-700">
+                  {indicadores.propostasSemCliente}
                 </span>
               </div>
-              <div className="p-3.5 rounded-xl bg-blue-50/80 border border-blue-200">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-blue-800 font-semibold block">
-                    Histórico Total (Válidos)
-                  </span>
-                  <Badge
-                    variant="outline"
-                    className="text-[9px] bg-white text-blue-700 border-blue-300"
-                  >
-                    {indicadores.pedidosValidosTotal} pedidos
-                  </Badge>
-                </div>
-                <span className="text-xl font-bold text-blue-950 mt-1 block">
-                  {formatarMoeda(indicadores.valorTotalConsolidado)}
+              <div className="col-span-2 p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                <span className="text-[10px] text-[#64748B] font-semibold block">
+                  Status no Funil de Vendas
                 </span>
-                <span className="text-[10px] text-blue-700 mt-0.5 block">
-                  Todos os anos (Em aberto + Atendido)
-                </span>
+                <Badge variant="outline" className="text-[10px] bg-white text-slate-700">
+                  Base local pronta (Funil preservado na v0.0.75)
+                </Badge>
+                <p className="text-[10px] text-[#64748B] pt-0.5">
+                  Cada proposta é persistida com cliente, vendedor, datas, valor e situação
+                  normalizada.
+                </p>
               </div>
             </div>
           </CardContent>
@@ -1226,6 +1300,9 @@ export default function BlingPage() {
                       Salvos / Atualizados
                     </TableHead>
                     <TableHead className="text-xs font-bold text-[#0F172A] text-right">
+                      Propostas
+                    </TableHead>
+                    <TableHead className="text-xs font-bold text-[#0F172A] text-right">
                       Duração
                     </TableHead>{' '}
                     <TableHead className="text-xs font-bold text-[#0F172A] text-center">
@@ -1243,10 +1320,6 @@ export default function BlingPage() {
                           : log.status === 'processando'
                             ? 'bg-blue-50 text-blue-800 border-blue-200'
                             : 'bg-red-50 text-red-800 border-red-200'
-
-                    const temErros =
-                      (Array.isArray(log.erros) && log.erros.length > 0) ||
-                      (typeof log.erros === 'string' && log.erros.length > 0)
 
                     return (
                       <TableRow key={log.id} className="text-xs hover:bg-slate-50/60">
@@ -1279,6 +1352,11 @@ export default function BlingPage() {
                         <TableCell className="text-right font-medium text-emerald-700">
                           {log.pedidos_persistidos !== undefined
                             ? `${log.pedidos_persistidos} / ${log.pedidos_atualizados || 0}`
+                            : '—'}
+                        </TableCell>
+                        <TableCell className="text-right font-medium text-amber-700">
+                          {log.propostas_lidas !== undefined
+                            ? `${log.propostas_lidas} (${log.propostas_persistidas || 0})`
                             : '—'}
                         </TableCell>
                         <TableCell className="text-right text-[#64748B]">
@@ -1353,6 +1431,22 @@ export default function BlingPage() {
                   {logModalDetalhe.mensagem_resumo || 'Sem mensagem descritiva.'}
                 </p>
               </div>
+
+              {/* Avisos e Ocorrências */}
+              {Array.isArray(logModalDetalhe.avisos) && logModalDetalhe.avisos.length > 0 && (
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wider block">
+                    Avisos / Alertas Operacionais ({logModalDetalhe.avisos.length})
+                  </span>
+                  <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 max-h-40 overflow-y-auto space-y-1 text-[11px] text-amber-900">
+                    <ul className="list-disc list-inside space-y-1 font-mono text-[10px]">
+                      {logModalDetalhe.avisos.map((av, idx) => (
+                        <li key={idx}>{String(av)}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              )}
 
               {/* Erros registrados */}
               <div className="space-y-1">
@@ -1638,10 +1732,11 @@ export default function BlingPage() {
                 Entidades Sincronizadas
               </span>
               <span className="text-sm font-bold text-[#0F172A]">
-                Contatos / Clientes + Pedidos / Vendas
+                Contatos + Pedidos + Propostas
               </span>
               <p className="text-[11px] text-[#64748B]">
-                Escopo de menor privilégio: contatos e pedidos de vendas.
+                Escopo de menor privilégio: contatos:read, pedidos-vendas:read e
+                propostas-comerciais:read.
               </p>
             </div>
 
