@@ -140,6 +140,9 @@ export async function iniciarConexaoBling(
     const res = await pb.send<{
       success: boolean
       auth_url?: string
+      authorization_url?: string
+      url_autorizacao?: string
+      url?: string
       state?: string
       message?: string
       configurado?: boolean
@@ -147,8 +150,18 @@ export async function iniciarConexaoBling(
       method: 'GET',
     })
 
-    // 3. Validar resposta
-    if (!res || !res.success || !res.auth_url) {
+    // 3. Extrair a URL retornada com suporte prioritário a auth_url (campo exato do backend)
+    const rawAuthUrl =
+      res?.auth_url || res?.authorization_url || res?.url_autorizacao || res?.url || ''
+
+    // 4. Validar payload e presença da URL
+    if (
+      !res ||
+      !res.success ||
+      !rawAuthUrl ||
+      typeof rawAuthUrl !== 'string' ||
+      !rawAuthUrl.trim()
+    ) {
       if (popupRef && !popupRef.closed) {
         try {
           popupRef.close()
@@ -164,12 +177,16 @@ export async function iniciarConexaoBling(
       return { cancelar: limparRecursos }
     }
 
-    // 4. Validar que a auth_url é do Bling oficial e NÃO do CRM local
-    const urlStr = res.auth_url
-    const isBlingOficial =
-      urlStr.startsWith('https://www.bling.com.br/') || urlStr.startsWith('https://bling.com.br/')
-
-    if (!isBlingOficial) {
+    // 5. Validar a URL antes de navegar:
+    // - Deve ser URL válida construída via new URL(authUrl);
+    // - Aceitar SOMENTE o hostname oficial usado pelo OAuth do Bling no backend (www.bling.com.br);
+    // - Começar estritamente com https://;
+    // - Conter response_type=code, client_id, redirect_uri e state nos searchParams;
+    // - NUNCA aceitar rotas internas do CRM nem URLs relativas.
+    let parsed: URL
+    try {
+      parsed = new URL(rawAuthUrl.trim())
+    } catch (_) {
       if (popupRef && !popupRef.closed) {
         try {
           popupRef.close()
@@ -177,27 +194,67 @@ export async function iniciarConexaoBling(
           /* intentionally ignored */
         }
       }
-      const msgInvalida = 'URL de autorização retornada pelo servidor não pertence ao Bling ERP.'
+      onError?.('URL de autorização inválida retornada pelo servidor.')
+      limparRecursos()
+      return { cancelar: limparRecursos }
+    }
+
+    const protocoloValido = parsed.protocol === 'https:'
+    const hostnameValido = parsed.hostname === 'www.bling.com.br'
+    const temResponseTypeCode = parsed.searchParams.get('response_type') === 'code'
+    const temClientId = Boolean(parsed.searchParams.get('client_id'))
+    const temRedirectUri = Boolean(parsed.searchParams.get('redirect_uri'))
+    const temState = Boolean(parsed.searchParams.get('state'))
+
+    if (
+      !protocoloValido ||
+      !hostnameValido ||
+      !temResponseTypeCode ||
+      !temClientId ||
+      !temRedirectUri ||
+      !temState
+    ) {
+      if (popupRef && !popupRef.closed) {
+        try {
+          popupRef.close()
+        } catch {
+          /* intentionally ignored */
+        }
+      }
+      const msgInvalida =
+        'URL de autorização retornada pelo servidor não pertence ao Bling ERP ou possui parâmetros ausentes.'
       onError?.(msgInvalida)
       limparRecursos()
       return { cancelar: limparRecursos }
     }
 
-    // 5. Navegar o popup para a URL do Bling (ou redirecionar na aba se bloqueado)
+    const authUrlValida = parsed.toString()
+
+    // 6. Navegar o popup aberto em about:blank diretamente para a URL oficial do Bling via replace/assign
+    // Regra estrita: NUNCA usar como destino window.location.href, "/", "/painel", "/bling", etc.
     if (popupRef && !popupRef.closed) {
       try {
-        popupRef.location.href = urlStr
+        if (typeof popupRef.location.replace === 'function') {
+          popupRef.location.replace(authUrlValida)
+        } else {
+          popupRef.location.href = authUrlValida
+        }
         popupRef.focus()
       } catch (_) {
-        if (typeof window !== 'undefined') {
-          window.location.href = urlStr
+        // Se cross-origin ou restrição do navegador impedir replace
+        try {
+          popupRef.location.href = authUrlValida
+        } catch {
+          /* intentionally ignored */
         }
       }
     } else {
-      // 9. Popup bloqueado: navega na própria janela
-      if (typeof window !== 'undefined') {
-        window.location.href = urlStr
-      }
+      // Se o popup foi bloqueado pelo navegador, avisar explicitamente e não redirecionar o CRM
+      onError?.(
+        'O popup de autorização foi bloqueado pelo navegador. Por favor, permita popups para este site e tente novamente.',
+      )
+      limparRecursos()
+      return { cancelar: limparRecursos }
     }
 
     // 6. Iniciar polling de status no backend

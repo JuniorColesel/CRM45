@@ -102,11 +102,15 @@ describe('v0.0.67 - Reestruturação do Módulo Bling ERP', () => {
     const { iniciarConexaoBling } = await import('@/lib/bling/iniciarConexaoBling')
     const pb = (await import('@/lib/pocketbase/client')).default
 
+    const mockReplace = vi.fn()
     const mockWindowOpen = vi.fn().mockReturnValue({
       closed: false,
       focus: vi.fn(),
       close: vi.fn(),
-      location: { href: 'about:blank' },
+      location: {
+        href: 'about:blank',
+        replace: mockReplace,
+      },
       document: {
         title: '',
         body: { innerHTML: '' },
@@ -117,13 +121,16 @@ describe('v0.0.67 - Reestruturação do Módulo Bling ERP', () => {
     const originalWindowOpen = window.open
     window.open = mockWindowOpen
 
-    // Mock do pb.send
+    // Mock do pb.send com a estrutura real exata gerada pelo hook do PocketBase
+    const urlEsperadaBling =
+      'https://www.bling.com.br/Api/v3/oauth/authorize?response_type=code&client_id=bling_client_xyz&redirect_uri=https%3A%2F%2Fexemplo.com%2Fbackend%2Fv1%2Fbling%2Fcallback&state=state_secreto_64_caracteres_xyz&scope=contatos%3Aread%20pedidos-vendas%3Aread'
+
     const pbSendSpy = vi.spyOn(pb, 'send').mockImplementation(async (pathStr: string) => {
       if (pathStr.includes('/backend/v1/bling/connect')) {
         return {
           success: true,
-          auth_url: 'https://www.bling.com.br/b/oauth/authorize?response_type=code&client_id=123',
-          state: 'state_teste_123',
+          auth_url: urlEsperadaBling,
+          state: 'state_secreto_64_caracteres_xyz',
         }
       }
       if (pathStr.includes('/backend/v1/bling/status')) {
@@ -155,6 +162,9 @@ describe('v0.0.67 - Reestruturação do Módulo Bling ERP', () => {
       method: 'GET',
     })
 
+    // Valida que o popup navegou exatamente para a URL retornada via replace
+    expect(mockReplace).toHaveBeenCalledWith(urlEsperadaBling)
+
     // Aguardar o polling detectar conexão
     await new Promise((resolve) => setTimeout(resolve, 120))
 
@@ -174,7 +184,7 @@ describe('v0.0.67 - Reestruturação do Módulo Bling ERP', () => {
       closed: false,
       focus: vi.fn(),
       close: vi.fn(),
-      location: { href: 'about:blank' },
+      location: { href: 'about:blank', replace: vi.fn() },
       document: { title: '', body: { innerHTML: '' } },
     }
     const originalWindowOpen = window.open
@@ -193,6 +203,77 @@ describe('v0.0.67 - Reestruturação do Módulo Bling ERP', () => {
       expect.stringContaining('URL de autorização retornada pelo servidor não pertence ao Bling ERP'),
     )
     expect(popupMock.close).toHaveBeenCalled()
+    expect(popupMock.location.replace).not.toHaveBeenCalled()
+
+    window.open = originalWindowOpen
+    pbSendSpy.mockRestore()
+  })
+
+  it('fecha popup, cancela fluxo e não inicia polling quando payload não tem auth_url válida', async () => {
+    const { iniciarConexaoBling } = await import('@/lib/bling/iniciarConexaoBling')
+    const pb = (await import('@/lib/pocketbase/client')).default
+
+    const popupMock = {
+      closed: false,
+      focus: vi.fn(),
+      close: vi.fn(),
+      location: { href: 'about:blank', replace: vi.fn() },
+      document: { title: '', body: { innerHTML: '' } },
+    }
+    const originalWindowOpen = window.open
+    window.open = vi.fn().mockReturnValue(popupMock)
+
+    const pbSendSpy = vi.spyOn(pb, 'send').mockImplementation(async (pathStr: string) => {
+      if (pathStr.includes('/backend/v1/bling/connect')) {
+        return {
+          success: false,
+          message: 'BLING_CLIENT_ID ausente nos secrets',
+        }
+      }
+      return {}
+    })
+
+    const onError = vi.fn()
+    const onStatusChange = vi.fn()
+    await iniciarConexaoBling({ onError, onStatusChange })
+
+    expect(onError).toHaveBeenCalledWith('BLING_CLIENT_ID ausente nos secrets')
+    expect(popupMock.close).toHaveBeenCalled()
+    expect(popupMock.location.replace).not.toHaveBeenCalled()
+    expect(onStatusChange).not.toHaveBeenCalled()
+
+    window.open = originalWindowOpen
+    pbSendSpy.mockRestore()
+  })
+
+  it('rejeita URL do Bling com parâmetros OAuth faltando (response_type, client_id, redirect_uri, state)', async () => {
+    const { iniciarConexaoBling } = await import('@/lib/bling/iniciarConexaoBling')
+    const pb = (await import('@/lib/pocketbase/client')).default
+
+    const popupMock = {
+      closed: false,
+      focus: vi.fn(),
+      close: vi.fn(),
+      location: { href: 'about:blank', replace: vi.fn() },
+      document: { title: '', body: { innerHTML: '' } },
+    }
+    const originalWindowOpen = window.open
+    window.open = vi.fn().mockReturnValue(popupMock)
+
+    // Falta redirect_uri e state
+    const pbSendSpy = vi.spyOn(pb, 'send').mockResolvedValueOnce({
+      success: true,
+      auth_url: 'https://www.bling.com.br/Api/v3/oauth/authorize?response_type=code&client_id=123',
+    })
+
+    const onError = vi.fn()
+    await iniciarConexaoBling({ onError })
+
+    expect(onError).toHaveBeenCalledWith(
+      expect.stringContaining('URL de autorização retornada pelo servidor não pertence ao Bling ERP ou possui parâmetros ausentes'),
+    )
+    expect(popupMock.close).toHaveBeenCalled()
+    expect(popupMock.location.replace).not.toHaveBeenCalled()
 
     window.open = originalWindowOpen
     pbSendSpy.mockRestore()
