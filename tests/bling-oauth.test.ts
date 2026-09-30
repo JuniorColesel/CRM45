@@ -168,8 +168,8 @@ describe('OAuth Bling v3 - Segurança e Fluxo End-to-End', () => {
     expect(hookCode).toContain("$secrets.get('BLING_CLIENT_SECRET')")
   })
 
-  // 16. status retorna apenas dados seguros
-  it('16. rota de status retorna apenas bandeiras seguras (conectado, status, datas)', () => {
+  // 16. status retorna apenas dados seguros (incluindo redirect_uri_efetiva e origem)
+  it('16. rota de status retorna apenas bandeiras seguras (conectado, status, datas, redirect_uri_efetiva, redirect_uri_origem)', () => {
     const statusHandlerCode = hookCode.slice(
       hookCode.indexOf("'/backend/v1/bling/status'"),
       hookCode.indexOf("'/backend/v1/bling/disconnect'"),
@@ -179,8 +179,26 @@ describe('OAuth Bling v3 - Segurança e Fluxo End-to-End', () => {
     expect(statusHandlerCode).toContain('expires_at:')
     expect(statusHandlerCode).toContain('ultima_renovacao:')
     expect(statusHandlerCode).toContain('ultimo_erro:')
+    expect(statusHandlerCode).toContain('redirect_uri_efetiva:')
+    expect(statusHandlerCode).toContain('redirect_uri_origem:')
     expect(statusHandlerCode).not.toContain('access_token:')
     expect(statusHandlerCode).not.toContain('refresh_token:')
+    expect(statusHandlerCode).not.toContain('client_id:')
+    expect(statusHandlerCode).not.toContain('client_secret:')
+  })
+
+  // 16.1 status retorna redirect_uri_efetiva e redirect_uri_origem conforme a mesma lógica do connect
+  it('16.1 status expõe redirect_uri_efetiva e redirect_uri_origem para diagnóstico transparente pelo CEO', () => {
+    const statusHandlerCode = hookCode.slice(
+      hookCode.indexOf("'/backend/v1/bling/status'"),
+      hookCode.indexOf("'/backend/v1/bling/disconnect'"),
+    )
+    expect(statusHandlerCode).toContain('function resolverRedirectUri()')
+    expect(statusHandlerCode).toContain("origem: 'secret'")
+    expect(statusHandlerCode).toContain("origem: 'fallback_site_url'")
+    expect(statusHandlerCode).toContain("origem: 'nao_configurada'")
+    expect(statusHandlerCode).toContain('redirect_uri_efetiva: resRedirect.uri')
+    expect(statusHandlerCode).toContain('redirect_uri_origem: resRedirect.origem')
   })
 
   // 17. sincronizar usa token OAuth

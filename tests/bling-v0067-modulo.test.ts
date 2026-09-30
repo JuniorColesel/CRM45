@@ -280,6 +280,23 @@ describe('v0.0.67 - Reestruturação do Módulo Bling ERP', () => {
   })
 
   // =========================================================================
+  // 4.1 DIAGNÓSTICO DE REDIRECT URI NO FRONTEND (v0.0.70)
+  // =========================================================================
+  it('exibe linha de diagnóstico "Redirect URI em uso", badge de comparação e botão de cópia no BlingPage.tsx', () => {
+    const blingPagePath = path.resolve(process.cwd(), 'src/pages/BlingPage.tsx')
+    const conteudo = fs.readFileSync(blingPagePath, 'utf-8')
+
+    expect(conteudo).toContain('Redirect URI em uso')
+    expect(conteudo).toContain('✓ igual à esperada')
+    expect(conteudo).toContain('⚠ difere do esperado')
+    expect(conteudo).toContain('⚠ não configurada')
+    expect(conteudo).toContain('Valor efetivo enviado ao Bling:')
+    expect(conteudo).toContain('Valor esperado pelo navegador atual:')
+    expect(conteudo).toContain('Copiar esperada')
+    expect(conteudo).toContain('Copiar efetiva')
+  })
+
+  // =========================================================================
   // 5. READ-ONLY E ZERO VAZAMENTO DE TOKENS
   // =========================================================================
   it('garante que nenhum segredo do Bling é exposto no código do módulo frontend', () => {

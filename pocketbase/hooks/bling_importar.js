@@ -36,25 +36,36 @@ routerAdd(
       })
     }
 
-    // Leitura dos secrets de ambiente
-    let clientId = ''
-    let redirectUri = ''
-    try {
-      clientId = $os.getenv('BLING_CLIENT_ID') || $secrets.get('BLING_CLIENT_ID') || ''
-      redirectUri = $os.getenv('BLING_REDIRECT_URI') || $secrets.get('BLING_REDIRECT_URI') || ''
-    } catch (_) {}
+    // Função auxiliar interna para resolução da redirect_uri
+    function resolverRedirectUri() {
+      let uri = ''
+      try {
+        uri = $os.getenv('BLING_REDIRECT_URI') || $secrets.get('BLING_REDIRECT_URI') || ''
+      } catch (_) {}
+      if (uri) {
+        return { uri: uri, origem: 'secret' }
+      }
 
-    // Fallback para redirect URI padrão caso não configurado explicitamente
-    if (!redirectUri) {
       let siteUrl = ''
       try {
         siteUrl = $os.getenv('SITE_URL') || $os.getenv('PB_INSTANCE_URL') || ''
       } catch (_) {}
       if (siteUrl) {
         if (siteUrl.endsWith('/')) siteUrl = siteUrl.slice(0, -1)
-        redirectUri = siteUrl + '/backend/v1/bling/callback'
+        return { uri: siteUrl + '/backend/v1/bling/callback', origem: 'fallback_site_url' }
       }
+
+      return { uri: '', origem: 'nao_configurada' }
     }
+
+    // Leitura dos secrets de ambiente
+    let clientId = ''
+    try {
+      clientId = $os.getenv('BLING_CLIENT_ID') || $secrets.get('BLING_CLIENT_ID') || ''
+    } catch (_) {}
+
+    const resRedirect = resolverRedirectUri()
+    const redirectUri = resRedirect.uri
 
     if (!clientId) {
       return e.json(400, {
@@ -451,6 +462,30 @@ routerAdd(
       })
     }
 
+    // Função auxiliar interna para resolução da redirect_uri (mesma regra do /connect)
+    function resolverRedirectUri() {
+      let uri = ''
+      try {
+        uri = $os.getenv('BLING_REDIRECT_URI') || $secrets.get('BLING_REDIRECT_URI') || ''
+      } catch (_) {}
+      if (uri) {
+        return { uri: uri, origem: 'secret' }
+      }
+
+      let siteUrl = ''
+      try {
+        siteUrl = $os.getenv('SITE_URL') || $os.getenv('PB_INSTANCE_URL') || ''
+      } catch (_) {}
+      if (siteUrl) {
+        if (siteUrl.endsWith('/')) siteUrl = siteUrl.slice(0, -1)
+        return { uri: siteUrl + '/backend/v1/bling/callback', origem: 'fallback_site_url' }
+      }
+
+      return { uri: '', origem: 'nao_configurada' }
+    }
+
+    const resRedirect = resolverRedirectUri()
+
     // Checar presença dos segredos essenciais no ambiente
     let hasSecrets = false
     try {
@@ -474,6 +509,8 @@ routerAdd(
         status: 'desconectado',
         configurado_no_servidor: hasSecrets,
         tipo_autenticacao: 'oauth_v3',
+        redirect_uri_efetiva: resRedirect.uri,
+        redirect_uri_origem: resRedirect.origem,
         expires_at: null,
         ultima_renovacao: null,
         ultimo_erro: null,
@@ -491,6 +528,8 @@ routerAdd(
       status: statusConn,
       configurado_no_servidor: hasSecrets,
       tipo_autenticacao: 'oauth_v3',
+      redirect_uri_efetiva: resRedirect.uri,
+      redirect_uri_origem: resRedirect.origem,
       expires_at: expiresAtStr,
       ultima_renovacao: lastRefreshStr,
       ultimo_erro: ultimoErro,

@@ -52,6 +52,8 @@ interface BlingStatusData {
   status: 'conectado' | 'desconectado' | 'erro_renovacao' | string
   configurado_no_servidor: boolean
   tipo_autenticacao: string
+  redirect_uri_efetiva?: string
+  redirect_uri_origem?: 'secret' | 'fallback_site_url' | 'nao_configurada' | string
   expires_at: string | null
   ultima_renovacao: string | null
   ultimo_erro: string | null
@@ -126,11 +128,12 @@ export default function BlingPage() {
     status: 'desconectado',
     configurado_no_servidor: false,
     tipo_autenticacao: 'nenhum',
+    redirect_uri_efetiva: '',
+    redirect_uri_origem: 'nao_configurada',
     expires_at: null,
     ultima_renovacao: null,
     ultimo_erro: null,
   })
-
   // Último resultado de sincronização em memória
   const [resultadoSync, setResultadoSync] = useState<SincronizacaoResultado | null>(null)
 
@@ -174,6 +177,8 @@ export default function BlingPage() {
           status: res.status || 'desconectado',
           configurado_no_servidor: Boolean(res.configurado_no_servidor),
           tipo_autenticacao: res.tipo_autenticacao || 'nenhum',
+          redirect_uri_efetiva: res.redirect_uri_efetiva || '',
+          redirect_uri_origem: res.redirect_uri_origem || 'nao_configurada',
           expires_at: res.expires_at || null,
           ultima_renovacao: res.ultima_renovacao || null,
           ultimo_erro: res.ultimo_erro || null,
@@ -1307,6 +1312,132 @@ export default function BlingPage() {
                   /backend/v1/bling/callback
                 </span>
               </div>
+
+              {/* Linha de Diagnóstico: Redirect URI em uso */}
+              {(() => {
+                const redirectEsperada =
+                  typeof window !== 'undefined'
+                    ? `${window.location.origin}/backend/v1/bling/callback`
+                    : '/backend/v1/bling/callback'
+                const redirectEfetiva = statusData.redirect_uri_efetiva || ''
+                const origem = statusData.redirect_uri_origem || 'nao_configurada'
+                const isNaoConfigurada = !redirectEfetiva || origem === 'nao_configurada'
+                const isIgual = Boolean(redirectEfetiva && redirectEfetiva === redirectEsperada)
+
+                const origemLabel =
+                  origem === 'secret'
+                    ? 'Secret (BLING_REDIRECT_URI)'
+                    : origem === 'fallback_site_url'
+                      ? 'Fallback (SITE_URL / PB_INSTANCE_URL)'
+                      : 'Não configurada'
+
+                return (
+                  <div className="col-span-1 sm:col-span-2 lg:col-span-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-[#64748B] uppercase tracking-wider">
+                          Redirect URI em uso
+                        </span>
+                        <span className="text-[11px] text-[#64748B]">
+                          Origem:{' '}
+                          <span className="font-semibold text-[#0F172A]">{origemLabel}</span>
+                        </span>
+                      </div>
+
+                      {/* Badge de comparação */}
+                      {isNaoConfigurada ? (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] font-semibold bg-amber-50 text-amber-800 border-amber-300"
+                        >
+                          ⚠ não configurada
+                        </Badge>
+                      ) : isIgual ? (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] font-semibold bg-emerald-50 text-emerald-800 border-emerald-300"
+                        >
+                          ✓ igual à esperada
+                        </Badge>
+                      ) : (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] font-semibold bg-amber-50 text-amber-800 border-amber-300"
+                        >
+                          ⚠ difere do esperado
+                        </Badge>
+                      )}
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] text-[#64748B]">
+                          Valor efetivo enviado ao Bling:
+                        </span>
+                        {redirectEfetiva && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-[10px] text-[#2563EB] hover:text-[#1D4ED8]"
+                            onClick={() => {
+                              navigator.clipboard.writeText(redirectEfetiva)
+                              toast({
+                                title: 'Copiado para a área de transferência',
+                                description: 'Redirect URI efetiva copiada.',
+                              })
+                            }}
+                          >
+                            Copiar efetiva
+                          </Button>
+                        )}
+                      </div>
+
+                      <div className="p-2 rounded-lg bg-white border border-slate-200 font-mono text-[11px] text-[#0F172A] break-all select-all">
+                        {isNaoConfigurada ? (
+                          <span className="text-amber-700 italic">não configurada</span>
+                        ) : (
+                          redirectEfetiva
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Quando difere do esperado, exibir valor esperado para cópia manual */}
+                    {!isIgual && (
+                      <div className="pt-2 border-t border-slate-200 space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-medium text-amber-800">
+                            Valor esperado pelo navegador atual:
+                          </span>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-6 px-2 text-[10px] text-[#2563EB] hover:text-[#1D4ED8] bg-white border-amber-300"
+                            onClick={() => {
+                              navigator.clipboard.writeText(redirectEsperada)
+                              toast({
+                                title: 'Copiado para a área de transferência',
+                                description:
+                                  'Redirect URI esperada copiada. Cole no painel do Bling.',
+                              })
+                            }}
+                          >
+                            Copiar esperada
+                          </Button>
+                        </div>
+                        <div className="p-2 rounded-lg bg-amber-50/50 border border-amber-200 font-mono text-[11px] text-amber-950 break-all select-all">
+                          {redirectEsperada}
+                        </div>
+                        <p className="text-[10px] text-[#64748B]">
+                          Cadastre esta URL exatamente no painel de aplicações de API do Bling para
+                          que o callback seja direcionado ao CRM.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
 
               <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
                 <span className="text-[10px] font-semibold text-[#64748B] block">
