@@ -2558,7 +2558,7 @@ routerAdd(
                 WHEN bp.situacao_bling_nome = 'Cancelado' AND {:motivoCancelado} != '' THEN {:motivoCancelado}
                 ELSE ''
               END as motivo_perda_id,
-              CASE WHEN bp.responsavel_id != '' THEN bp.responsavel_id ELSE '' END as responsavel_id,
+              CASE WHEN bp.responsavel_id IS NOT NULL AND bp.responsavel_id != '' THEN bp.responsavel_id ELSE NULL END as responsavel_id,
               CASE WHEN bp.data_pedido != '' THEN substr(bp.data_pedido, 1, 10) ELSE '' END as data_origem,
               CASE WHEN bp.data_pedido != '' THEN substr(bp.data_pedido, 1, 10) ELSE '' END as data_prevista_fechamento,
               CASE
@@ -3011,7 +3011,7 @@ cronAdd('bling_sync_automatica', '*/15 * * * *', () => {
             WHEN bp.situacao_bling_nome = 'Cancelado' AND {:motivoCancelado} != '' THEN {:motivoCancelado}
             ELSE ''
           END as motivo_perda_id,
-          CASE WHEN bp.responsavel_id != '' THEN bp.responsavel_id ELSE '' END as responsavel_id,
+          CASE WHEN bp.responsavel_id IS NOT NULL AND bp.responsavel_id != '' THEN bp.responsavel_id ELSE NULL END as responsavel_id,
           CASE WHEN bp.data_pedido != '' THEN substr(bp.data_pedido, 1, 10) ELSE '' END as data_origem,
           CASE WHEN bp.data_pedido != '' THEN substr(bp.data_pedido, 1, 10) ELSE '' END as data_prevista_fechamento,
           CASE

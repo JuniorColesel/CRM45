@@ -238,22 +238,26 @@ export default function OportunidadeDetalhesSheet({
                 <div className="p-3 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC]">
                   <span className="text-[11px] font-medium text-[#64748B] flex items-center gap-1">
                     <Calendar className="w-3 h-3 text-[#64748B]" />
-                    {oportunidade.data_origem ? 'Data de Origem' : 'Previsão Fechamento'}
+                    Data de Origem
                   </span>
                   <p className="text-xs font-bold text-[#0F172A] mt-1">
-                    {formatarData(
-                      oportunidade.data_origem || oportunidade.data_prevista_fechamento,
-                    )}
+                    {oportunidade.data_origem
+                      ? formatarData(oportunidade.data_origem)
+                      : 'Não informada'}
                   </p>
                 </div>
 
                 <div className="p-3 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC]">
                   <span className="text-[11px] font-medium text-[#64748B] flex items-center gap-1">
                     <Calendar className="w-3 h-3 text-[#64748B]" />
-                    Data Fechamento
+                    Data de Fechamento
                   </span>
                   <p className="text-xs font-bold text-[#0F172A] mt-1">
-                    {formatarData(oportunidade.data_fechamento)}
+                    {oportunidade.data_fechamento
+                      ? formatarData(oportunidade.data_fechamento)
+                      : oportunidade.data_prevista_fechamento
+                        ? `Prev: ${formatarData(oportunidade.data_prevista_fechamento)}`
+                        : 'Não informada'}
                   </p>
                 </div>
               </div>

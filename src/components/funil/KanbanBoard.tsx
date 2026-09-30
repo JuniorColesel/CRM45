@@ -5,6 +5,7 @@ import KanbanColumn from './KanbanColumn'
 interface KanbanBoardProps {
   etapas: EtapaFunilModel[]
   oportunidades: OportunidadeModel[]
+  modoVisao?: 'origem' | 'fechamento'
   onCardClick: (op: OportunidadeModel) => void
   onNovaOportunidadeEtapa: (etapaId: string) => void
   onMudarEtapa: (opId: string, novaEtapaId: string) => void
@@ -13,6 +14,7 @@ interface KanbanBoardProps {
 export default function KanbanBoard({
   etapas,
   oportunidades,
+  modoVisao,
   onCardClick,
   onNovaOportunidadeEtapa,
   onMudarEtapa,
@@ -62,6 +64,7 @@ export default function KanbanBoard({
             key={etapa.id}
             etapa={etapa}
             oportunidades={oportunidadesPorEtapa[etapa.id] || []}
+            modoVisao={modoVisao}
             draggedOpId={draggedOpId}
             onCardClick={onCardClick}
             onNovaOportunidadeEtapa={onNovaOportunidadeEtapa}

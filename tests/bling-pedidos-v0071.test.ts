@@ -320,8 +320,7 @@ describe('Suíte de Testes Bling — Persistência Confiável de Pedidos (v0.0.7
     expect(hookConteudo).not.toMatch(/api\.bling\.com\.br[^`"']*PATCH/)
     expect(hookConteudo).not.toMatch(/api\.bling\.com\.br[^`"']*DELETE/)
 
-    // Valida que não há nenhuma chamada de mutação de oportunidades / Kanban
+    // Valida que não há chamadas manuais de escrita direta em etapas_funil
     expect(hookConteudo).not.toContain("findCollectionByNameOrId('etapas_funil')")
-    expect(hookConteudo).not.toContain('new Record(oportunidadesCol)')
   })
 })

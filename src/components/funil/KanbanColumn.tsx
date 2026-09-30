@@ -8,17 +8,19 @@ import KanbanCard from './KanbanCard'
 interface KanbanColumnProps {
   etapa: EtapaFunilModel
   oportunidades: OportunidadeModel[]
-  draggedOpId: string | null
+  modoVisao?: 'origem' | 'fechamento'
+  draggedOpId?: string | null
   onCardClick: (op: OportunidadeModel) => void
   onNovaOportunidadeEtapa: (etapaId: string) => void
   onDragStart: (e: React.DragEvent<HTMLDivElement>, opId: string) => void
   onDragEnd: (e: React.DragEvent<HTMLDivElement>) => void
-  onDropOnEtapa: (etapaId: string, opId: string) => void
+  onDropOnEtapa: (opId: string, novaEtapaId: string) => void
 }
 
 export default function KanbanColumn({
   etapa,
   oportunidades,
+  modoVisao,
   draggedOpId,
   onCardClick,
   onNovaOportunidadeEtapa,
@@ -131,6 +133,7 @@ export default function KanbanColumn({
             <KanbanCard
               key={op.id}
               oportunidade={op}
+              modoVisao={modoVisao}
               onClick={onCardClick}
               onDragStart={onDragStart}
               onDragEnd={onDragEnd}

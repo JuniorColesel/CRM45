@@ -6,6 +6,7 @@ import { formatarMoeda, formatarData } from '@/types/clientes'
 
 interface KanbanCardProps {
   oportunidade: OportunidadeModel
+  modoVisao?: 'origem' | 'fechamento'
   onClick: (op: OportunidadeModel) => void
   onDragStart: (e: React.DragEvent<HTMLDivElement>, opId: string) => void
   onDragEnd: (e: React.DragEvent<HTMLDivElement>) => void
@@ -14,6 +15,7 @@ interface KanbanCardProps {
 
 export default function KanbanCard({
   oportunidade,
+  modoVisao = 'origem',
   onClick,
   onDragStart,
   onDragEnd,
@@ -144,14 +146,34 @@ export default function KanbanCard({
           <span className="truncate font-medium">{respNome}</span>
         </div>
 
-        {/* Previsão ou Data de Origem */}
-        {oportunidade.data_origem ? (
+        {/* Data contextualizada conforme modo de visão: Origem vs Fechamento */}
+        {modoVisao === 'fechamento' ? (
+          oportunidade.status !== 'aberto' && oportunidade.data_fechamento ? (
+            <div
+              className="flex items-center gap-1 shrink-0 text-[#64748B]"
+              title={`Data de fechamento: ${formatarData(oportunidade.data_fechamento)}`}
+            >
+              <Calendar className="w-3 h-3 text-[#94A3B8]" />
+              <span>Fechamento: {formatarData(oportunidade.data_fechamento)}</span>
+            </div>
+          ) : oportunidade.data_prevista_fechamento ? (
+            <div
+              className="flex items-center gap-1 shrink-0 text-[#64748B]"
+              title={`Previsão de fechamento: ${formatarData(oportunidade.data_prevista_fechamento)}`}
+            >
+              <Calendar className="w-3 h-3 text-[#94A3B8]" />
+              <span>Previsão: {formatarData(oportunidade.data_prevista_fechamento)}</span>
+            </div>
+          ) : (
+            <span className="text-[#94A3B8] text-[10px] shrink-0">Sem fechamento</span>
+          )
+        ) : oportunidade.data_origem ? (
           <div
             className="flex items-center gap-1 shrink-0 text-[#64748B]"
-            title={`Data de origem Bling: ${formatarData(oportunidade.data_origem)}`}
+            title={`Data de origem: ${formatarData(oportunidade.data_origem)}`}
           >
             <Calendar className="w-3 h-3 text-[#94A3B8]" />
-            <span>{formatarData(oportunidade.data_origem)}</span>
+            <span>Origem: {formatarData(oportunidade.data_origem)}</span>
           </div>
         ) : oportunidade.data_prevista_fechamento ? (
           <div
@@ -159,7 +181,7 @@ export default function KanbanCard({
             title={`Previsão de fechamento: ${formatarData(oportunidade.data_prevista_fechamento)}`}
           >
             <Calendar className="w-3 h-3 text-[#94A3B8]" />
-            <span>{formatarData(oportunidade.data_prevista_fechamento)}</span>
+            <span>Previsão: {formatarData(oportunidade.data_prevista_fechamento)}</span>
           </div>
         ) : (
           <span className="text-[#94A3B8] text-[10px] shrink-0">Sem data</span>

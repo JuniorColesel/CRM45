@@ -121,33 +121,26 @@ export default function FunilPage() {
       }
     }
 
-    // 3. Filtro por data personalizado do FunilFiltros (caso fornecido manualmente no formulário)
-    if (filtros.dataInicio) {
-      condicoes.push(
-        `(data_origem >= '${filtros.dataInicio}' || created >= '${filtros.dataInicio} 00:00:00')`,
-      )
-    }
-    if (filtros.dataFim) {
-      condicoes.push(
-        `(data_origem <= '${filtros.dataFim}' || created <= '${filtros.dataFim} 23:59:59')`,
-      )
-    }
+    // 3 e 4. Filtro por Período e Data (modo Visão Origem vs Fechamento)
+    // Se o usuário digitou data específica no FunilFiltros, ela prevalece; caso contrário, usa o SeletorDePeriodo global
+    const efetivoInicioYmd = filtros.dataInicio || periodo.dataInicioYmd
+    const efetivoFimYmd = filtros.dataFim || periodo.dataFimYmd
+    const iniIso = `${efetivoInicioYmd} 00:00:00`
+    const fimIso = `${efetivoFimYmd} 23:59:59`
 
-    // 4. Período Selecionado no Seletor Global (Regras 29 e 30)
-    // Permite alternar VISÃO POR ORIGEM (data_origem default) vs VISÃO POR FECHAMENTO (data_fechamento)
-    const iniYmd = periodo.dataInicioYmd
-    const fimYmd = periodo.dataFimYmd
-    const iniIso = `${iniYmd} 00:00:00`
-    const fimIso = `${fimYmd} 23:59:59`
-
-    if (modoVisao === 'fechamento') {
-      // Visão Fechamento: ganhas e perdidas pela data_fechamento; abertas pela data_prevista_fechamento
-      const filtroFechamento = `((status != 'aberto' && ((data_fechamento >= '${iniYmd}' && data_fechamento <= '${fimYmd}') || (data_fechamento >= '${iniIso}' && data_fechamento <= '${fimIso}'))) || (status = 'aberto' && ((data_prevista_fechamento >= '${iniYmd}' && data_prevista_fechamento <= '${fimYmd}') || (data_prevista_fechamento >= '${iniIso}' && data_prevista_fechamento <= '${fimIso}'))))`
-      condicoes.push(filtroFechamento)
-    } else {
-      // Visão Padrão: Origem comercial (quando o negócio entrou no CRM)
-      const filtroOrigem = `((data_origem != '' && data_origem >= '${iniYmd}' && data_origem <= '${fimYmd}') || ((data_origem = '' || data_origem = null) && created >= '${iniIso}' && created <= '${fimIso}'))`
-      condicoes.push(filtroOrigem)
+    if (efetivoInicioYmd && efetivoFimYmd) {
+      if (modoVisao === 'fechamento') {
+        // MODO FECHAMENTO:
+        // Registros finalizados (ganhos/perdidos) usam data_fechamento no intervalo.
+        // Registros em aberto usam data_prevista_fechamento no intervalo.
+        const filtroFechamento = `((status != 'aberto' && ((data_fechamento >= '${efetivoInicioYmd}' && data_fechamento <= '${efetivoFimYmd}') || (data_fechamento >= '${iniIso}' && data_fechamento <= '${fimIso}'))) || (status = 'aberto' && ((data_prevista_fechamento >= '${efetivoInicioYmd}' && data_prevista_fechamento <= '${efetivoFimYmd}') || (data_prevista_fechamento >= '${iniIso}' && data_prevista_fechamento <= '${fimIso}'))))`
+        condicoes.push(filtroFechamento)
+      } else {
+        // MODO ORIGEM:
+        // O intervalo filtra estritamente por data_origem (ou created caso data_origem seja vazio)
+        const filtroOrigem = `((data_origem != '' && data_origem >= '${efetivoInicioYmd}' && data_origem <= '${efetivoFimYmd}') || ((data_origem = '' || data_origem = null) && created >= '${iniIso}' && created <= '${fimIso}'))`
+        condicoes.push(filtroOrigem)
+      }
     }
 
     // 5. Busca textual
@@ -508,6 +501,7 @@ export default function FunilPage() {
             <KanbanBoard
               etapas={etapas}
               oportunidades={oportunidadesFiltradas}
+              modoVisao={modoVisao}
               onCardClick={handleCardClick}
               onNovaOportunidadeEtapa={handleNovaOportunidade}
               onMudarEtapa={handleMudarEtapa}
