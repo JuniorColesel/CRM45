@@ -74,85 +74,115 @@ describe('Suíte v0.0.75 — Propostas Comerciais Bling (Leitura, Persistência 
     expect(migrationConteudo).toContain('CREATE UNIQUE INDEX idx_bling_propostas_proposta_id ON bling_propostas (bling_proposta_id)')
   })
 
-  // 4. Normalização de situações e visibilidade futura no funil
-  it('4. Normalização de situações de propostas comerciais mapeia rascunho, aguardando, nao_aprovada, convertida e outro', () => {
-    function resolverSituacaoPropostaMock(sitNome: string) {
-      const texto = sitNome.toLowerCase()
-      let statusNormalizado = 'outro'
-      let visivelFunil = false
-
-      if (texto.indexOf('rascunho') !== -1) {
-        statusNormalizado = 'rascunho'
-        visivelFunil = true
-      } else if (
-        texto.indexOf('aguard') !== -1 ||
-        texto.indexOf('pendente') !== -1 ||
-        texto.indexOf('em analise') !== -1 ||
-        texto.indexOf('em análise') !== -1 ||
-        texto.indexOf('enviada') !== -1
-      ) {
-        statusNormalizado = 'aguardando'
-        visivelFunil = true
-      } else if (
-        texto.indexOf('nao aprovad') !== -1 ||
-        texto.indexOf('não aprovad') !== -1 ||
-        texto.indexOf('reprovad') !== -1 ||
-        texto.indexOf('recusad') !== -1 ||
-        texto.indexOf('perdid') !== -1 ||
-        texto.indexOf('cancelad') !== -1
-      ) {
-        statusNormalizado = 'nao_aprovada'
-        visivelFunil = true
-      } else if (
-        texto.indexOf('convertid') !== -1 ||
-        texto.indexOf('fechad') !== -1 ||
-        texto.indexOf('aprovad') !== -1 ||
-        texto.indexOf('concluid') !== -1 ||
-        texto.indexOf('faturad') !== -1 ||
-        texto.indexOf('ganh') !== -1
-      ) {
-        statusNormalizado = 'convertida'
-        visivelFunil = false
-      } else {
-        statusNormalizado = 'outro'
-        visivelFunil = false
-      }
-
-      return { statusNormalizado, visivelFunil }
+  // 4. Normalização de situações determinística (v0.0.77 — mapa por nome exato)
+  it('4. Normalização determinística por nome exato (trim + case-insensitive sem acentos)', () => {
+    function normalizarTextoSemAcentos(str: string) {
+      if (!str) return ''
+      return String(str)
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
     }
 
-    // Casos de teste
-    expect(resolverSituacaoPropostaMock('Rascunho de Proposta')).toEqual({
+    const MAPA_SITUACOES_PROPOSTAS_DETERMINISTICO: Record<
+      string,
+      { status: string; visivel: boolean; conhecido: boolean; ambiguo?: boolean }
+    > = {
+      'rascunho': { status: 'rascunho', visivel: true, conhecido: true },
+      'aguardando': { status: 'aguardando', visivel: true, conhecido: true },
+      'pendente': { status: 'aguardando', visivel: true, conhecido: true },
+      'nao aprovado': { status: 'nao_aprovada', visivel: true, conhecido: true },
+      'nao aprovada': { status: 'nao_aprovada', visivel: true, conhecido: true },
+      'aprovado': { status: 'convertida', visivel: false, conhecido: true },
+      'aprovada': { status: 'convertida', visivel: false, conhecido: true },
+      'concluido': { status: 'outro', visivel: false, conhecido: true, ambiguo: true },
+      'concluida': { status: 'outro', visivel: false, conhecido: true, ambiguo: true },
+    }
+
+    function resolverSituacaoDeterminada(sitNome: string) {
+      const chave = normalizarTextoSemAcentos(sitNome)
+      if (MAPA_SITUACOES_PROPOSTAS_DETERMINISTICO[chave]) {
+        const c = MAPA_SITUACOES_PROPOSTAS_DETERMINISTICO[chave]
+        return {
+          statusNormalizado: c.status,
+          visivelFunil: c.visivel,
+          naoMapeado: false,
+        }
+      }
+      return {
+        statusNormalizado: 'outro',
+        visivelFunil: false,
+        naoMapeado: true,
+      }
+    }
+
+    // Casos de teste determinísticos v0.0.77:
+    // "Rascunho" -> rascunho, visivel_funil = true
+    expect(resolverSituacaoDeterminada('Rascunho')).toEqual({
       statusNormalizado: 'rascunho',
       visivelFunil: true,
+      naoMapeado: false,
     })
-    expect(resolverSituacaoPropostaMock('Aguardando aprovação do cliente')).toEqual({
+    expect(resolverSituacaoDeterminada('  rascunho ')).toEqual({
+      statusNormalizado: 'rascunho',
+      visivelFunil: true,
+      naoMapeado: false,
+    })
+
+    // "Aguardando" e "Pendente" -> aguardando, true
+    expect(resolverSituacaoDeterminada('Aguardando')).toEqual({
       statusNormalizado: 'aguardando',
       visivelFunil: true,
+      naoMapeado: false,
     })
-    expect(resolverSituacaoPropostaMock('Proposta Enviada')).toEqual({
+    expect(resolverSituacaoDeterminada('Pendente')).toEqual({
       statusNormalizado: 'aguardando',
       visivelFunil: true,
+      naoMapeado: false,
     })
-    expect(resolverSituacaoPropostaMock('Não aprovada pelo cliente')).toEqual({
+
+    // "Não aprovado" e "Não aprovada" -> nao_aprovada, true
+    expect(resolverSituacaoDeterminada('Não aprovado')).toEqual({
       statusNormalizado: 'nao_aprovada',
       visivelFunil: true,
+      naoMapeado: false,
     })
-    expect(resolverSituacaoPropostaMock('Recusada / Perda')).toEqual({
+    expect(resolverSituacaoDeterminada('Não aprovada')).toEqual({
       statusNormalizado: 'nao_aprovada',
       visivelFunil: true,
+      naoMapeado: false,
     })
-    expect(resolverSituacaoPropostaMock('Convertida em Pedido de Venda')).toEqual({
+
+    // "Aprovado" e "Aprovada" -> convertida, false
+    expect(resolverSituacaoDeterminada('Aprovado')).toEqual({
       statusNormalizado: 'convertida',
       visivelFunil: false,
+      naoMapeado: false,
     })
-    expect(resolverSituacaoPropostaMock('Aprovada e Faturada')).toEqual({
+    expect(resolverSituacaoDeterminada('Aprovada')).toEqual({
       statusNormalizado: 'convertida',
       visivelFunil: false,
+      naoMapeado: false,
     })
-    expect(resolverSituacaoPropostaMock('Situação Especial Personalizada')).toEqual({
+
+    // "Concluído" -> MANTER 'outro', visivel_funil = false (ambíguo) e NÃO conta como naoMapeado
+    expect(resolverSituacaoDeterminada('Concluído')).toEqual({
       statusNormalizado: 'outro',
       visivelFunil: false,
+      naoMapeado: false,
+    })
+    expect(resolverSituacaoDeterminada('Concluida')).toEqual({
+      statusNormalizado: 'outro',
+      visivelFunil: false,
+      naoMapeado: false,
+    })
+
+    // Outros nomes -> outro, false e SIM conta como não mapeado
+    expect(resolverSituacaoDeterminada('Personalizada')).toEqual({
+      statusNormalizado: 'outro',
+      visivelFunil: false,
+      naoMapeado: true,
     })
   })
 

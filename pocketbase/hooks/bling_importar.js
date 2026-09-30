@@ -531,14 +531,63 @@ routerAdd(
       }
     } catch (_) {}
 
-    // Buscar último backup_log manual de auditoria se existir
+    // Buscar auditoria estruturada de propostas mais recente salva em erros_propostas
     let auditoriaExtraida = null
     try {
-      const bLogs = $app.findRecordsByFilter('backup_logs', 'tipo = "manual"', '-created', 1, 0)
-      if (bLogs && bLogs.length > 0) {
-        const det = bLogs[0].getString('detalhes')
-        if (det) {
-          auditoriaExtraida = JSON.parse(det)
+      const sLogs = $app.findRecordsByFilter('bling_sync_logs', '', '-created', 1, 0)
+      if (sLogs && sLogs.length > 0) {
+        const rawErrosPropostas = sLogs[0].get('erros_propostas')
+        if (rawErrosPropostas) {
+          if (typeof rawErrosPropostas === 'object') {
+            auditoriaExtraida = rawErrosPropostas
+          } else if (typeof rawErrosPropostas === 'string') {
+            auditoriaExtraida = JSON.parse(rawErrosPropostas)
+          }
+        }
+      }
+    } catch (_) {}
+
+    // Agregação em tempo real de propostas comerciais (v0.0.77 - Item 6 da pauta)
+    // Contagens reais agrupadas por status_normalizado e vínculo
+    const propostasResumoReal = {
+      total: 0,
+      rascunho: 0,
+      aguardando: 0,
+      nao_aprovada: 0,
+      convertida: 0,
+      outro: 0,
+      pendentes_vinculo: 0,
+    }
+
+    try {
+      if (
+        auditoriaExtraida &&
+        auditoriaExtraida.totais &&
+        auditoriaExtraida.dist_status_normalizado
+      ) {
+        propostasResumoReal.total = auditoriaExtraida.totais.total || 0
+        propostasResumoReal.rascunho = auditoriaExtraida.dist_status_normalizado.rascunho || 0
+        propostasResumoReal.aguardando = auditoriaExtraida.dist_status_normalizado.aguardando || 0
+        propostasResumoReal.nao_aprovada =
+          auditoriaExtraida.dist_status_normalizado.nao_aprovada || 0
+        propostasResumoReal.convertida = auditoriaExtraida.dist_status_normalizado.convertida || 0
+        propostasResumoReal.outro = auditoriaExtraida.dist_status_normalizado.outro || 0
+        propostasResumoReal.pendentes_vinculo = (auditoriaExtraida.pendentes_det || []).length
+      } else {
+        const todasPropostas = $app.findRecordsByFilter('bling_propostas', '', '', 5000, 0)
+        propostasResumoReal.total = todasPropostas ? todasPropostas.length : 0
+        for (let idx = 0; idx < propostasResumoReal.total; idx++) {
+          const pRec = todasPropostas[idx]
+          const st = pRec.getString('status_normalizado')
+          if (st === 'rascunho') propostasResumoReal.rascunho++
+          else if (st === 'aguardando') propostasResumoReal.aguardando++
+          else if (st === 'nao_aprovada') propostasResumoReal.nao_aprovada++
+          else if (st === 'convertida') propostasResumoReal.convertida++
+          else propostasResumoReal.outro++
+
+          if (pRec.getString('status_vinculo') === 'pendente') {
+            propostasResumoReal.pendentes_vinculo++
+          }
         }
       }
     } catch (_) {}
@@ -556,6 +605,7 @@ routerAdd(
       ultimo_erro: ultimoErro,
       auditoria_resumo: auditoriaResumo,
       auditoria_extraida: auditoriaExtraida,
+      propostas_resumo_real: propostasResumoReal,
     })
   },
   $apis.requireAuth(),
@@ -1877,33 +1927,34 @@ routerAdd(
       // Não aprovada / Reprovada / Recusada -> nao_aprovada, visivel_funil = true (futura condição CRM: Perdido)
       // Convertida / Fechada / Aprovada / Concluída gerando Pedido de Venda -> convertida, visivel_funil = false
       // Outras -> outro, visivel_funil = false
-      // Mapa determinístico exato de situações de Propostas Comerciais do Bling
-      // Item 5 / Seção B da especificação v0.0.76:
-      // Substituição de includes por correspondência determinística por nome exato / ID estável:
-      // "Rascunho" -> rascunho / visivel_funil = true
-      // "Aguardando" -> aguardando / visivel_funil = true
-      // "Não aprovado" / "Não aprovada" -> nao_aprovada / visivel_funil = true
-      // "Concluído" / "Concluída" -> convertida / visivel_funil = false (ou outro se ambíguo)
-      const MAPA_SITUACOES_PROPOSTAS_EXATO = {
-        'rascunho': { status: 'rascunho', visivel: true, nomePadrao: 'Rascunho' },
-        'aguardando': { status: 'aguardando', visivel: true, nomePadrao: 'Aguardando' },
-        'não aprovado': { status: 'nao_aprovada', visivel: true, nomePadrao: 'Não aprovado' },
-        'não aprovada': { status: 'nao_aprovada', visivel: true, nomePadrao: 'Não aprovada' },
-        'nao aprovado': { status: 'nao_aprovada', visivel: true, nomePadrao: 'Não aprovado' },
-        'nao aprovada': { status: 'nao_aprovada', visivel: true, nomePadrao: 'Não aprovada' },
-        'concluído': { status: 'convertida', visivel: false, nomePadrao: 'Concluído' },
-        'concluido': { status: 'convertida', visivel: false, nomePadrao: 'Concluído' },
-        'concluída': { status: 'convertida', visivel: false, nomePadrao: 'Concluída' },
-        'concluida': { status: 'convertida', visivel: false, nomePadrao: 'Concluída' },
-        'convertida': { status: 'convertida', visivel: false, nomePadrao: 'Convertida' },
-        'faturada': { status: 'convertida', visivel: false, nomePadrao: 'Faturada' },
-        'faturado': { status: 'convertida', visivel: false, nomePadrao: 'Faturado' },
-        'reprovada': { status: 'nao_aprovada', visivel: true, nomePadrao: 'Reprovada' },
-        'reprovado': { status: 'nao_aprovada', visivel: true, nomePadrao: 'Reprovado' },
-        'recusada': { status: 'nao_aprovada', visivel: true, nomePadrao: 'Recusada' },
-        'recusado': { status: 'nao_aprovada', visivel: true, nomePadrao: 'Recusado' },
-        'cancelada': { status: 'nao_aprovada', visivel: true, nomePadrao: 'Cancelada' },
-        'cancelado': { status: 'nao_aprovada', visivel: true, nomePadrao: 'Cancelado' },
+      // De-Para Determinístico por NOME EXATO de situações de Propostas Comerciais (v0.0.77 - Item 3/5)
+      // Normalização: trim + comparação case-insensitive sem acentos
+      // - "Rascunho" -> rascunho, visivel_funil = true
+      // - "Aguardando" -> aguardando, visivel_funil = true
+      // - "Pendente" -> aguardando, visivel_funil = true
+      // - "Não aprovado" / "Não aprovada" -> nao_aprovada, visivel_funil = true
+      // - "Aprovado" / "Aprovada" -> convertida, visivel_funil = false
+      // - "Concluído" / "Concluída" -> MANTER 'outro', visivel_funil = false (semântica ambígua; NÃO conta como status_nao_mapeados)
+      // - qualquer outro nome -> outro, visivel_funil = false e incrementa status_nao_mapeados.
+      function normalizarTextoSemAcentos(str) {
+        if (!str) return ''
+        return String(str)
+          .trim()
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+      }
+
+      const MAPA_SITUACOES_PROPOSTAS_DETERMINISTICO = {
+        rascunho: { status: 'rascunho', visivel: true, conhecido: true },
+        aguardando: { status: 'aguardando', visivel: true, conhecido: true },
+        pendente: { status: 'aguardando', visivel: true, conhecido: true },
+        'nao aprovado': { status: 'nao_aprovada', visivel: true, conhecido: true },
+        'nao aprovada': { status: 'nao_aprovada', visivel: true, conhecido: true },
+        aprovado: { status: 'convertida', visivel: false, conhecido: true },
+        aprovada: { status: 'convertida', visivel: false, conhecido: true },
+        concluido: { status: 'outro', visivel: false, conhecido: true, ambiguo: true },
+        concluida: { status: 'outro', visivel: false, conhecido: true, ambiguo: true },
       }
 
       function resolverSituacaoProposta(sitRaw, sitIdRaw) {
@@ -1919,14 +1970,15 @@ routerAdd(
           sitNome = mapSituacoesModulos[sId]
         }
 
-        const chaveNomeExato = sitNome.trim().toLowerCase()
+        const chaveNormalizada = normalizarTextoSemAcentos(sitNome)
         let statusNormalizado = 'outro'
         let visivelFunil = false
 
-        if (MAPA_SITUACOES_PROPOSTAS_EXATO[chaveNomeExato]) {
-          const cfg = MAPA_SITUACOES_PROPOSTAS_EXATO[chaveNomeExato]
+        if (MAPA_SITUACOES_PROPOSTAS_DETERMINISTICO[chaveNormalizada]) {
+          const cfg = MAPA_SITUACOES_PROPOSTAS_DETERMINISTICO[chaveNormalizada]
           statusNormalizado = cfg.status
           visivelFunil = cfg.visivel
+          // Se conhecido, NÃO incrementa statusNaoMapeados nem gera aviso
         } else {
           statusNormalizado = 'outro'
           visivelFunil = false
@@ -2059,7 +2111,10 @@ routerAdd(
           const propContatoBlingId = contatoProp.id ? String(contatoProp.id) : ''
           const propDocOriginal = (contatoProp.numeroDocumento || '').trim()
           const propDoc = normalizarDoc(propDocOriginal)
-          const propNome = (contatoProp.nome || propItem.aosCuidadosDe || '').trim()
+          // Captura resiliente de dados ausentes (contato_nome, documento, vendedor_bling, situacao_bling_id)
+          // Se a listagem do Bling não trouxe contato.nome ou documento na proposta,
+          // enriquecer a partir do cliente vinculado ou mapeado por bling_contato_id
+          const propNomeBruto = (contatoProp.nome || propItem.aosCuidadosDe || '').trim()
           const dataPropostaStr = (propItem.data || '').trim()
           const dataValidadeStr = (
             propItem.dataValidade ||
@@ -2084,7 +2139,7 @@ routerAdd(
           }
           const resolucaoSitProp = resolverSituacaoProposta(sitObjProp, sitIdProp)
 
-          // Vendedor da proposta
+          // Vendedor da proposta (se vier vazio no payload, mantém default Renan conforme regra)
           let vendedorBlingNome = ''
           if (propItem.vendedor && propItem.vendedor.nome) {
             vendedorBlingNome = propItem.vendedor.nome
@@ -2099,11 +2154,21 @@ routerAdd(
             clienteAlvoProp = mapPorBlingId[propContatoBlingId]
           } else if (propDoc && mapPorDoc[propDoc]) {
             clienteAlvoProp = mapPorDoc[propDoc]
-          } else if (isConsumidorFinalNome(propNome) && recConsumidorFinal) {
+          } else if (isConsumidorFinalNome(propNomeBruto) && recConsumidorFinal) {
             clienteAlvoProp = recConsumidorFinal
-          } else if (propNome && mapPorNomeEmpresa[propNome.toLowerCase()]) {
-            clienteAlvoProp = mapPorNomeEmpresa[propNome.toLowerCase()]
+          } else if (propNomeBruto && mapPorNomeEmpresa[propNomeBruto.toLowerCase()]) {
+            clienteAlvoProp = mapPorNomeEmpresa[propNomeBruto.toLowerCase()]
           }
+
+          // Se nome ou documento vierem vazios na proposta, aproveitar os dados do cliente correspondente
+          const propNomeFinal =
+            propNomeBruto ||
+            (clienteAlvoProp
+              ? clienteAlvoProp.getString('nome_contato') ||
+                clienteAlvoProp.getString('nome_empresa')
+              : '')
+          const propDocFinal =
+            propDocOriginal || (clienteAlvoProp ? clienteAlvoProp.getString('cnpj_cpf') : '')
 
           // Se cliente não encontrado: NÃO descartar proposta.
           // Salvar cliente_id = null, status_vinculo = pendente, bling_contato_id = valor real.
@@ -2131,8 +2196,8 @@ routerAdd(
             recProposta.set('numero', numeroProposta)
             recProposta.set('cliente_id', clienteIdParaSalvarProp)
             recProposta.set('bling_contato_id', propContatoBlingId)
-            recProposta.set('contato_nome', propNome)
-            recProposta.set('documento', propDocOriginal)
+            recProposta.set('contato_nome', propNomeFinal)
+            recProposta.set('documento', propDocFinal)
             recProposta.set('vendedor_bling', vendedorBlingNome)
             recProposta.set('vendedor_crm', vendedorCrm)
             recProposta.set('responsavel_id', responsavelUsuarioId)
@@ -2178,8 +2243,8 @@ routerAdd(
                     recExistenteBancoProp.set('numero', numeroProposta)
                     recExistenteBancoProp.set('cliente_id', clienteIdParaSalvarProp)
                     recExistenteBancoProp.set('bling_contato_id', propContatoBlingId)
-                    recExistenteBancoProp.set('contato_nome', propNome)
-                    recExistenteBancoProp.set('documento', propDocOriginal)
+                    recExistenteBancoProp.set('contato_nome', propNomeFinal)
+                    recExistenteBancoProp.set('documento', propDocFinal)
                     recExistenteBancoProp.set('vendedor_bling', vendedorBlingNome)
                     recExistenteBancoProp.set('vendedor_crm', vendedorCrm)
                     recExistenteBancoProp.set('responsavel_id', responsavelUsuarioId)
@@ -2345,7 +2410,6 @@ routerAdd(
         ' atualizadas, ' +
         totalPropostasSemCliente +
         ' pendentes vínculo).'
-
 
       if (errosGerais.length > 0 || errosPedidos.length > 0) {
         msgResumo += ' Erros reais: ' + (errosGerais.length + errosPedidos.length) + '.'
