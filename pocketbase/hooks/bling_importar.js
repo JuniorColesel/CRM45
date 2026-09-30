@@ -1115,7 +1115,9 @@ routerAdd(
     }
 
     const errosGerais = []
+    const avisosGerais = []
     const errosPedidos = []
+    let statusNaoMapeados = 0
     let totalClientesLidos = 0
     let totalClientesCriados = 0
     let totalClientesAtualizados = 0
@@ -1352,12 +1354,36 @@ routerAdd(
               if (emailBlingLimpo) mapPorEmail[emailBlingLimpo] = novoCliente
               if (isConsumidor) recConsumidorFinal = novoCliente
             } catch (errIns) {
-              errosGerais.push(
-                'Erro ao inserir cliente "' +
-                  nomeEmpresaFinal +
-                  '": ' +
-                  String(errIns.message || errIns),
-              )
+              const errInsStr = String(errIns.message || errIns)
+              if (
+                errInsStr.indexOf('nome_empresa: Value must be unique') !== -1 ||
+                errInsStr.indexOf('UNIQUE constraint failed: clientes.nome_empresa') !== -1
+              ) {
+                // Aviso de negócio: cliente não inserido por nome_empresa unique.
+                // O pedido correspondente é salvo normalmente por matching de documento/bling_id.
+                avisosGerais.push(
+                  'Aviso: cliente "' +
+                    nomeEmpresaFinal +
+                    '" não inserido por unicidade de nome_empresa (pedido é persistido por documento/bling_id). Detalhe: ' +
+                    errInsStr,
+                )
+                // Se já existe registro no banco com esse nome_empresa, tentar alimentar o mapa local para vincular pedidos
+                try {
+                  const recExist = $app.findFirstRecordByData(
+                    'clientes',
+                    'nome_empresa',
+                    nomeEmpresaFinal,
+                  )
+                  if (recExist) {
+                    if (blingId) mapPorBlingId[blingId] = recExist
+                    if (docBlingLimpo) mapPorDoc[docBlingLimpo] = recExist
+                    if (emailBlingLimpo) mapPorEmail[emailBlingLimpo] = recExist
+                    mapPorNomeEmpresa[nomeEmpresaFinal.toLowerCase()] = recExist
+                  }
+                } catch (_) {}
+              } else {
+                errosGerais.push('Erro ao inserir cliente "' + nomeEmpresaFinal + '": ' + errInsStr)
+              }
             }
           }
         }
@@ -1374,15 +1400,31 @@ routerAdd(
       // ==============================================================
       const dadosVendasPorCliente = {}
 
-      // Mapeamento em memória dos pedidos já existentes em bling_pedidos (para idempotência)
+      // Mapeamento em memória de TODOS os pedidos já existentes em bling_pedidos sem teto (paginado)
       const mapBlingPedidosExistentes = {}
       try {
-        const pedidosLocais = $app.findRecordsByFilter('bling_pedidos', '', '-created', 10000, 0)
-        for (let pl = 0; pl < pedidosLocais.length; pl++) {
-          const recP = pedidosLocais[pl]
-          const pId = recP.getString('bling_pedido_id')
-          if (pId) {
-            mapBlingPedidosExistentes[pId] = recP
+        const batchPedidosSize = 5000
+        let offsetPedidos = 0
+        let temMaisPedidosLocais = true
+        while (temMaisPedidosLocais) {
+          const lotePedidosLocais = $app.findRecordsByFilter(
+            'bling_pedidos',
+            '',
+            'id',
+            batchPedidosSize,
+            offsetPedidos,
+          )
+          for (let pl = 0; pl < lotePedidosLocais.length; pl++) {
+            const recP = lotePedidosLocais[pl]
+            const pId = recP.getString('bling_pedido_id')
+            if (pId) {
+              mapBlingPedidosExistentes[pId] = recP
+            }
+          }
+          if (lotePedidosLocais.length < batchPedidosSize) {
+            temMaisPedidosLocais = false
+          } else {
+            offsetPedidos += lotePedidosLocais.length
           }
         }
       } catch (_) {}
@@ -1411,33 +1453,71 @@ routerAdd(
         // Tolerante: caso endpoint não esteja liberado no escopo atual
       }
 
-      // Função auxiliar de normalização de status do pedido
-      function normalizarStatusPedido(sitId, sitNome) {
-        const n = String(sitNome || '')
-          .trim()
-          .toLowerCase()
+      // Mapa de situações padrão confirmadas ao vivo na conta Colesel (Item B)
+      const SITUACOES_CONFIRMADAS = {
+        6: { nome: 'Em aberto', status: 'em_aberto' },
+        9: { nome: 'Atendido', status: 'atendido' },
+        12: { nome: 'Cancelado', status: 'cancelado' },
+      }
+
+      // Função de resolução da situação (nome e status_normalizado)
+      function resolverSituacaoPedido(sitId, sitNomeOriginal) {
+        const sId = String(sitId || '').trim()
+        let nomeFinal = mapSituacoesModulos[sId] || ''
+        let statusFinal = ''
+
+        // 1. Tentar por ID confirmado ao vivo
+        if (SITUACOES_CONFIRMADAS[sId]) {
+          if (!nomeFinal) {
+            nomeFinal = SITUACOES_CONFIRMADAS[sId].nome
+          }
+          statusFinal = SITUACOES_CONFIRMADAS[sId].status
+          return { nome: nomeFinal, status: statusFinal }
+        }
+
+        // 2. Se o endpoint de módulos trouxe nome, usar para classificar
+        const textoParaAnalise = (nomeFinal || sitNomeOriginal || '').trim().toLowerCase()
+
         if (
-          n.indexOf('atendido') !== -1 ||
-          n.indexOf('faturado') !== -1 ||
-          n.indexOf('concluid') !== -1 ||
-          n.indexOf('entregue') !== -1
+          textoParaAnalise.indexOf('atendido') !== -1 ||
+          textoParaAnalise.indexOf('faturado') !== -1 ||
+          textoParaAnalise.indexOf('concluid') !== -1 ||
+          textoParaAnalise.indexOf('entregue') !== -1
         ) {
-          return 'atendido'
-        }
-        if (n.indexOf('cancelad') !== -1 || n.indexOf('estorn') !== -1) {
-          return 'cancelado'
-        }
-        if (
-          n.indexOf('aberto') !== -1 ||
-          n.indexOf('pendente') !== -1 ||
-          n.indexOf('aguard') !== -1
+          statusFinal = 'atendido'
+        } else if (
+          textoParaAnalise.indexOf('cancelad') !== -1 ||
+          textoParaAnalise.indexOf('estorn') !== -1
         ) {
-          return 'em_aberto'
+          statusFinal = 'cancelado'
+        } else if (
+          textoParaAnalise.indexOf('aberto') !== -1 ||
+          textoParaAnalise.indexOf('pendente') !== -1 ||
+          textoParaAnalise.indexOf('aguard') !== -1
+        ) {
+          statusFinal = 'em_aberto'
+        } else if (
+          textoParaAnalise.indexOf('andamento') !== -1 ||
+          textoParaAnalise.indexOf('process') !== -1
+        ) {
+          statusFinal = 'em_andamento'
+        } else {
+          statusFinal = 'outro'
+          statusNaoMapeados++
+          avisosGerais.push(
+            'Situação não mapeada: id=' +
+              sId +
+              ' (' +
+              (nomeFinal || sitNomeOriginal || 'desconhecido') +
+              ') classificada como "outro".',
+          )
         }
-        if (n.indexOf('andamento') !== -1 || n.indexOf('process') !== -1) {
-          return 'em_andamento'
+
+        if (!nomeFinal) {
+          nomeFinal = sitNomeOriginal || (sId ? 'Situação #' + sId : 'Desconhecida')
         }
-        return 'outro'
+
+        return { nome: nomeFinal, status: statusFinal }
       }
 
       let paginaPedidos = 1
@@ -1543,13 +1623,15 @@ routerAdd(
           // Situação
           const sitObj = ped.situacao || {}
           const sitId = sitObj.id ? String(sitObj.id) : ''
-          let sitNome = mapSituacoesModulos[sitId] || ''
-          if (!sitNome && sitObj.valor !== undefined) {
-            sitNome = 'Situação #' + sitId + ' (' + sitObj.valor + ')'
-          } else if (!sitNome && sitId) {
-            sitNome = 'Situação #' + sitId
+          let sitNomeOriginal = ''
+          if (sitObj.valor !== undefined) {
+            sitNomeOriginal = 'Situação #' + sitId + ' (' + sitObj.valor + ')'
+          } else if (sitId) {
+            sitNomeOriginal = 'Situação #' + sitId
           }
-          const statusNormalizado = normalizarStatusPedido(sitId, sitNome)
+          const resolucaoSit = resolverSituacaoPedido(sitId, sitNomeOriginal)
+          const sitNome = resolucaoSit.nome
+          const statusNormalizado = resolucaoSit.status
 
           // Vendedor do pedido
           let vendedorBlingNome = ''
@@ -1627,14 +1709,67 @@ routerAdd(
                 totalPedidosDuplicados++
               }
             } catch (errPedSave) {
-              errosGerais.push(
-                'Erro ao salvar pedido bling_id ' +
-                  pedidoIdRaw +
-                  ' (número ' +
-                  numeroPedido +
-                  '): ' +
-                  String(errPedSave.message || errPedSave),
-              )
+              const errPedStr = String(errPedSave.message || errPedSave)
+              // Tratamento resiliente se ocorrer violação de unicidade por mapa desatualizado
+              if (
+                errPedStr.indexOf('bling_pedido_id: Value must be unique') !== -1 ||
+                errPedStr.indexOf('UNIQUE constraint failed: bling_pedidos.bling_pedido_id') !== -1
+              ) {
+                try {
+                  const recExistenteBanco = $app.findFirstRecordByData(
+                    'bling_pedidos',
+                    'bling_pedido_id',
+                    pedidoIdRaw,
+                  )
+                  if (recExistenteBanco) {
+                    recExistenteBanco.set('numero', numeroPedido)
+                    recExistenteBanco.set('cliente_id', clienteIdParaSalvar)
+                    recExistenteBanco.set('bling_contato_id', pedContatoBlingId)
+                    recExistenteBanco.set('contato_nome', pedNome)
+                    recExistenteBanco.set('documento', pedDocOriginal)
+                    recExistenteBanco.set('vendedor_bling', vendedorBlingNome)
+                    recExistenteBanco.set('vendedor_crm', vendedorCrm)
+                    recExistenteBanco.set('responsavel_id', responsavelUsuarioId)
+                    if (dataPedidoStr) {
+                      recExistenteBanco.set('data_pedido', dataPedidoStr.slice(0, 10))
+                    }
+                    if (dataSaidaStr) {
+                      recExistenteBanco.set('data_atendimento', dataSaidaStr.slice(0, 10))
+                    }
+                    recExistenteBanco.set('valor_total', totalPedido)
+                    recExistenteBanco.set('situacao_bling_id', sitId)
+                    recExistenteBanco.set('situacao_bling_nome', sitNome)
+                    recExistenteBanco.set('status_normalizado', statusNormalizado)
+                    recExistenteBanco.set('status_vinculo', statusVinculo)
+                    recExistenteBanco.set('sincronizado_em', new Date().toISOString())
+                    $app.save(recExistenteBanco)
+                    mapBlingPedidosExistentes[pedidoIdRaw] = recExistenteBanco
+                    totalPedidosAtualizados++
+                    totalPedidosDuplicados++
+                    avisosGerais.push(
+                      'Aviso: pedido bling_id ' +
+                        pedidoIdRaw +
+                        ' já existia (mapa desatualizado) e foi atualizado diretamente pelo índice único.',
+                    )
+                  }
+                } catch (errRetry) {
+                  errosGerais.push(
+                    'Erro ao atualizar pedido pré-existente bling_id ' +
+                      pedidoIdRaw +
+                      ': ' +
+                      String(errRetry.message || errRetry),
+                  )
+                }
+              } else {
+                errosGerais.push(
+                  'Erro ao salvar pedido bling_id ' +
+                    pedidoIdRaw +
+                    ' (número ' +
+                    numeroPedido +
+                    '): ' +
+                    errPedStr,
+                )
+              }
             }
           }
 
@@ -1737,14 +1872,18 @@ routerAdd(
       // 6. FINALIZAR LOG DE SINCRONIZAÇÃO
       // ==============================================================
       const duracaoMs = Date.now() - t0
+      // Regra de status da execução (Item C):
+      // - sucesso: todos os pedidos foram lidos e persistidos/atualizados, mesmo com avisos
+      // - sucesso_parcial: houve erro real (parte dos pedidos deixou de ser lida ou salva)
+      // - erro: processamento principal não concluiu
       const statusFinal =
-        errosGerais.length === 0
+        errosGerais.length === 0 && errosPedidos.length === 0
           ? 'sucesso'
           : totalClientesLidos > 0 || totalPedidosLidos > 0
             ? 'sucesso_parcial'
             : 'erro'
 
-      const msgResumo =
+      let msgResumo =
         'Concluído em ' +
         Math.round(duracaoMs / 1000) +
         's: ' +
@@ -1761,8 +1900,14 @@ routerAdd(
         totalPedidosAtualizados +
         ' atualizados, ' +
         totalPedidosSemCliente +
-        ' pendentes vínculo). Erros: ' +
-        errosGerais.length
+        ' pendentes vínculo).'
+
+      if (errosGerais.length > 0 || errosPedidos.length > 0) {
+        msgResumo += ' Erros reais: ' + (errosGerais.length + errosPedidos.length) + '.'
+      }
+      if (avisosGerais.length > 0) {
+        msgResumo += ' Avisos: ' + avisosGerais.length + '.'
+      }
 
       if (logRecord) {
         try {
@@ -1780,6 +1925,8 @@ routerAdd(
           logRecord.set('paginas_pedidos_lidas', paginasPedidosLidas)
           logRecord.set('erros_pedidos', errosPedidos.slice(0, 30))
           logRecord.set('erros', errosGerais.slice(0, 50))
+          logRecord.set('avisos', avisosGerais.slice(0, 50))
+          logRecord.set('status_nao_mapeados', statusNaoMapeados)
           logRecord.set('duracao_ms', duracaoMs)
           logRecord.set('mensagem_resumo', msgResumo)
           $app.save(logRecord)
@@ -1803,7 +1950,9 @@ routerAdd(
         pedidos_sem_cliente: totalPedidosSemCliente,
         paginas_pedidos_lidas: paginasPedidosLidas,
         clientes_com_compras_atualizadas: clientesComComprasAtualizadas,
+        status_nao_mapeados: statusNaoMapeados,
         erros: errosGerais,
+        avisos: avisosGerais,
         erros_pedidos: errosPedidos,
         mensagem: msgResumo,
       })

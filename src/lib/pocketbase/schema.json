@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-30T19:34:15.859Z",
+  "generatedAt": "2026-09-30T20:02:09.148Z",
   "collections": [
     {
       "name": "users",
@@ -2168,6 +2168,18 @@
         {
           "name": "erros_pedidos",
           "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "avisos",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status_nao_mapeados",
+          "type": "number",
           "required": false,
           "system": false
         }
