@@ -522,6 +522,15 @@ routerAdd(
     const lastRefreshStr = connRecord.getString('last_refresh_at') || null
     const ultimoErro = connRecord.getString('ultimo_erro') || null
 
+    // Buscar resumo de auditoria gravado
+    let auditoriaResumo = ''
+    try {
+      const logs = $app.findRecordsByFilter('bling_sync_logs', '', '-created', 1, 0)
+      if (logs && logs.length > 0) {
+        auditoriaResumo = logs[0].getString('mensagem_resumo') || ''
+      }
+    } catch (_) {}
+
     // NUNCA retornar tokens na resposta
     return e.json(200, {
       conectado: statusConn === 'conectado',
@@ -533,6 +542,7 @@ routerAdd(
       expires_at: expiresAtStr,
       ultima_renovacao: lastRefreshStr,
       ultimo_erro: ultimoErro,
+      auditoria_resumo: auditoriaResumo,
     })
   },
   $apis.requireAuth(),

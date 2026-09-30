@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-30T19:05:18.314Z",
+  "generatedAt": "2026-09-30T19:25:24.654Z",
   "collections": [
     {
       "name": "users",
@@ -2448,6 +2448,76 @@
         "CREATE INDEX idx_bling_pedidos_data ON bling_pedidos (data_pedido DESC)",
         "CREATE INDEX idx_bling_pedidos_vinculo ON bling_pedidos (status_vinculo)"
       ]
+    },
+    {
+      "name": "bling_auditoria_vendas",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "chave",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "ano",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "situacao_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "situacao_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "pedidos_qtd",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "valor_total",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "detalhes_json",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": []
     }
   ]
 }
