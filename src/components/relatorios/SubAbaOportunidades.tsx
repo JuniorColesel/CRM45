@@ -65,9 +65,10 @@ export function SubAbaOportunidades({
     }
 
     // Período
-    const inicioMesStr = `${ano}-${String(mes).padStart(2, '0')}-01 00:00:00`
-    const fimDoMesDia = new Date(ano, mes, 0).getDate()
-    const fimMesStr = `${ano}-${String(mes).padStart(2, '0')}-${String(fimDoMesDia).padStart(2, '0')} 23:59:59`
+    const mesNum = typeof mes === 'number' ? mes : new Date().getMonth() + 1
+    const inicioMesStr = `${ano}-${String(mesNum).padStart(2, '0')}-01 00:00:00`
+    const fimDoMesDia = new Date(ano, mesNum, 0).getDate()
+    const fimMesStr = `${ano}-${String(mesNum).padStart(2, '0')}-${String(fimDoMesDia).padStart(2, '0')} 23:59:59`
 
     // Apenas oportunidades do CRM nos relatórios padrão do funil nativo
     condicoes.push("(origem = '' || origem = 'crm')")

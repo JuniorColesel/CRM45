@@ -57,15 +57,16 @@ export function GraficosRelatorio({
 
   // 2. Gráfico de linha: Evolução diária do valor em pipeline no período (um ponto por dia do período)
   const dadosEvolucaoPipeline = (() => {
+    const mesNum = typeof periodo.mes === 'number' ? periodo.mes : new Date().getMonth() + 1
     // Número de dias no mês
-    const totalDias = new Date(periodo.ano, periodo.mes, 0).getDate()
+    const totalDias = new Date(periodo.ano, mesNum, 0).getDate()
     const pontos: Array<{ dia: string; valor: number; quantidade: number }> = []
 
     // Mapeamos a data de criação ou data de fechamento para acumular ou registrar o valor do pipeline dia a dia
     // Para um ponto por dia do período, calculamos as oportunidades abertas cujo dia de abertura/referência <= aquele dia
     for (let dia = 1; dia <= totalDias; dia++) {
       const diaFormatado = String(dia).padStart(2, '0')
-      const mesFormatado = String(periodo.mes).padStart(2, '0')
+      const mesFormatado = String(mesNum).padStart(2, '0')
       const dataYmd = `${periodo.ano}-${mesFormatado}-${diaFormatado}`
 
       // Oportunidades abertas ativas até este dia no período

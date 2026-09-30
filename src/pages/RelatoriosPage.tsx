@@ -195,13 +195,14 @@ export default function RelatoriosPage() {
   }, [oportunidades, ano, mes])
 
   const oportunidadesAbertasNoPeriodo = useMemo(() => {
+    const mesNum = typeof mes === 'number' ? mes : 12
     return oportunidades.filter((op) => {
       if (op.status !== 'aberto') return false
       // Se tiver data de fechamento ou criado_em
       const dCriacao = op.criado_em || op.created ? new Date(op.criado_em || op.created) : null
       if (dCriacao && !isNaN(dCriacao.getTime())) {
         // Se criada até o final deste mês e ainda está aberta
-        const dFimMes = new Date(ano, mes, 0, 23, 59, 59)
+        const dFimMes = new Date(ano, mesNum, 0, 23, 59, 59)
         return dCriacao <= dFimMes
       }
       return true
@@ -274,8 +275,9 @@ export default function RelatoriosPage() {
       if (c.data_inicio && c.data_fim) {
         const dIni = new Date(c.data_inicio)
         const dFim = new Date(c.data_fim)
-        const mesInicio = new Date(ano, mes - 1, 1)
-        const mesFim = new Date(ano, mes, 0)
+        const mesNum = typeof mes === 'number' ? mes : 1
+        const mesInicio = new Date(ano, mesNum - 1, 1)
+        const mesFim = new Date(ano, typeof mes === 'number' ? mes : 12, 0)
         return dIni <= mesFim && dFim >= mesInicio
       }
 

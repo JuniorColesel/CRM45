@@ -2,6 +2,15 @@ import pb from '@/lib/pocketbase/client'
 import type { PerfilUsuario } from '@/contexts/AuthContext'
 import type { MesFiltro } from '@/contexts/PeriodoContext'
 
+export interface AlertaPainel {
+  id: string
+  titulo: string
+  descricao: string
+  iconeCor: 'vermelho' | 'verde' | 'amarelo' | 'azul'
+  linkDestino: string
+  linkRotulo?: string
+}
+
 export interface DetalheSituacaoValor {
   qtd: number
   valor: number
