@@ -531,6 +531,12 @@ routerAdd(
         serie_mensal_ano: serieMensalAno,
       })
     } catch (errGeral) {
+      console.error(
+        '[PAINEL-COMERCIAL] Erro capturado: ' +
+          String(errGeral.message || errGeral) +
+          ' | Stack: ' +
+          String(errGeral.stack || ''),
+      )
       return e.json(500, {
         success: false,
         message:
