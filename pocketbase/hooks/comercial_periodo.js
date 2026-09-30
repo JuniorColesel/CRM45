@@ -43,17 +43,32 @@ routerAdd('GET', '/backend/v1/painel/comercial', (e) => {
     return ano + '-' + String(mes + 1).padStart(2, '0') + '-01'
   }
 
-  console.log(
-    '[PAINEL-COMERCIAL] Requisição recebida com parâmetros: ' +
-      JSON.stringify(e.requestInfo().query || {}),
-  )
+  const reqInfo = (typeof e.requestInfo === 'function' ? e.requestInfo() : null) || {}
+  const reqQuery = reqInfo.query || {}
 
-  // Helper inline: calcular intervalo de datas comerciais  const query = e.requestInfo().query || {}
-  const anoParam = query.ano ? parseInt(query.ano, 10) : new Date().getFullYear()
-  const mesParam = query.mes || 'todos'
-  const dataInicioParam = query.data_inicio || ''
-  const dataFimParam = query.data_fim || ''
-  const modoVisao = query.modo_visao === 'fechamento' ? 'fechamento' : 'origem'
+  console.log('[PAINEL-COMERCIAL] Requisição recebida com parâmetros: ' + JSON.stringify(reqQuery))
+
+  // Helper inline: calcular intervalo de datas comerciais
+  // Fallbacks seguros caso query venha via e.requestInfo().query ou e.request.url.query()
+  function getQueryParam(key) {
+    if (reqQuery && reqQuery[key] !== undefined && reqQuery[key] !== null) {
+      return String(reqQuery[key])
+    }
+    try {
+      if (e.request && e.request.url && typeof e.request.url.query === 'function') {
+        const val = e.request.url.query().get(key)
+        if (val !== null && val !== undefined) return String(val)
+      }
+    } catch (_) {}
+    return ''
+  }
+
+  const anoRaw = getQueryParam('ano')
+  const anoParam = anoRaw ? parseInt(anoRaw, 10) : new Date().getFullYear()
+  const mesParam = getQueryParam('mes') || 'todos'
+  const dataInicioParam = getQueryParam('data_inicio')
+  const dataFimParam = getQueryParam('data_fim')
+  const modoVisao = getQueryParam('modo_visao') === 'fechamento' ? 'fechamento' : 'origem'
 
   let dataInicioYmd = ''
   let dataFimYmd = ''
