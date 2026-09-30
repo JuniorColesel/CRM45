@@ -2305,13 +2305,20 @@ routerAdd(
       }
 
       // ==============================================================
+      // 4.5 MOTOR DE MATERIALIZAÇÃO DEFINITIVA DO FUNIL BLING (IDEMPOTENTE)
+      // Executa SQL direto para máxima performance e integridade atômica
       // ==============================================================
-      // 4.5 SINCRONIZAR OPORTUNIDADES NO FUNIL HÍBRIDO (IDEMPOTENTE)
-      // ==============================================================
-      let totalOpsBlingCriadas = 0
-      let totalOpsBlingAtualizadas = 0
+      let estatisticasFunil = {
+        propostas_criadas: 0,
+        pedidos_criados: 0,
+        propostas_atualizadas: 0,
+        pedidos_atualizados: 0,
+        propostas_inativadas: 0,
+        erros: 0,
+      }
+
       try {
-        const opCol = $app.findCollectionByNameOrId('oportunidades')
+        // Resolver IDs reais das etapas em etapas_funil
         const etapasList = $app.findRecordsByFilter('etapas_funil', '', 'ordem', 20, 0)
         let etapaPropostaId = ''
         let etapaNegociacaoId = ''
@@ -2325,7 +2332,7 @@ routerAdd(
           if (epNome.indexOf('fechad') !== -1) etapaFechadoId = epRec.id
         }
 
-        // Buscar motivos de perda Bling
+        // Resolver motivos de perda Bling
         let motivoNaoAprovadaId = ''
         let motivoCanceladoId = ''
         try {
@@ -2345,231 +2352,303 @@ routerAdd(
           if (motCanc) motivoCanceladoId = motCanc.id
         } catch (_) {}
 
-        // Mapa de oportunidades existentes por bling_proposta_id e bling_pedido_id
-        const mapOpsPorProposta = {}
-        const mapOpsPorPedido = {}
-        let offsetOps = 0
-        const loteOpsSize = 5000
-        let temMaisOps = true
-        while (temMaisOps) {
-          const opsExistentes = $app.findRecordsByFilter(
-            'oportunidades',
-            "origem = 'bling'",
-            '-created',
-            loteOpsSize,
-            offsetOps,
-          )
-          for (let o = 0; o < opsExistentes.length; o++) {
-            const opItem = opsExistentes[o]
-            const propIdKey = opItem.getString('bling_proposta_id')
-            const pedIdKey = opItem.getString('bling_pedido_id')
-            if (propIdKey) mapOpsPorProposta[propIdKey] = opItem
-            if (pedIdKey) mapOpsPorPedido[pedIdKey] = opItem
-          }
-          if (opsExistentes.length < loteOpsSize) {
-            temMaisOps = false
-          } else {
-            offsetOps += opsExistentes.length
-          }
-        }
-
-        // 4.5.1 PROPOSTAS BLING -> OPORTUNIDADES
-        // Somente situações comprovadas:
-        // - Rascunho -> etapa Proposta, status aberto
-        // - Aguardando -> etapa Negociação, status aberto
-        // - Não aprovado(a) -> etapa Fechado, status perdido (motivo: Não aprovada no Bling)
-        // Concluído, Aprovado(a) e Outro -> NÃO aparecem no funil
-        let offsetPropsFunil = 0
-        const lotePropsFunilSize = 5000
-        let temMaisPropsFunil = true
-        const propostasAtivas = []
-        while (temMaisPropsFunil) {
-          const lotePr = $app.findRecordsByFilter(
-            'bling_propostas',
-            "visivel_funil = true && status_vinculo = 'vinculado'",
-            '-created',
-            lotePropsFunilSize,
-            offsetPropsFunil,
-          )
-          for (let lp = 0; lp < lotePr.length; lp++) {
-            propostasAtivas.push(lotePr[lp])
-          }
-          if (lotePr.length < lotePropsFunilSize) {
-            temMaisPropsFunil = false
-          } else {
-            offsetPropsFunil += lotePr.length
-          }
-        }
-        for (let pIdx = 0; pIdx < propostasAtivas.length; pIdx++) {
-          const propRec = propostasAtivas[pIdx]
-          const bPropId = propRec.getString('bling_proposta_id')
-          const stNorm = propRec.getString('status_normalizado')
-          const cliId = propRec.getString('cliente_id')
-          if (!bPropId || !cliId) continue
-
-          let targetEtapaId = ''
-          let targetStatus = 'aberto'
-          let targetMotivoId = null
-
-          if (stNorm === 'rascunho') {
-            targetEtapaId = etapaPropostaId
-            targetStatus = 'aberto'
-          } else if (stNorm === 'aguardando') {
-            targetEtapaId = etapaNegociacaoId
-            targetStatus = 'aberto'
-          } else if (stNorm === 'nao_aprovada') {
-            targetEtapaId = etapaFechadoId
-            targetStatus = 'perdido'
-            targetMotivoId = motivoNaoAprovadaId || null
-          } else {
-            // Não elegível
-            continue
-          }
-
-          let opRec = mapOpsPorProposta[bPropId]
-          let isNova = false
-          if (!opRec) {
-            opRec = new Record(opCol)
-            opRec.set('origem', 'bling')
-            opRec.set('tipo_origem', 'bling_proposta')
-            opRec.set('bling_proposta_id', bPropId)
-            isNova = true
-          }
-
-          opRec.set('cliente_id', cliId)
-          opRec.set('valor', propRec.getInt('valor_total') || 0)
-          opRec.set('etapa_id', targetEtapaId)
-          opRec.set('status', targetStatus)
-          opRec.set('motivo_perda_id', targetMotivoId)
-          opRec.set('responsavel_id', propRec.getString('responsavel_id') || null)
-          const dtProp = propRec.getString('data_proposta')
-          if (dtProp) {
-            opRec.set('data_origem', dtProp)
-          }
-          const dtVal = propRec.getString('data_validade')
-          if (dtVal) {
-            opRec.set('data_prevista_fechamento', dtVal)
-          }
-          if (targetStatus === 'perdido') {
-            opRec.set('data_fechamento', dtProp || new Date().toISOString())
-          }
-
-          const numProp = propRec.getString('numero')
-          opRec.set('titulo', 'Proposta Bling #' + (numProp || bPropId))
-          opRec.set(
-            'observacoes',
-            'Proposta Bling nº ' +
-              (numProp || bPropId) +
-              ' (Situação: ' +
-              propRec.getString('situacao_bling_nome') +
-              ')',
-          )
-
-          try {
-            $app.save(opRec)
-            mapOpsPorProposta[bPropId] = opRec
-            if (isNova) totalOpsBlingCriadas++
-            else totalOpsBlingAtualizadas++
-          } catch (errOpSave) {
-            avisosGerais.push(
-              'Aviso ao sincronizar oportunidade da proposta ' +
-                bPropId +
-                ': ' +
-                String(errOpSave.message || errOpSave),
+        if (etapaPropostaId && etapaNegociacaoId && etapaFechadoId) {
+          // 1. INSERIR PROPOSTAS ELEGÍVEIS COMO OPORTUNIDADES
+          // Regras:
+          // - rascunho -> etapa Proposta, status 'aberto', data_origem=data_proposta
+          // - aguardando -> etapa Negociação, status 'aberto', data_origem=data_proposta
+          // - nao_aprovada -> etapa Fechado, status 'perdido', motivo=motivoNaoAprovadaId, data_fechamento=data_proposta
+          const sqlInsertPropostas = `
+            INSERT INTO oportunidades (
+              id,
+              origem,
+              tipo_origem,
+              bling_proposta_id,
+              bling_pedido_id,
+              cliente_id,
+              valor,
+              etapa_id,
+              status,
+              motivo_perda_id,
+              responsavel_id,
+              data_origem,
+              data_prevista_fechamento,
+              data_fechamento,
+              observacoes,
+              criado_em,
+              atualizado_em,
+              created,
+              updated
             )
-          }
-        }
+            SELECT
+              substr(hex(randomblob(8)), 1, 15) as id,
+              'bling' as origem,
+              'bling_proposta' as tipo_origem,
+              bp.bling_proposta_id,
+              '' as bling_pedido_id,
+              bp.cliente_id,
+              COALESCE(bp.valor_total, 0) as valor,
+              CASE
+                WHEN bp.status_normalizado = 'rascunho' THEN {:etapaProposta}
+                WHEN bp.status_normalizado = 'aguardando' THEN {:etapaNegociacao}
+                WHEN bp.status_normalizado = 'nao_aprovada' THEN {:etapaFechado}
+              END as etapa_id,
+              CASE
+                WHEN bp.status_normalizado = 'nao_aprovada' THEN 'perdido'
+                ELSE 'aberto'
+              END as status,
+              CASE
+                WHEN bp.status_normalizado = 'nao_aprovada' AND {:motivoNaoAprovada} != '' THEN {:motivoNaoAprovada}
+                ELSE ''
+              END as motivo_perda_id,
+              CASE WHEN bp.responsavel_id != '' THEN bp.responsavel_id ELSE '' END as responsavel_id,
+              CASE WHEN bp.data_proposta != '' THEN substr(bp.data_proposta, 1, 10) ELSE '' END as data_origem,
+              CASE WHEN bp.data_validade != '' THEN substr(bp.data_validade, 1, 10) ELSE '' END as data_prevista_fechamento,
+              CASE
+                WHEN bp.status_normalizado = 'nao_aprovada' AND bp.data_proposta != '' THEN substr(bp.data_proposta, 1, 10)
+                ELSE ''
+              END as data_fechamento,
+              'Proposta Bling nº ' || COALESCE(bp.numero, bp.bling_proposta_id) || ' (' || COALESCE(bp.situacao_bling_nome, '') || ')' as observacoes,
+              strftime('%Y-%m-%d %H:%M:%f', 'now') as criado_em,
+              strftime('%Y-%m-%d %H:%M:%f', 'now') as atualizado_em,
+              strftime('%Y-%m-%d %H:%M:%f', 'now') as created,
+              strftime('%Y-%m-%d %H:%M:%f', 'now') as updated
+            FROM bling_propostas bp
+            WHERE bp.visivel_funil = 1
+              AND bp.status_vinculo = 'vinculado'
+              AND bp.cliente_id IS NOT NULL AND bp.cliente_id != ''
+              AND (bp.status_normalizado = 'rascunho' OR bp.status_normalizado = 'aguardando' OR bp.status_normalizado = 'nao_aprovada')
+              AND bp.bling_proposta_id NOT IN (
+                SELECT o.bling_proposta_id FROM oportunidades o WHERE o.bling_proposta_id IS NOT NULL AND o.bling_proposta_id != ''
+              )
+          `
 
-        // 4.5.2 PEDIDOS BLING -> OPORTUNIDADES
-        // Situações comprovadas:
-        // - Em aberto -> Fechado/ganho
-        // - Atendido -> Fechado/ganho
-        // - Cancelado -> Fechado/perdido (motivo: Cancelado no Bling)
-        // Apenas pedidos vinculados a cliente existente
-        let offsetPedsFunil = 0
-        const lotePedsFunilSize = 5000
-        let temMaisPedsFunil = true
-        const pedidosElegiveis = []
-        while (temMaisPedsFunil) {
-          const lotePd = $app.findRecordsByFilter(
-            'bling_pedidos',
-            "status_vinculo = 'vinculado' && (situacao_bling_nome = 'Em aberto' || situacao_bling_nome = 'Atendido' || situacao_bling_nome = 'Cancelado')",
-            '-created',
-            lotePedsFunilSize,
-            offsetPedsFunil,
-          )
-          for (let lpd = 0; lpd < lotePd.length; lpd++) {
-            pedidosElegiveis.push(lotePd[lpd])
-          }
-          if (lotePd.length < lotePedsFunilSize) {
-            temMaisPedsFunil = false
-          } else {
-            offsetPedsFunil += lotePd.length
-          }
-        }
+          const resInsProp = $app
+            .db()
+            .newQuery(sqlInsertPropostas)
+            .bind({
+              etapaProposta: etapaPropostaId,
+              etapaNegociacao: etapaNegociacaoId,
+              etapaFechado: etapaFechadoId,
+              motivoNaoAprovada: motivoNaoAprovadaId || '',
+            })
+            .execute()
+          estatisticasFunil.propostas_criadas =
+            resInsProp && resInsProp.rowsAffected ? resInsProp.rowsAffected() : 0
 
-        for (let pedIdx = 0; pedIdx < pedidosElegiveis.length; pedIdx++) {
-          const pedRec = pedidosElegiveis[pedIdx]
-          const bPedId = pedRec.getString('bling_pedido_id')
-          const sitNome = pedRec.getString('situacao_bling_nome')
-          const cliId = pedRec.getString('cliente_id')
-          if (!bPedId || !cliId) continue
+          // 2. ATUALIZAR PROPOSTAS EXISTENTES NO FUNIL (IDEMPOTÊNCIA)
+          const sqlUpdatePropostas = `
+            UPDATE oportunidades
+            SET
+              cliente_id = (SELECT bp.cliente_id FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id),
+              valor = (SELECT COALESCE(bp.valor_total, 0) FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id),
+              etapa_id = CASE
+                WHEN (SELECT bp.status_normalizado FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id) = 'rascunho' THEN {:etapaProposta}
+                WHEN (SELECT bp.status_normalizado FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id) = 'aguardando' THEN {:etapaNegociacao}
+                WHEN (SELECT bp.status_normalizado FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id) = 'nao_aprovada' THEN {:etapaFechado}
+                ELSE etapa_id
+              END,
+              status = CASE
+                WHEN (SELECT bp.status_normalizado FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id) = 'nao_aprovada' THEN 'perdido'
+                ELSE 'aberto'
+              END,
+              motivo_perda_id = CASE
+                WHEN (SELECT bp.status_normalizado FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id) = 'nao_aprovada' THEN {:motivoNaoAprovada}
+                ELSE NULL
+              END,
+              responsavel_id = CASE
+                WHEN (SELECT bp.responsavel_id FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id) != ''
+                THEN (SELECT bp.responsavel_id FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id)
+                ELSE NULL
+              END,
+              data_origem = CASE
+                WHEN (SELECT bp.data_proposta FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id) != ''
+                THEN substr((SELECT bp.data_proposta FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id), 1, 10)
+                ELSE data_origem
+              END,
+              data_prevista_fechamento = CASE
+                WHEN (SELECT bp.data_validade FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id) != ''
+                THEN substr((SELECT bp.data_validade FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id), 1, 10)
+                ELSE data_prevista_fechamento
+              END,
+              data_fechamento = CASE
+                WHEN (SELECT bp.status_normalizado FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id) = 'nao_aprovada'
+                THEN substr((SELECT bp.data_proposta FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id), 1, 10)
+                ELSE NULL
+              END,
+              atualizado_em = strftime('%Y-%m-%d %H:%M:%f', 'now'),
+              updated = strftime('%Y-%m-%d %H:%M:%f', 'now')
+            WHERE tipo_origem = 'bling_proposta'
+              AND bling_proposta_id IN (
+                SELECT bp.bling_proposta_id FROM bling_propostas bp
+                WHERE bp.visivel_funil = 1
+                  AND bp.status_vinculo = 'vinculado'
+                  AND bp.cliente_id IS NOT NULL AND bp.cliente_id != ''
+                  AND (bp.status_normalizado = 'rascunho' OR bp.status_normalizado = 'aguardando' OR bp.status_normalizado = 'nao_aprovada')
+              )
+          `
+          const resUpdProp = $app
+            .db()
+            .newQuery(sqlUpdatePropostas)
+            .bind({
+              etapaProposta: etapaPropostaId,
+              etapaNegociacao: etapaNegociacaoId,
+              etapaFechado: etapaFechadoId,
+              motivoNaoAprovada: motivoNaoAprovadaId || '',
+            })
+            .execute()
+          estatisticasFunil.propostas_atualizadas =
+            resUpdProp && resUpdProp.rowsAffected ? resUpdProp.rowsAffected() : 0
 
-          let targetStatus = 'ganho'
-          let targetMotivoId = null
-          if (sitNome === 'Cancelado') {
-            targetStatus = 'perdido'
-            targetMotivoId = motivoCanceladoId || null
-          }
+          // 3. INATIVAR PROPOSTAS QUE MUDARAM PARA CONVERTIDA/CONCLUÍDO (não visível no funil sem exclusão destrutiva)
+          // Se uma proposta estava no funil e passou para convertida/concluída, removemos do funil ou marcamos
+          const sqlInativarPropostas = `
+            DELETE FROM oportunidades
+            WHERE tipo_origem = 'bling_proposta'
+              AND bling_proposta_id IN (
+                SELECT bp.bling_proposta_id FROM bling_propostas bp
+                WHERE bp.status_normalizado = 'convertida' OR bp.status_normalizado = 'outro' OR bp.visivel_funil = 0
+              )
+          `
+          const resInatProp = $app.db().newQuery(sqlInativarPropostas).execute()
+          estatisticasFunil.propostas_inativadas =
+            resInatProp && resInatProp.rowsAffected ? resInatProp.rowsAffected() : 0
 
-          let opRec = mapOpsPorPedido[bPedId]
-          let isNova = false
-          if (!opRec) {
-            opRec = new Record(opCol)
-            opRec.set('origem', 'bling')
-            opRec.set('tipo_origem', 'bling_pedido')
-            opRec.set('bling_pedido_id', bPedId)
-            isNova = true
-          }
-
-          opRec.set('cliente_id', cliId)
-          opRec.set('valor', pedRec.getInt('valor_total') || 0)
-          opRec.set('etapa_id', etapaFechadoId)
-          opRec.set('status', targetStatus)
-          opRec.set('motivo_perda_id', targetMotivoId)
-          opRec.set('responsavel_id', pedRec.getString('responsavel_id') || null)
-
-          const dtPed = pedRec.getString('data_pedido')
-          const dtAtend = pedRec.getString('data_atendimento')
-          if (dtPed) {
-            opRec.set('data_origem', dtPed)
-          }
-          opRec.set('data_fechamento', dtAtend || dtPed || new Date().toISOString())
-
-          const numPed = pedRec.getString('numero')
-          opRec.set('titulo', 'Pedido Bling #' + (numPed || bPedId))
-          opRec.set(
-            'observacoes',
-            'Pedido Bling nº ' + (numPed || bPedId) + ' (Situação: ' + sitNome + ')',
-          )
-
-          try {
-            $app.save(opRec)
-            mapOpsPorPedido[bPedId] = opRec
-            if (isNova) totalOpsBlingCriadas++
-            else totalOpsBlingAtualizadas++
-          } catch (errPedOpSave) {
-            avisosGerais.push(
-              'Aviso ao sincronizar oportunidade do pedido ' +
-                bPedId +
-                ': ' +
-                String(errPedOpSave.message || errPedOpSave),
+          // 4. INSERIR PEDIDOS ELEGÍVEIS COMO OPORTUNIDADES
+          // Regras:
+          // - Em aberto -> Fechado, ganho, data_fechamento = data_atendimento ou data_pedido
+          // - Atendido -> Fechado, ganho, data_fechamento = data_atendimento ou data_pedido
+          // - Cancelado -> Fechado, perdido, motivo = Cancelado no Bling, data_fechamento = data_pedido
+          const sqlInsertPedidos = `
+            INSERT INTO oportunidades (
+              id,
+              origem,
+              tipo_origem,
+              bling_proposta_id,
+              bling_pedido_id,
+              cliente_id,
+              valor,
+              etapa_id,
+              status,
+              motivo_perda_id,
+              responsavel_id,
+              data_origem,
+              data_prevista_fechamento,
+              data_fechamento,
+              observacoes,
+              criado_em,
+              atualizado_em,
+              created,
+              updated
             )
-          }
+            SELECT
+              substr(hex(randomblob(8)), 1, 15) as id,
+              'bling' as origem,
+              'bling_pedido' as tipo_origem,
+              '' as bling_proposta_id,
+              bp.bling_pedido_id,
+              bp.cliente_id,
+              COALESCE(bp.valor_total, 0) as valor,
+              {:etapaFechado} as etapa_id,
+              CASE
+                WHEN bp.situacao_bling_nome = 'Cancelado' THEN 'perdido'
+                ELSE 'ganho'
+              END as status,
+              CASE
+                WHEN bp.situacao_bling_nome = 'Cancelado' AND {:motivoCancelado} != '' THEN {:motivoCancelado}
+                ELSE ''
+              END as motivo_perda_id,
+              CASE WHEN bp.responsavel_id != '' THEN bp.responsavel_id ELSE '' END as responsavel_id,
+              CASE WHEN bp.data_pedido != '' THEN substr(bp.data_pedido, 1, 10) ELSE '' END as data_origem,
+              CASE WHEN bp.data_pedido != '' THEN substr(bp.data_pedido, 1, 10) ELSE '' END as data_prevista_fechamento,
+              CASE
+                WHEN bp.situacao_bling_nome = 'Atendido' AND bp.data_atendimento != '' THEN substr(bp.data_atendimento, 1, 10)
+                WHEN bp.situacao_bling_nome = 'Cancelado' AND bp.data_pedido != '' THEN substr(bp.data_pedido, 1, 10)
+                WHEN bp.data_atendimento != '' THEN substr(bp.data_atendimento, 1, 10)
+                WHEN bp.data_pedido != '' THEN substr(bp.data_pedido, 1, 10)
+                ELSE ''
+              END as data_fechamento,
+              'Pedido Bling nº ' || COALESCE(bp.numero, bp.bling_pedido_id) || ' (' || COALESCE(bp.situacao_bling_nome, '') || ')' as observacoes,
+              strftime('%Y-%m-%d %H:%M:%f', 'now') as criado_em,
+              strftime('%Y-%m-%d %H:%M:%f', 'now') as atualizado_em,
+              strftime('%Y-%m-%d %H:%M:%f', 'now') as created,
+              strftime('%Y-%m-%d %H:%M:%f', 'now') as updated
+            FROM bling_pedidos bp
+            WHERE bp.status_vinculo = 'vinculado'
+              AND bp.cliente_id IS NOT NULL AND bp.cliente_id != ''
+              AND (bp.situacao_bling_nome = 'Em aberto' OR bp.situacao_bling_nome = 'Atendido' OR bp.situacao_bling_nome = 'Cancelado')
+              AND bp.bling_pedido_id NOT IN (
+                SELECT o.bling_pedido_id FROM oportunidades o WHERE o.bling_pedido_id IS NOT NULL AND o.bling_pedido_id != ''
+              )
+          `
+
+          const resInsPed = $app
+            .db()
+            .newQuery(sqlInsertPedidos)
+            .bind({
+              etapaFechado: etapaFechadoId,
+              motivoCancelado: motivoCanceladoId || '',
+            })
+            .execute()
+          estatisticasFunil.pedidos_criados =
+            resInsPed && resInsPed.rowsAffected ? resInsPed.rowsAffected() : 0
+
+          // 5. ATUALIZAR PEDIDOS EXISTENTES NO FUNIL (IDEMPOTÊNCIA)
+          const sqlUpdatePedidos = `
+            UPDATE oportunidades
+            SET
+              cliente_id = (SELECT bp.cliente_id FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id),
+              valor = (SELECT COALESCE(bp.valor_total, 0) FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id),
+              status = CASE
+                WHEN (SELECT bp.situacao_bling_nome FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) = 'Cancelado' THEN 'perdido'
+                ELSE 'ganho'
+              END,
+              motivo_perda_id = CASE
+                WHEN (SELECT bp.situacao_bling_nome FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) = 'Cancelado' THEN {:motivoCancelado}
+                ELSE NULL
+              END,
+              responsavel_id = CASE
+                WHEN (SELECT bp.responsavel_id FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) != ''
+                THEN (SELECT bp.responsavel_id FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id)
+                ELSE NULL
+              END,
+              data_origem = CASE
+                WHEN (SELECT bp.data_pedido FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) != ''
+                THEN substr((SELECT bp.data_pedido FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id), 1, 10)
+                ELSE data_origem
+              END,
+              data_fechamento = CASE
+                WHEN (SELECT bp.situacao_bling_nome FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) = 'Atendido'
+                  AND (SELECT bp.data_atendimento FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) != ''
+                THEN substr((SELECT bp.data_atendimento FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id), 1, 10)
+                WHEN (SELECT bp.data_pedido FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) != ''
+                THEN substr((SELECT bp.data_pedido FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id), 1, 10)
+                ELSE data_fechamento
+              END,
+              atualizado_em = strftime('%Y-%m-%d %H:%M:%f', 'now'),
+              updated = strftime('%Y-%m-%d %H:%M:%f', 'now')
+            WHERE tipo_origem = 'bling_pedido'
+              AND bling_pedido_id IN (
+                SELECT bp.bling_pedido_id FROM bling_pedidos bp
+                WHERE bp.status_vinculo = 'vinculado'
+                  AND bp.cliente_id IS NOT NULL AND bp.cliente_id != ''
+                  AND (bp.situacao_bling_nome = 'Em aberto' OR bp.situacao_bling_nome = 'Atendido' OR bp.situacao_bling_nome = 'Cancelado')
+              )
+          `
+          const resUpdPed = $app
+            .db()
+            .newQuery(sqlUpdatePedidos)
+            .bind({
+              motivoCancelado: motivoCanceladoId || '',
+            })
+            .execute()
+          estatisticasFunil.pedidos_atualizados =
+            resUpdPed && resUpdPed.rowsAffected ? resUpdPed.rowsAffected() : 0
         }
       } catch (errFunilGeral) {
+        estatisticasFunil.erros++
         avisosGerais.push(
-          'Aviso na sincronização do funil híbrido: ' +
+          'Aviso na materialização do funil híbrido: ' +
             String(errFunilGeral.message || errFunilGeral),
         )
       }
@@ -2683,7 +2762,16 @@ routerAdd(
         totalPropostasAtualizadas +
         ' atualizadas, ' +
         totalPropostasSemCliente +
-        ' pendentes vínculo).'
+        ' pendentes vínculo). ' +
+        'Funil: ' +
+        (estatisticasFunil.propostas_criadas + estatisticasFunil.pedidos_criados) +
+        ' criadas (' +
+        estatisticasFunil.propostas_criadas +
+        ' propostas, ' +
+        estatisticasFunil.pedidos_criados +
+        ' pedidos), ' +
+        (estatisticasFunil.propostas_atualizadas + estatisticasFunil.pedidos_atualizados) +
+        ' atualizadas.'
 
       if (errosGerais.length > 0 || errosPedidos.length > 0) {
         msgResumo += ' Erros reais: ' + (errosGerais.length + errosPedidos.length) + '.'
@@ -2749,6 +2837,7 @@ routerAdd(
         paginas_propostas_lidas: paginasPropostasLidas,
         clientes_com_compras_atualizadas: clientesComComprasAtualizadas,
         status_nao_mapeados: statusNaoMapeados,
+        estatisticas_funil: estatisticasFunil,
         erros: errosGerais,
         avisos: avisosGerais,
         erros_pedidos: errosPedidos,
@@ -2784,7 +2873,7 @@ routerAdd(
 )
 
 // ============================================================================
-// 7. CRON AUTOMÁTICO DE 15 MINUTOS COM LOCK ANTI-CONCORRÊNCIA EM BANCO
+// 7. CRON AUTOMÁTICO DE 15 MINUTOS COM MOTOR INTEGRADO DE MATERIALIZAÇÃO
 // ============================================================================
 cronAdd('bling_sync_automatica', '*/15 * * * *', () => {
   // Lock em banco: checar se há alguma sincronização iniciada há menos de 10 minutos com status 'processando'
@@ -2806,12 +2895,168 @@ cronAdd('bling_sync_automatica', '*/15 * * * *', () => {
       return
     }
 
-    // Disparar requisição interna ao endpoint local de sincronização
-    console.log('[BLING-CRON] Disparando rodada automática de 15 minutos...')
-  } catch (errLock) {
+    // Motor de materialização de oportunidades executado também a cada rodada de 15 minutos
+    // Garante sincronismo idempotente contínuo mesmo sem clique manual em /bling
+    const etapasList = $app.findRecordsByFilter('etapas_funil', '', 'ordem', 20, 0)
+    let etapaPropostaId = ''
+    let etapaNegociacaoId = ''
+    let etapaFechadoId = ''
+
+    for (let ep = 0; ep < etapasList.length; ep++) {
+      const epRec = etapasList[ep]
+      const epNome = epRec.getString('nome').toLowerCase()
+      if (epNome.indexOf('propost') !== -1) etapaPropostaId = epRec.id
+      if (epNome.indexOf('negoc') !== -1) etapaNegociacaoId = epRec.id
+      if (epNome.indexOf('fechad') !== -1) etapaFechadoId = epRec.id
+    }
+
+    let motivoNaoAprovadaId = ''
+    let motivoCanceladoId = ''
+    try {
+      const motNaoAprov = $app.findFirstRecordByData(
+        'motivos_perda',
+        'descricao',
+        'Não aprovada no Bling',
+      )
+      if (motNaoAprov) motivoNaoAprovadaId = motNaoAprov.id
+    } catch (_) {}
+    try {
+      const motCanc = $app.findFirstRecordByData('motivos_perda', 'descricao', 'Cancelado no Bling')
+      if (motCanc) motivoCanceladoId = motCanc.id
+    } catch (_) {}
+
+    if (etapaPropostaId && etapaNegociacaoId && etapaFechadoId) {
+      // 1. Inserir propostas elegíveis faltantes
+      $app
+        .db()
+        .newQuery(`
+        INSERT INTO oportunidades (
+          id, origem, tipo_origem, bling_proposta_id, bling_pedido_id, cliente_id, valor,
+          etapa_id, status, motivo_perda_id, responsavel_id, data_origem, data_prevista_fechamento,
+          data_fechamento, observacoes, criado_em, atualizado_em, created, updated
+        )
+        SELECT
+          substr(hex(randomblob(8)), 1, 15) as id,
+          'bling' as origem,
+          'bling_proposta' as tipo_origem,
+          bp.bling_proposta_id,
+          '' as bling_pedido_id,
+          bp.cliente_id,
+          COALESCE(bp.valor_total, 0) as valor,
+          CASE
+            WHEN bp.status_normalizado = 'rascunho' THEN {:etapaProposta}
+            WHEN bp.status_normalizado = 'aguardando' THEN {:etapaNegociacao}
+            WHEN bp.status_normalizado = 'nao_aprovada' THEN {:etapaFechado}
+          END as etapa_id,
+          CASE
+            WHEN bp.status_normalizado = 'nao_aprovada' THEN 'perdido'
+            ELSE 'aberto'
+          END as status,
+          CASE
+            WHEN bp.status_normalizado = 'nao_aprovada' AND {:motivoNaoAprovada} != '' THEN {:motivoNaoAprovada}
+            ELSE ''
+          END as motivo_perda_id,
+          CASE WHEN bp.responsavel_id != '' THEN bp.responsavel_id ELSE '' END as responsavel_id,
+          CASE WHEN bp.data_proposta != '' THEN substr(bp.data_proposta, 1, 10) ELSE '' END as data_origem,
+          CASE WHEN bp.data_validade != '' THEN substr(bp.data_validade, 1, 10) ELSE '' END as data_prevista_fechamento,
+          CASE
+            WHEN bp.status_normalizado = 'nao_aprovada' AND bp.data_proposta != '' THEN substr(bp.data_proposta, 1, 10)
+            ELSE ''
+          END as data_fechamento,
+          'Proposta Bling nº ' || COALESCE(bp.numero, bp.bling_proposta_id) || ' (' || COALESCE(bp.situacao_bling_nome, '') || ')' as observacoes,
+          strftime('%Y-%m-%d %H:%M:%f', 'now') as criado_em,
+          strftime('%Y-%m-%d %H:%M:%f', 'now') as atualizado_em,
+          strftime('%Y-%m-%d %H:%M:%f', 'now') as created,
+          strftime('%Y-%m-%d %H:%M:%f', 'now') as updated
+        FROM bling_propostas bp
+        WHERE bp.visivel_funil = 1
+          AND bp.status_vinculo = 'vinculado'
+          AND bp.cliente_id IS NOT NULL AND bp.cliente_id != ''
+          AND (bp.status_normalizado = 'rascunho' OR bp.status_normalizado = 'aguardando' OR bp.status_normalizado = 'nao_aprovada')
+          AND bp.bling_proposta_id NOT IN (
+            SELECT o.bling_proposta_id FROM oportunidades o WHERE o.bling_proposta_id IS NOT NULL AND o.bling_proposta_id != ''
+          )
+      `)
+        .bind({
+          etapaProposta: etapaPropostaId,
+          etapaNegociacao: etapaNegociacaoId,
+          etapaFechado: etapaFechadoId,
+          motivoNaoAprovada: motivoNaoAprovadaId || '',
+        })
+        .execute()
+
+      // 2. Inserir pedidos elegíveis faltantes
+      $app
+        .db()
+        .newQuery(`
+        INSERT INTO oportunidades (
+          id, origem, tipo_origem, bling_proposta_id, bling_pedido_id, cliente_id, valor,
+          etapa_id, status, motivo_perda_id, responsavel_id, data_origem, data_prevista_fechamento,
+          data_fechamento, observacoes, criado_em, atualizado_em, created, updated
+        )
+        SELECT
+          substr(hex(randomblob(8)), 1, 15) as id,
+          'bling' as origem,
+          'bling_pedido' as tipo_origem,
+          '' as bling_proposta_id,
+          bp.bling_pedido_id,
+          bp.cliente_id,
+          COALESCE(bp.valor_total, 0) as valor,
+          {:etapaFechado} as etapa_id,
+          CASE
+            WHEN bp.situacao_bling_nome = 'Cancelado' THEN 'perdido'
+            ELSE 'ganho'
+          END as status,
+          CASE
+            WHEN bp.situacao_bling_nome = 'Cancelado' AND {:motivoCancelado} != '' THEN {:motivoCancelado}
+            ELSE ''
+          END as motivo_perda_id,
+          CASE WHEN bp.responsavel_id != '' THEN bp.responsavel_id ELSE '' END as responsavel_id,
+          CASE WHEN bp.data_pedido != '' THEN substr(bp.data_pedido, 1, 10) ELSE '' END as data_origem,
+          CASE WHEN bp.data_pedido != '' THEN substr(bp.data_pedido, 1, 10) ELSE '' END as data_prevista_fechamento,
+          CASE
+            WHEN bp.situacao_bling_nome = 'Atendido' AND bp.data_atendimento != '' THEN substr(bp.data_atendimento, 1, 10)
+            WHEN bp.situacao_bling_nome = 'Cancelado' AND bp.data_pedido != '' THEN substr(bp.data_pedido, 1, 10)
+            WHEN bp.data_atendimento != '' THEN substr(bp.data_atendimento, 1, 10)
+            WHEN bp.data_pedido != '' THEN substr(bp.data_pedido, 1, 10)
+            ELSE ''
+          END as data_fechamento,
+          'Pedido Bling nº ' || COALESCE(bp.numero, bp.bling_pedido_id) || ' (' || COALESCE(bp.situacao_bling_nome, '') || ')' as observacoes,
+          strftime('%Y-%m-%d %H:%M:%f', 'now') as criado_em,
+          strftime('%Y-%m-%d %H:%M:%f', 'now') as atualizado_em,
+          strftime('%Y-%m-%d %H:%M:%f', 'now') as created,
+          strftime('%Y-%m-%d %H:%M:%f', 'now') as updated
+        FROM bling_pedidos bp
+        WHERE bp.status_vinculo = 'vinculado'
+          AND bp.cliente_id IS NOT NULL AND bp.cliente_id != ''
+          AND (bp.situacao_bling_nome = 'Em aberto' OR bp.situacao_bling_nome = 'Atendido' OR bp.situacao_bling_nome = 'Cancelado')
+          AND bp.bling_pedido_id NOT IN (
+            SELECT o.bling_pedido_id FROM oportunidades o WHERE o.bling_pedido_id IS NOT NULL AND o.bling_pedido_id != ''
+          )
+      `)
+        .bind({
+          etapaFechado: etapaFechadoId,
+          motivoCancelado: motivoCanceladoId || '',
+        })
+        .execute()
+
+      // 3. Inativar propostas que passaram para convertida ou concluído
+      $app
+        .db()
+        .newQuery(`
+        DELETE FROM oportunidades
+        WHERE tipo_origem = 'bling_proposta'
+          AND bling_proposta_id IN (
+            SELECT bp.bling_proposta_id FROM bling_propostas bp
+            WHERE bp.status_normalizado = 'convertida' OR bp.status_normalizado = 'outro' OR bp.visivel_funil = 0
+          )
+      `)
+        .execute()
+    }
+  } catch (errCron) {
     console.error(
-      '[BLING-CRON] Erro ao verificar lock:',
-      errLock && errLock.message ? errLock.message : errLock,
+      '[BLING-CRON] Erro ao sincronizar funil:',
+      errCron && errCron.message ? errCron.message : errCron,
     )
   }
 })
