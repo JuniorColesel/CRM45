@@ -468,21 +468,12 @@ routerAdd(
       }
     } catch (_) {}
 
-    // Checar também se há token manual legado em integracoes_config
-    let temTokenLegado = false
-    try {
-      const legacy = $app.findRecordsByFilter('integracoes_config', '', '-created', 1, 0)
-      if (legacy && legacy.length > 0 && legacy[0].getString('bling_token')) {
-        temTokenLegado = true
-      }
-    } catch (_) {}
-
     if (!connRecord) {
       return e.json(200, {
         conectado: false,
         status: 'desconectado',
         configurado_no_servidor: hasSecrets,
-        tipo_autenticacao: temTokenLegado ? 'legado' : 'nenhum',
+        tipo_autenticacao: 'oauth_v3',
         expires_at: null,
         ultima_renovacao: null,
         ultimo_erro: null,
@@ -661,21 +652,6 @@ routerAdd(
         }
       } catch (_) {}
 
-      // 2. Fallback: Token manual legado salvo em integracoes_config
-      try {
-        const records = $app.findRecordsByFilter('integracoes_config', '', '-created', 1, 0)
-        if (records && records.length > 0) {
-          const t = records[0].getString('bling_token')
-          if (t) return { token: t, conn: null }
-        }
-      } catch (_) {}
-
-      // 3. Fallback: Segredos de ambiente legados
-      try {
-        const tEnv = $secrets.get('BLING_TOKEN') || $secrets.get('BLING_API_KEY') || ''
-        if (tEnv) return { token: tEnv, conn: null }
-      } catch (_) {}
-
       return { token: '', conn: null }
     }
 
@@ -685,8 +661,7 @@ routerAdd(
     if (!blingToken) {
       return e.json(400, {
         success: false,
-        message:
-          'Nenhum acesso ativo ao Bling ERP. Conecte sua conta em Configurações → Integrações via botão CONECTAR AO BLING.',
+        message: 'Conecte o CRM ao Bling via OAuth em /bling antes de importar dados.',
       })
     }
 
@@ -879,21 +854,6 @@ routerAdd(
         }
       } catch (_) {}
 
-      // Fallback legado em integracoes_config
-      try {
-        const records = $app.findRecordsByFilter('integracoes_config', '', '-created', 1, 0)
-        if (records && records.length > 0) {
-          const t = records[0].getString('bling_token')
-          if (t) return { token: t, conn: null, renovado: false }
-        }
-      } catch (_) {}
-
-      // Fallback legado secrets
-      try {
-        const tEnv = $secrets.get('BLING_TOKEN') || $secrets.get('BLING_API_KEY') || ''
-        if (tEnv) return { token: tEnv, conn: null, renovado: false }
-      } catch (_) {}
-
       return { token: '', conn: null, renovado: false }
     }
 
@@ -904,8 +864,7 @@ routerAdd(
     if (!currentAccessToken) {
       return e.json(400, {
         success: false,
-        message:
-          'Nenhum acesso ativo ao Bling ERP. Conecte sua conta em Configurações → Integrações através do botão CONECTAR AO BLING.',
+        message: 'Conecte o CRM ao Bling via OAuth em /bling antes de sincronizar.',
       })
     }
 

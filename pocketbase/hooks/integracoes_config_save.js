@@ -54,15 +54,9 @@ routerAdd(
       configRecord.set('ia_tom_de_voz', 'profissional')
     }
 
-    // Seção Bling: só atualiza token se enviado e não vazio e não mascarado (contém '••••')
-    if (body.bling_token !== undefined) {
-      const raw = String(body.bling_token || '').trim()
-      if (raw && !raw.includes('••••')) {
-        configRecord.set('bling_token', raw)
-      } else if (raw === '') {
-        configRecord.set('bling_token', '')
-      }
-    }
+    // Nota: O campo bling_token em integracoes_config foi descontinuado na v0.0.68.
+    // O CRM Colesel 45 opera estritamente com OAuth v3 em /bling.
+    // O campo permanece no schema para integridade, mas não é mais gravado via API operacional.
 
     // Seção WhatsApp
     if (body.whatsapp_token !== undefined) {

@@ -248,6 +248,28 @@ export default function BlingPage() {
     }
   }, [])
 
+  // Limpeza proativa de qualquer estado legado ou transitório em storage do navegador
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const chavesParaRemover = [
+          'crm_colesel45_bling_aguardando',
+          'crm_colesel45_bling_oauth_state',
+          'crm_colesel45_bling_popup',
+          'bling_oauth_state',
+          'bling_token',
+          'STORAGE_BLING_TOKEN',
+        ]
+        chavesParaRemover.forEach((k) => {
+          localStorage.removeItem(k)
+          sessionStorage.removeItem(k)
+        })
+      } catch {
+        /* ignorar restrições de storage */
+      }
+    }
+  }, [])
+
   // Carga inicial
   useEffect(() => {
     if (podeAcessar) {

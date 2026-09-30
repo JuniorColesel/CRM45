@@ -149,6 +149,18 @@ describe('OAuth Bling v3 - Segurança e Fluxo End-to-End', () => {
     expect(pageCode).not.toMatch(/sessionStorage\.setItem\([^)]*bling/i)
   })
 
+  // 14.1 limpeza de estado e ausência de fallbacks legados
+  it('14.1 sem OAuth ativo, sincronizar falha com mensagem clara e NÃO tenta token legado', () => {
+    // getValidBlingAccessToken não deve conter referências operacionais a integracoes_config nem BLING_TOKEN
+    const sincronizarBloco = hookCode.slice(
+      hookCode.indexOf("'/backend/v1/bling/sincronizar'"),
+    )
+    expect(sincronizarBloco).not.toContain("records[0].getString('bling_token')")
+    expect(sincronizarBloco).not.toContain("$secrets.get('BLING_TOKEN')")
+    expect(sincronizarBloco).not.toContain("$secrets.get('BLING_API_KEY')")
+    expect(sincronizarBloco).toContain('Conecte o CRM ao Bling via OAuth em /bling antes de sincronizar.')
+  })
+
   // 15. client_secret não aparece no bundle
   it('15. client_secret é lido exclusivamente via segredos do backend', () => {
     expect(pageCode).not.toContain('BLING_CLIENT_SECRET')

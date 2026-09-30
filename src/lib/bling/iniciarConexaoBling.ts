@@ -61,6 +61,26 @@ export async function iniciarConexaoBling(
     maxTimeoutMs = 5 * 60 * 1000,
   } = options
 
+  // Limpeza preventiva de chaves de storage antes de iniciar fluxo de conexão
+  if (typeof window !== 'undefined') {
+    try {
+      const chavesLimpeza = [
+        'crm_colesel45_bling_aguardando',
+        'crm_colesel45_bling_oauth_state',
+        'crm_colesel45_bling_popup',
+        'bling_oauth_state',
+        'bling_token',
+        'STORAGE_BLING_TOKEN',
+      ]
+      chavesLimpeza.forEach((k) => {
+        localStorage.removeItem(k)
+        sessionStorage.removeItem(k)
+      })
+    } catch {
+      /* ignorar restrições de storage */
+    }
+  }
+
   let pollingTimer: ReturnType<typeof setInterval> | null = null
   let timeoutTimer: ReturnType<typeof setTimeout> | null = null
   let popupRef: Window | null = null
