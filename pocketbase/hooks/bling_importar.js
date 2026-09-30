@@ -973,11 +973,57 @@ routerAdd(
       return 'Renan'
     }
 
-    // Chamador HTTP GET com retry 429/5xx e retry único após 401 via refresh
+    // Resolução de vendedor CRM para usuário real da coleção usuarios
+    const mapVendedorParaUsuarioId = {}
+    try {
+      const usuariosCadastrados = $app.findRecordsByFilter(
+        'usuarios',
+        'ativo = true',
+        'nome',
+        50,
+        0,
+      )
+      for (let u = 0; u < usuariosCadastrados.length; u++) {
+        const uRec = usuariosCadastrados[u]
+        const uId = uRec.id
+        const uPerfil = uRec.getString('perfil')
+        const uNome = uRec.getString('nome') || ''
+        const uEmail = uRec.getString('email') || ''
+
+        if (uNome.indexOf('Alice') !== -1 || uEmail.indexOf('alice') !== -1) {
+          mapVendedorParaUsuarioId['Alice'] = uId
+        } else if (uNome.indexOf('Renan') !== -1 || uEmail.indexOf('renan') !== -1) {
+          mapVendedorParaUsuarioId['Renan'] = uId
+        } else if (
+          uPerfil === 'vendedor_1' ||
+          uNome.indexOf('Vendas 1') !== -1 ||
+          uNome.indexOf('Karoline') !== -1
+        ) {
+          mapVendedorParaUsuarioId['Karoline (Vendas 1)'] = uId
+        } else if (uPerfil === 'vendedor_2' || uNome.indexOf('Vendas 2') !== -1) {
+          mapVendedorParaUsuarioId['Vendas 2'] = uId
+        }
+      }
+    } catch (_) {}
+
+    function resolverUsuarioIdPorVendedorCrm(vendedorCrm) {
+      if (mapVendedorParaUsuarioId[vendedorCrm]) {
+        return mapVendedorParaUsuarioId[vendedorCrm]
+      }
+      if (mapVendedorParaUsuarioId['Renan']) {
+        return mapVendedorParaUsuarioId['Renan']
+      }
+      return authRecord.id
+    }
+
+    // Chamador HTTP GET com retry robusto (429/5xx), backoff exponencial e retry único pós-401 via refresh
     let refreshExecutadoPor401 = false
     function getBlingGet(url, maxTentativas) {
       let tentativas = 0
       const limite = maxTentativas || 3
+      let ultimoResultado = null
+      let ultimoErro = null
+
       while (tentativas < limite) {
         tentativas++
         try {
@@ -988,8 +1034,9 @@ routerAdd(
               Accept: 'application/json',
               Authorization: 'Bearer ' + currentAccessToken,
             },
-            timeout: 15,
+            timeout: 20,
           })
+          ultimoResultado = res
 
           // Se 401: tentar refresh UMA única vez e repetir UMA única vez
           if (res.statusCode === 401 && !refreshExecutadoPor401 && connectionRecord) {
@@ -998,42 +1045,79 @@ routerAdd(
             if (novoToken) {
               currentAccessToken = novoToken
               // Repetir a requisição imediatamente com o novo token
-              return $http.send({
+              const retryRes = $http.send({
                 url: url,
                 method: 'GET',
                 headers: {
                   Accept: 'application/json',
                   Authorization: 'Bearer ' + currentAccessToken,
                 },
-                timeout: 15,
+                timeout: 20,
               })
+              ultimoResultado = retryRes
+              return retryRes
             }
           }
 
+          // 429 Too Many Requests -> retry com backoff (espera computacional para goja JSVM)
           if (res.statusCode === 429 && tentativas < limite) {
+            const esperaMs = 300 * tentativas
+            const tFim = Date.now() + esperaMs
+            while (Date.now() < tFim) {
+              /* backoff ativo seguro para JSVM */
+            }
             continue
           }
 
+          // 5xx Server Error do Bling -> retry com backoff
           if (res.statusCode >= 500 && tentativas < limite) {
+            const esperaMs = 250 * tentativas
+            const tFim = Date.now() + esperaMs
+            while (Date.now() < tFim) {
+              /* backoff ativo seguro para JSVM */
+            }
             continue
           }
 
           return res
         } catch (httpErr) {
-          if (tentativas >= limite) {
-            throw httpErr
+          ultimoErro = httpErr
+          if (tentativas < limite) {
+            const esperaMs = 200 * tentativas
+            const tFim = Date.now() + esperaMs
+            while (Date.now() < tFim) {
+              /* backoff ativo seguro para JSVM */
+            }
+            continue
           }
         }
       }
-      throw new Error('Número máximo de tentativas atingido na chamada GET.')
+
+      if (ultimoResultado) {
+        return ultimoResultado
+      }
+      throw new Error(
+        'Falha definitiva de rede após ' +
+          limite +
+          ' tentativas: ' +
+          String((ultimoErro && ultimoErro.message) || ultimoErro || 'Erro desconhecido'),
+      )
     }
 
     const errosGerais = []
+    const errosPedidos = []
     let totalClientesLidos = 0
     let totalClientesCriados = 0
     let totalClientesAtualizados = 0
     let totalClientesIgnorados = 0
+
     let totalPedidosLidos = 0
+    let totalPedidosPersistidos = 0
+    let totalPedidosAtualizados = 0
+    let totalPedidosDuplicados = 0
+    let totalPedidosSemCliente = 0
+    let paginasPedidosLidas = 0
+
     let clientesComComprasAtualizadas = 0
 
     try {
@@ -1042,6 +1126,7 @@ routerAdd(
       const mapPorBlingId = {}
       const mapPorDoc = {}
       const mapPorEmail = {}
+      const mapPorNomeEmpresa = {}
       let recConsumidorFinal = null
 
       for (let i = 0; i < clientesExistentes.length; i++) {
@@ -1056,6 +1141,9 @@ routerAdd(
         if (em) mapPorEmail[em] = c
 
         const nomeEmp = c.getString('nome_empresa')
+        if (nomeEmp) {
+          mapPorNomeEmpresa[nomeEmp.trim().toLowerCase()] = c
+        }
         if (isConsumidorFinalNome(nomeEmp)) {
           recConsumidorFinal = c
         }
@@ -1272,14 +1360,84 @@ routerAdd(
       }
 
       // ==============================================================
-      // 4. BUSCA DE PEDIDOS DE VENDA DO BLING COM PAGINAÇÃO COMPLETA
+      // 4. BUSCA DE PEDIDOS DE VENDA DO BLING COM PAGINAÇÃO COMPLETA E PERSISTÊNCIA EM bling_pedidos
       // ==============================================================
       const dadosVendasPorCliente = {}
+
+      // Mapeamento em memória dos pedidos já existentes em bling_pedidos (para idempotência)
+      const mapBlingPedidosExistentes = {}
+      try {
+        const pedidosLocais = $app.findRecordsByFilter('bling_pedidos', '', '-created', 10000, 0)
+        for (let pl = 0; pl < pedidosLocais.length; pl++) {
+          const recP = pedidosLocais[pl]
+          const pId = recP.getString('bling_pedido_id')
+          if (pId) {
+            mapBlingPedidosExistentes[pId] = recP
+          }
+        }
+      } catch (_) {}
+
+      // Consulta dinâmica de situações dos módulos no Bling (se disponível)
+      const mapSituacoesModulos = {}
+      try {
+        const urlSituacoes = 'https://api.bling.com.br/Api/v3/situacoes/modulos'
+        const resSit = getBlingGet(urlSituacoes, 2)
+        if (resSit && resSit.statusCode === 200 && resSit.json && resSit.json.data) {
+          const listaModulos = resSit.json.data || []
+          for (let sm = 0; sm < listaModulos.length; sm++) {
+            const mod = listaModulos[sm]
+            const sits = mod.situacoes || []
+            for (let st = 0; st < sits.length; st++) {
+              const sitObj = sits[st]
+              const sId = String(sitObj.id || '')
+              const sNome = String(sitObj.nome || sitObj.descricao || '')
+              if (sId && sNome) {
+                mapSituacoesModulos[sId] = sNome
+              }
+            }
+          }
+        }
+      } catch (_) {
+        // Tolerante: caso endpoint não esteja liberado no escopo atual
+      }
+
+      // Função auxiliar de normalização de status do pedido
+      function normalizarStatusPedido(sitId, sitNome) {
+        const n = String(sitNome || '')
+          .trim()
+          .toLowerCase()
+        if (
+          n.indexOf('atendido') !== -1 ||
+          n.indexOf('faturado') !== -1 ||
+          n.indexOf('concluid') !== -1 ||
+          n.indexOf('entregue') !== -1
+        ) {
+          return 'atendido'
+        }
+        if (n.indexOf('cancelad') !== -1 || n.indexOf('estorn') !== -1) {
+          return 'cancelado'
+        }
+        if (
+          n.indexOf('aberto') !== -1 ||
+          n.indexOf('pendente') !== -1 ||
+          n.indexOf('aguard') !== -1
+        ) {
+          return 'em_aberto'
+        }
+        if (n.indexOf('andamento') !== -1 || n.indexOf('process') !== -1) {
+          return 'em_andamento'
+        }
+        return 'outro'
+      }
 
       let paginaPedidos = 1
       const limitePedidos = 100
       let temMaisPedidos = true
       const maxPaginasPedidos = 300
+      let blingPedidosCol = null
+      try {
+        blingPedidosCol = $app.findCollectionByNameOrId('bling_pedidos')
+      } catch (_) {}
 
       while (temMaisPedidos && paginaPedidos <= maxPaginasPedidos) {
         const urlPedidos =
@@ -1288,30 +1446,62 @@ routerAdd(
           '&limite=' +
           limitePedidos
 
+        const tInicioPagina = Date.now()
         let resPedidos = null
         try {
           resPedidos = getBlingGet(urlPedidos, 3)
         } catch (errPedReq) {
-          errosGerais.push(
-            'Erro de rede na página ' +
-              paginaPedidos +
-              ' de pedidos: ' +
-              String(errPedReq.message || errPedReq),
-          )
+          const duracaoPagina = Date.now() - tInicioPagina
+          const msgErroReq =
+            'Página ' +
+            paginaPedidos +
+            ' de pedidos falhou após ' +
+            duracaoPagina +
+            'ms: ' +
+            String(errPedReq.message || errPedReq)
+          errosGerais.push(msgErroReq)
+          errosPedidos.push({
+            pagina: paginaPedidos,
+            status_http: 0,
+            duracao_ms: duracaoPagina,
+            erro: msgErroReq,
+          })
           break
         }
 
+        const duracaoPagina = Date.now() - tInicioPagina
+        paginasPedidosLidas++
+
         if (resPedidos.statusCode === 401 || resPedidos.statusCode === 403) {
-          throw new Error('Token do Bling não autorizado ou expirado ao ler pedidos.')
+          const msg401 =
+            'Token do Bling não autorizado ou expirado ao ler pedidos (status ' +
+            resPedidos.statusCode +
+            ').'
+          errosPedidos.push({
+            pagina: paginaPedidos,
+            status_http: resPedidos.statusCode,
+            duracao_ms: duracaoPagina,
+            erro: msg401,
+          })
+          throw new Error(msg401)
         }
 
         if (resPedidos.statusCode !== 200) {
-          errosGerais.push(
+          const msgHttp =
             'Bling retornou HTTP ' +
-              resPedidos.statusCode +
-              ' ao buscar pedidos na página ' +
-              paginaPedidos,
-          )
+            resPedidos.statusCode +
+            ' ao buscar pedidos na página ' +
+            paginaPedidos +
+            ' (' +
+            duracaoPagina +
+            'ms)'
+          errosGerais.push(msgHttp)
+          errosPedidos.push({
+            pagina: paginaPedidos,
+            status_http: resPedidos.statusCode,
+            duracao_ms: duracaoPagina,
+            erro: msgHttp,
+          })
           break
         }
 
@@ -1327,22 +1517,118 @@ routerAdd(
 
         for (let p = 0; p < listaPedidos.length; p++) {
           const ped = listaPedidos[p]
+          const pedidoIdRaw = ped.id ? String(ped.id) : ''
+          const numeroPedido = ped.numero ? String(ped.numero) : ''
           const contatoPed = ped.contato || {}
-          const pedBlingId = contatoPed.id ? String(contatoPed.id) : ''
-          const pedDoc = normalizarDoc(contatoPed.numeroDocumento || '')
+          const pedContatoBlingId = contatoPed.id ? String(contatoPed.id) : ''
+          const pedDocOriginal = (contatoPed.numeroDocumento || '').trim()
+          const pedDoc = normalizarDoc(pedDocOriginal)
           const pedNome = (contatoPed.nome || '').trim()
           const dataPedidoStr = (ped.data || '').trim()
-          const totalPedido = Number(ped.total || ped.valor || 0)
+          const dataSaidaStr = (ped.dataSaida || '').trim()
+          const totalPedido = Number(
+            ped.total !== undefined ? ped.total : ped.valor !== undefined ? ped.valor : 0,
+          )
 
+          // Situação
+          const sitObj = ped.situacao || {}
+          const sitId = sitObj.id ? String(sitObj.id) : ''
+          let sitNome = mapSituacoesModulos[sitId] || ''
+          if (!sitNome && sitObj.valor !== undefined) {
+            sitNome = 'Situação #' + sitId + ' (' + sitObj.valor + ')'
+          } else if (!sitNome && sitId) {
+            sitNome = 'Situação #' + sitId
+          }
+          const statusNormalizado = normalizarStatusPedido(sitId, sitNome)
+
+          // Vendedor do pedido
+          let vendedorBlingNome = ''
+          if (ped.vendedor && ped.vendedor.nome) {
+            vendedorBlingNome = ped.vendedor.nome
+          }
+          const vendedorCrm = mapearVendedor(vendedorBlingNome)
+          const responsavelUsuarioId = resolverUsuarioIdPorVendedorCrm(vendedorCrm)
+
+          // 5. MATCHING DE CLIENTE
+          // Prioridade: 1. bling_id; 2. CNPJ/CPF; 3. Consumidor Final; 4. Razão Social/Nome
           let clienteAlvo = null
-          if (pedBlingId && mapPorBlingId[pedBlingId]) {
-            clienteAlvo = mapPorBlingId[pedBlingId]
+          if (pedContatoBlingId && mapPorBlingId[pedContatoBlingId]) {
+            clienteAlvo = mapPorBlingId[pedContatoBlingId]
           } else if (pedDoc && mapPorDoc[pedDoc]) {
             clienteAlvo = mapPorDoc[pedDoc]
           } else if (isConsumidorFinalNome(pedNome) && recConsumidorFinal) {
             clienteAlvo = recConsumidorFinal
+          } else if (pedNome && mapPorNomeEmpresa[pedNome.toLowerCase()]) {
+            clienteAlvo = mapPorNomeEmpresa[pedNome.toLowerCase()]
           }
 
+          // Se cliente não encontrado: NÃO descartar o pedido.
+          // Salvar cliente_id = null, status_vinculo = pendente, bling_contato_id = valor real.
+          let statusVinculo = 'vinculado'
+          let clienteIdParaSalvar = null
+          if (clienteAlvo) {
+            clienteIdParaSalvar = clienteAlvo.id
+            statusVinculo = 'vinculado'
+          } else {
+            statusVinculo = 'pendente'
+            totalPedidosSemCliente++
+          }
+
+          // PERSISTÊNCIA IDEMPOTENTE EM bling_pedidos (UPSERT por bling_pedido_id)
+          if (blingPedidosCol && pedidoIdRaw) {
+            let recPedido = mapBlingPedidosExistentes[pedidoIdRaw]
+            let isNovoPedido = false
+
+            if (!recPedido) {
+              recPedido = new Record(blingPedidosCol)
+              recPedido.set('bling_pedido_id', pedidoIdRaw)
+              isNovoPedido = true
+            }
+
+            recPedido.set('numero', numeroPedido)
+            recPedido.set('cliente_id', clienteIdParaSalvar)
+            recPedido.set('bling_contato_id', pedContatoBlingId)
+            recPedido.set('contato_nome', pedNome)
+            recPedido.set('documento', pedDocOriginal)
+            recPedido.set('vendedor_bling', vendedorBlingNome)
+            recPedido.set('vendedor_crm', vendedorCrm)
+            recPedido.set('responsavel_id', responsavelUsuarioId)
+
+            if (dataPedidoStr) {
+              recPedido.set('data_pedido', dataPedidoStr)
+            }
+            if (dataSaidaStr) {
+              recPedido.set('data_atendimento', dataSaidaStr)
+            }
+            recPedido.set('valor_total', totalPedido)
+            recPedido.set('situacao_bling_id', sitId)
+            recPedido.set('situacao_bling_nome', sitNome)
+            recPedido.set('status_normalizado', statusNormalizado)
+            recPedido.set('status_vinculo', statusVinculo)
+            recPedido.set('sincronizado_em', new Date().toISOString())
+
+            try {
+              $app.save(recPedido)
+              mapBlingPedidosExistentes[pedidoIdRaw] = recPedido
+              if (isNovoPedido) {
+                totalPedidosPersistidos++
+              } else {
+                totalPedidosAtualizados++
+                totalPedidosDuplicados++
+              }
+            } catch (errPedSave) {
+              errosGerais.push(
+                'Erro ao salvar pedido bling_id ' +
+                  pedidoIdRaw +
+                  ' (número ' +
+                  numeroPedido +
+                  '): ' +
+                  String(errPedSave.message || errPedSave),
+              )
+            }
+          }
+
+          // Consolidação de vendas para o cliente (somente se vinculado)
           if (clienteAlvo) {
             const cid = clienteAlvo.id
             if (!dadosVendasPorCliente[cid]) {
@@ -1439,22 +1725,30 @@ routerAdd(
       // ==============================================================
       const duracaoMs = Date.now() - t0
       const statusFinal =
-        errosGerais.length === 0 ? 'sucesso' : totalClientesLidos > 0 ? 'sucesso_parcial' : 'erro'
+        errosGerais.length === 0
+          ? 'sucesso'
+          : totalClientesLidos > 0 || totalPedidosLidos > 0
+            ? 'sucesso_parcial'
+            : 'erro'
 
       const msgResumo =
         'Concluído em ' +
         Math.round(duracaoMs / 1000) +
         's: ' +
         totalClientesLidos +
-        ' contatos lidos, ' +
+        ' contatos lidos (' +
         totalClientesCriados +
-        ' criados, ' +
+        ' novos, ' +
         totalClientesAtualizados +
-        ' atualizados, ' +
+        ' atualizados), ' +
         totalPedidosLidos +
-        ' pedidos lidos, ' +
-        clientesComComprasAtualizadas +
-        ' clientes com vendas atualizadas. Erros: ' +
+        ' pedidos lidos (' +
+        totalPedidosPersistidos +
+        ' persistidos, ' +
+        totalPedidosAtualizados +
+        ' atualizados, ' +
+        totalPedidosSemCliente +
+        ' pendentes vínculo). Erros: ' +
         errosGerais.length
 
       if (logRecord) {
@@ -1466,6 +1760,12 @@ routerAdd(
           logRecord.set('clientes_atualizados', totalClientesAtualizados)
           logRecord.set('clientes_ignorados', totalClientesIgnorados)
           logRecord.set('pedidos_lidos', totalPedidosLidos)
+          logRecord.set('pedidos_persistidos', totalPedidosPersistidos)
+          logRecord.set('pedidos_atualizados', totalPedidosAtualizados)
+          logRecord.set('pedidos_duplicados', totalPedidosDuplicados)
+          logRecord.set('pedidos_sem_cliente', totalPedidosSemCliente)
+          logRecord.set('paginas_pedidos_lidas', paginasPedidosLidas)
+          logRecord.set('erros_pedidos', errosPedidos.slice(0, 30))
           logRecord.set('erros', errosGerais.slice(0, 50))
           logRecord.set('duracao_ms', duracaoMs)
           logRecord.set('mensagem_resumo', msgResumo)
@@ -1484,8 +1784,14 @@ routerAdd(
         clientes_atualizados: totalClientesAtualizados,
         clientes_ignorados: totalClientesIgnorados,
         pedidos_consultados: totalPedidosLidos,
+        pedidos_persistidos: totalPedidosPersistidos,
+        pedidos_atualizados: totalPedidosAtualizados,
+        pedidos_duplicados: totalPedidosDuplicados,
+        pedidos_sem_cliente: totalPedidosSemCliente,
+        paginas_pedidos_lidas: paginasPedidosLidas,
         clientes_com_compras_atualizadas: clientesComComprasAtualizadas,
         erros: errosGerais,
+        erros_pedidos: errosPedidos,
         mensagem: msgResumo,
       })
     } catch (errFatal) {

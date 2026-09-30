@@ -309,3 +309,31 @@ export function formatarDuracao(segundos?: number | null): string {
   const secs = segundos % 60
   return `${mins}m ${secs.toString().padStart(2, '0')}s`
 }
+
+export type StatusVinculoBlingPedido = 'vinculado' | 'pendente' | 'sem_cliente'
+
+export interface BlingPedidoModel extends RecordModel {
+  bling_pedido_id: string
+  numero?: string
+  cliente_id?: string
+  bling_contato_id?: string
+  contato_nome?: string
+  documento?: string
+  vendedor_bling?: string
+  vendedor_crm?: string
+  responsavel_id?: string
+  data_pedido?: string
+  data_atendimento?: string
+  valor_total?: number
+  situacao_bling_id?: string
+  situacao_bling_nome?: string
+  status_normalizado?: string
+  status_vinculo?: StatusVinculoBlingPedido
+  oportunidade_id?: string
+  sincronizado_em?: string
+  expand?: {
+    cliente_id?: ClienteModel
+    responsavel_id?: Usuario
+    oportunidade_id?: OportunidadeModel
+  }
+}

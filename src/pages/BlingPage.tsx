@@ -69,8 +69,14 @@ interface SincronizacaoResultado {
   clientes_atualizados: number
   clientes_ignorados: number
   pedidos_consultados: number
+  pedidos_persistidos?: number
+  pedidos_atualizados?: number
+  pedidos_duplicados?: number
+  pedidos_sem_cliente?: number
+  paginas_pedidos_lidas?: number
   clientes_com_compras_atualizadas: number
   erros: string[]
+  erros_pedidos?: Array<{ pagina: number; status_http: number; duracao_ms: number; erro: string }>
   status: string
   mensagem: string
 }
@@ -85,6 +91,12 @@ interface BlingSyncLogItem {
   clientes_atualizados: number
   clientes_ignorados: number
   pedidos_lidos: number
+  pedidos_persistidos?: number
+  pedidos_atualizados?: number
+  pedidos_duplicados?: number
+  pedidos_sem_cliente?: number
+  paginas_pedidos_lidas?: number
+  erros_pedidos?: Array<{ pagina: number; status_http: number; duracao_ms: number; erro: string }>
   duracao_ms: number
   mensagem_resumo: string
   erros: string[] | string
@@ -105,6 +117,8 @@ interface ClientesIndicadores {
   comCompras: number
   valorTotalConsolidado: number
   ultimaDataProcessada: string | null
+  totalPedidosPersistidos: number
+  pedidosSemCliente: number
 }
 
 export default function BlingPage() {
@@ -151,6 +165,8 @@ export default function BlingPage() {
     comCompras: 0,
     valorTotalConsolidado: 0,
     ultimaDataProcessada: null,
+    totalPedidosPersistidos: 0,
+    pedidosSemCliente: 0,
   })
 
   // Referência para cancelar fluxo de conexão se o componente for desmontado
@@ -239,6 +255,23 @@ export default function BlingPage() {
         }
       }
 
+      // Buscar indicadores de bling_pedidos
+      let totalPedidosPersistidos = 0
+      let pedidosSemCliente = 0
+      try {
+        const pedList = await pb.collection('bling_pedidos').getList(1, 1, {
+          fields: 'id',
+        })
+        totalPedidosPersistidos = pedList.totalItems
+        const pedPendentes = await pb.collection('bling_pedidos').getList(1, 1, {
+          filter: 'status_vinculo != "vinculado"',
+          fields: 'id',
+        })
+        pedidosSemCliente = pedPendentes.totalItems
+      } catch {
+        /* intentionally ignored */
+      }
+
       setIndicadores({
         total,
         comBlingId,
@@ -247,6 +280,8 @@ export default function BlingPage() {
         comCompras,
         valorTotalConsolidado: Math.round(somaVendas * 100) / 100,
         ultimaDataProcessada: ultimaData,
+        totalPedidosPersistidos,
+        pedidosSemCliente,
       })
     } catch (_) {
       // Falha tolerante
@@ -855,10 +890,11 @@ export default function BlingPage() {
                 </div>
                 <div className="bg-white/90 p-2.5 rounded-lg border border-black/5">
                   <span className="block text-[10px] text-purple-700 font-semibold">
-                    Pedidos Lidos
+                    Pedidos Lidos / Novos
                   </span>
                   <span className="text-base font-bold text-purple-700">
-                    {resultadoSync.pedidos_consultados}
+                    {resultadoSync.pedidos_consultados} ({resultadoSync.pedidos_persistidos ?? 0}{' '}
+                    novos)
                   </span>
                 </div>
               </div>
@@ -918,6 +954,9 @@ export default function BlingPage() {
                   </span>
                   <span className="text-sm font-bold text-purple-700">
                     {ultimaSyncDoHistorico.pedidos_lidos}
+                    {ultimaSyncDoHistorico.pedidos_persistidos !== undefined
+                      ? ` (${ultimaSyncDoHistorico.pedidos_persistidos} novos)`
+                      : ''}
                   </span>
                 </div>
               </div>
@@ -1007,6 +1046,14 @@ export default function BlingPage() {
           </CardHeader>
           <CardContent className="p-6">
             <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="p-3 rounded-xl bg-purple-50/60 border border-purple-200">
+                <span className="text-[10px] text-purple-800 font-semibold block">
+                  Pedidos Salvos (bling_pedidos)
+                </span>
+                <span className="text-lg font-bold text-purple-900">
+                  {indicadores.totalPedidosPersistidos}
+                </span>
+              </div>
               <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
                 <span className="text-[10px] text-[#64748B] font-semibold block">
                   Clientes com Histórico
@@ -1015,7 +1062,15 @@ export default function BlingPage() {
               </div>
               <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
                 <span className="text-[10px] text-[#64748B] font-semibold block">
-                  Última Data Processada
+                  Vínculo Pendente / Sem Cliente
+                </span>
+                <span className="text-lg font-bold text-amber-700">
+                  {indicadores.pedidosSemCliente}
+                </span>
+              </div>
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <span className="text-[10px] text-[#64748B] font-semibold block">
+                  Última Data Compra
                 </span>
                 <span className="text-sm font-bold text-[#0F172A] mt-1 block">
                   {indicadores.ultimaDataProcessada || '—'}
@@ -1090,11 +1145,14 @@ export default function BlingPage() {
                       Atualizados
                     </TableHead>
                     <TableHead className="text-xs font-bold text-[#0F172A] text-right">
-                      Pedidos
+                      Pedidos Lidos
+                    </TableHead>
+                    <TableHead className="text-xs font-bold text-[#0F172A] text-right">
+                      Salvos / Atualizados
                     </TableHead>
                     <TableHead className="text-xs font-bold text-[#0F172A] text-right">
                       Duração
-                    </TableHead>
+                    </TableHead>{' '}
                     <TableHead className="text-xs font-bold text-[#0F172A] text-center">
                       Detalhes
                     </TableHead>
@@ -1142,6 +1200,11 @@ export default function BlingPage() {
                         </TableCell>
                         <TableCell className="text-right font-medium text-purple-700">
                           {log.pedidos_lidos}
+                        </TableCell>
+                        <TableCell className="text-right font-medium text-emerald-700">
+                          {log.pedidos_persistidos !== undefined
+                            ? `${log.pedidos_persistidos} / ${log.pedidos_atualizados || 0}`
+                            : '—'}
                         </TableCell>
                         <TableCell className="text-right text-[#64748B]">
                           {Math.round((log.duracao_ms || 0) / 1000)}s
