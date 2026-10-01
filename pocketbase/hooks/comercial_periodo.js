@@ -863,6 +863,62 @@ routerAdd('GET', '/backend/v1/painel/auditoria-v88', (e) => {
       `)
       .one(dashSet)
 
+    // Detalhe canônico v0.0.91 por etapa em Setembro/2026
+    const auditEmAbertoSet = new DynamicModel({
+      qtd_doc: 0,
+      valor_doc: '',
+      qtd_ops: 0,
+      valor_ops: '',
+    })
+    $app
+      .db()
+      .newQuery(`
+      SELECT
+        (SELECT COUNT(*) FROM bling_pedidos WHERE (situacao_bling_nome = 'Em aberto' OR situacao_bling_id = '6') AND substr(data_pedido, 1, 10) >= '2026-09-01' AND substr(data_pedido, 1, 10) <= '2026-09-30') as qtd_doc,
+        (SELECT CAST(COALESCE(SUM(valor_total), 0) AS TEXT) FROM bling_pedidos WHERE (situacao_bling_nome = 'Em aberto' OR situacao_bling_id = '6') AND substr(data_pedido, 1, 10) >= '2026-09-01' AND substr(data_pedido, 1, 10) <= '2026-09-30') as valor_doc,
+        (SELECT COUNT(*) FROM oportunidades WHERE etapa_id = 'urmqwi8utcs7090' AND substr(data_origem, 1, 10) >= '2026-09-01' AND substr(data_origem, 1, 10) <= '2026-09-30') as qtd_ops,
+        (SELECT CAST(COALESCE(SUM(valor), 0) AS TEXT) FROM oportunidades WHERE etapa_id = 'urmqwi8utcs7090' AND substr(data_origem, 1, 10) >= '2026-09-01' AND substr(data_origem, 1, 10) <= '2026-09-30') as valor_ops
+    `)
+      .one(auditEmAbertoSet)
+
+    const auditFechadoSet = new DynamicModel({
+      qtd_doc: 0,
+      valor_doc: '',
+      qtd_ops: 0,
+      valor_ops: '',
+    })
+    $app
+      .db()
+      .newQuery(`
+      SELECT
+        (SELECT COUNT(*) FROM bling_pedidos WHERE (situacao_bling_nome = 'Atendido' OR situacao_bling_id = '9') AND substr(data_pedido, 1, 10) >= '2026-09-01' AND substr(data_pedido, 1, 10) <= '2026-09-30') as qtd_doc,
+        (SELECT CAST(COALESCE(SUM(valor_total), 0) AS TEXT) FROM bling_pedidos WHERE (situacao_bling_nome = 'Atendido' OR situacao_bling_id = '9') AND substr(data_pedido, 1, 10) >= '2026-09-01' AND substr(data_pedido, 1, 10) <= '2026-09-30') as valor_doc,
+        (SELECT COUNT(*) FROM oportunidades WHERE etapa_id = '8py63pcqd6wzqdl' AND substr(data_origem, 1, 10) >= '2026-09-01' AND substr(data_origem, 1, 10) <= '2026-09-30') as qtd_ops,
+        (SELECT CAST(COALESCE(SUM(valor), 0) AS TEXT) FROM oportunidades WHERE etapa_id = '8py63pcqd6wzqdl' AND substr(data_origem, 1, 10) >= '2026-09-01' AND substr(data_origem, 1, 10) <= '2026-09-30') as valor_ops
+    `)
+      .one(auditFechadoSet)
+
+    const auditPerdidoSet = new DynamicModel({
+      ped_cancelados_doc: 0,
+      ped_cancelados_valor: '',
+      prop_naoaprov_doc: 0,
+      prop_naoaprov_valor: '',
+      ops_total_qtd: 0,
+      ops_total_valor: '',
+    })
+    $app
+      .db()
+      .newQuery(`
+      SELECT
+        (SELECT COUNT(*) FROM bling_pedidos WHERE (situacao_bling_nome = 'Cancelado' OR situacao_bling_id = '12') AND substr(data_pedido, 1, 10) >= '2026-09-01' AND substr(data_pedido, 1, 10) <= '2026-09-30') as ped_cancelados_doc,
+        (SELECT CAST(COALESCE(SUM(valor_total), 0) AS TEXT) FROM bling_pedidos WHERE (situacao_bling_nome = 'Cancelado' OR situacao_bling_id = '12') AND substr(data_pedido, 1, 10) >= '2026-09-01' AND substr(data_pedido, 1, 10) <= '2026-09-30') as ped_cancelados_valor,
+        (SELECT COUNT(*) FROM bling_propostas WHERE status_normalizado = 'nao_aprovada' AND visivel_funil = 1 AND substr(data_proposta, 1, 10) >= '2026-09-01' AND substr(data_proposta, 1, 10) <= '2026-09-30') as prop_naoaprov_doc,
+        (SELECT CAST(COALESCE(SUM(valor_total), 0) AS TEXT) FROM bling_propostas WHERE status_normalizado = 'nao_aprovada' AND visivel_funil = 1 AND substr(data_proposta, 1, 10) >= '2026-09-01' AND substr(data_proposta, 1, 10) <= '2026-09-30') as prop_naoaprov_valor,
+        (SELECT COUNT(*) FROM oportunidades WHERE etapa_id = '3rk88yu1u2iqdf5' AND substr(data_origem, 1, 10) >= '2026-09-01' AND substr(data_origem, 1, 10) <= '2026-09-30') as ops_total_qtd,
+        (SELECT CAST(COALESCE(SUM(valor), 0) AS TEXT) FROM oportunidades WHERE etapa_id = '3rk88yu1u2iqdf5' AND substr(data_origem, 1, 10) >= '2026-09-01' AND substr(data_origem, 1, 10) <= '2026-09-30') as ops_total_valor
+    `)
+      .one(auditPerdidoSet)
+
     // Responsável auditoria
     const respAudit = new DynamicModel({
       ped_com_resp: 0,
@@ -914,6 +970,30 @@ routerAdd('GET', '/backend/v1/painel/auditoria-v88', (e) => {
       dashboardSetembro: {
         valor_vendas: Math.round(Number(dashSet.valor_vendas) * 100) / 100,
         qtd_validos: Number(dashSet.qtd_validos),
+      },
+      auditSetembroV91: {
+        emAbertoBling: {
+          documentosBling: Number(auditEmAbertoSet.qtd_doc),
+          valorDocumentos: Math.round(Number(auditEmAbertoSet.valor_doc) * 100) / 100,
+          oportunidades: Number(auditEmAbertoSet.qtd_ops),
+          subtotalGlobal: Math.round(Number(auditEmAbertoSet.valor_ops) * 100) / 100,
+        },
+        fechado: {
+          documentosAtendidos: Number(auditFechadoSet.qtd_doc),
+          valorDocumentos: Math.round(Number(auditFechadoSet.valor_doc) * 100) / 100,
+          oportunidades: Number(auditFechadoSet.qtd_ops),
+          subtotalGlobal: Math.round(Number(auditFechadoSet.valor_ops) * 100) / 100,
+        },
+        perdido: {
+          pedidosCanceladosDoc: Number(auditPerdidoSet.ped_cancelados_doc),
+          pedidosCanceladosValor:
+            Math.round(Number(auditPerdidoSet.ped_cancelados_valor) * 100) / 100,
+          propostasNaoAprovadasDoc: Number(auditPerdidoSet.prop_naoaprov_doc),
+          propostasNaoAprovadasValor:
+            Math.round(Number(auditPerdidoSet.prop_naoaprov_valor) * 100) / 100,
+          oportunidadesTotais: Number(auditPerdidoSet.ops_total_qtd),
+          subtotalGlobal: Math.round(Number(auditPerdidoSet.ops_total_valor) * 100) / 100,
+        },
       },
       responsavelAudit: {
         ped_com_resp: Number(respAudit.ped_com_resp),

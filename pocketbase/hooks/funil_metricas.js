@@ -135,26 +135,34 @@ routerAdd(
       }
 
       // 2. Consulta de agregação por etapa no banco
+      // goja PocketBase DB driver requires DynamicModel / arrayOf for .all() and .one()
       const sqlAgregacaoEtapas = `
         SELECT
           o.etapa_id,
           COUNT(o.id) as qtd,
-          ROUND(COALESCE(SUM(o.valor), 0), 2) as total_valor
+          CAST(ROUND(COALESCE(SUM(o.valor), 0), 2) AS TEXT) as total_valor
         FROM oportunidades o
         WHERE ${whereClause}
         GROUP BY o.etapa_id
       `
 
-      const rowsEtapas = $app.db().newQuery(sqlAgregacaoEtapas).bind(params).all()
+      const rowsEtapas = arrayOf(
+        new DynamicModel({
+          etapa_id: '',
+          qtd: 0,
+          total_valor: '',
+        }),
+      )
+      $app.db().newQuery(sqlAgregacaoEtapas).bind(params).all(rowsEtapas)
 
       let totalRegistros = 0
       let totalValorGlobal = 0
 
       for (let r = 0; r < rowsEtapas.length; r++) {
         const row = rowsEtapas[r]
-        const etapaId = row.etapa_id
-        const qtd = Number(row.qtd || 0)
-        const valor = Number(row.total_valor || 0)
+        const etapaId = String(row.etapa_id || '')
+        const qtd = Number(row.qtd) || 0
+        const valor = Number(row.total_valor) || 0
 
         totalRegistros += qtd
         totalValorGlobal += valor
@@ -170,13 +178,20 @@ routerAdd(
         SELECT
           o.status,
           COUNT(o.id) as qtd,
-          ROUND(COALESCE(SUM(o.valor), 0), 2) as total_valor
+          CAST(ROUND(COALESCE(SUM(o.valor), 0), 2) AS TEXT) as total_valor
         FROM oportunidades o
         WHERE ${whereClause}
         GROUP BY o.status
       `
 
-      const rowsStatus = $app.db().newQuery(sqlResumoStatus).bind(params).all()
+      const rowsStatus = arrayOf(
+        new DynamicModel({
+          status: '',
+          qtd: 0,
+          total_valor: '',
+        }),
+      )
+      $app.db().newQuery(sqlResumoStatus).bind(params).all(rowsStatus)
 
       let abertasQtd = 0
       let abertasValor = 0
@@ -188,8 +203,8 @@ routerAdd(
       for (let s = 0; s < rowsStatus.length; s++) {
         const sRow = rowsStatus[s]
         const st = String(sRow.status || '').toLowerCase()
-        const qtd = Number(sRow.qtd || 0)
-        const val = Number(sRow.total_valor || 0)
+        const qtd = Number(sRow.qtd) || 0
+        const val = Number(sRow.total_valor) || 0
 
         if (st === 'aberto') {
           abertasQtd = qtd
@@ -216,13 +231,20 @@ routerAdd(
             ELSE 'crm'
           END as tipo,
           COUNT(o.id) as qtd,
-          ROUND(COALESCE(SUM(o.valor), 0), 2) as total_valor
+          CAST(ROUND(COALESCE(SUM(o.valor), 0), 2) AS TEXT) as total_valor
         FROM oportunidades o
         WHERE ${whereClause}
         GROUP BY tipo
       `
 
-      const rowsTipo = $app.db().newQuery(sqlTipoOrigem).bind(params).all()
+      const rowsTipo = arrayOf(
+        new DynamicModel({
+          tipo: '',
+          qtd: 0,
+          total_valor: '',
+        }),
+      )
+      $app.db().newQuery(sqlTipoOrigem).bind(params).all(rowsTipo)
       const subtotaisTipo = {
         bling_pedido: { quantidade: 0, valor: 0 },
         bling_proposta: { quantidade: 0, valor: 0 },
@@ -233,8 +255,8 @@ routerAdd(
         const tRow = rowsTipo[t]
         const tp = String(tRow.tipo || 'crm')
         if (subtotaisTipo[tp]) {
-          subtotaisTipo[tp].quantidade = Number(tRow.qtd || 0)
-          subtotaisTipo[tp].valor = Math.round(Number(tRow.total_valor || 0) * 100) / 100
+          subtotaisTipo[tp].quantidade = Number(tRow.qtd) || 0
+          subtotaisTipo[tp].valor = Math.round((Number(tRow.total_valor) || 0) * 100) / 100
         }
       }
 

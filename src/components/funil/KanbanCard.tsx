@@ -173,14 +173,11 @@ export default function KanbanCard({
       {/* Rodapé: Responsável e Data Prevista */}
       <div className="mt-3 pt-2.5 border-t border-[#F1F5F9] flex items-center justify-between gap-2 text-[11px] text-[#64748B]">
         {/* Vendedor com mini avatar */}
-        <div
-          className="flex items-center gap-1.5 truncate min-w-0"
-          title={`Vendedor: ${nomeVendedor}`}
-        >
+        <div className="flex items-center gap-1.5 truncate min-w-0" title={nomeVendedor}>
           <div className="w-5 h-5 rounded-full bg-slate-100 text-slate-700 font-bold text-[9px] flex items-center justify-center shrink-0">
             {nomeVendedor.charAt(0).toUpperCase()}
           </div>
-          <span className="truncate font-medium">Vendedor: {nomeVendedor}</span>
+          <span className="truncate font-medium">{nomeVendedor}</span>
         </div>
 
         {/* Data contextualizada conforme modo de visão: Origem vs Fechamento */}

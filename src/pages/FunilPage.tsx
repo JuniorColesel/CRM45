@@ -43,6 +43,7 @@ export default function FunilPage() {
 
   // Subtotais e métricas do BACKEND (Etapa 3 - agregados completos sobre todas as oportunidades)
   const [metricasBackend, setMetricasBackend] = useState<{
+    success?: boolean
     totais?: { total_registros: number; total_valor: number }
     resumo?: {
       total_abertas: number
@@ -265,11 +266,100 @@ export default function FunilPage() {
 
       if (res && res.success) {
         setMetricasBackend(res)
+        return
       }
     } catch (err) {
-      console.error('Erro ao carregar métricas agregadas do funil:', err)
+      console.error(
+        'Erro ao carregar métricas agregadas do funil do backend, calculando fallback completo:',
+        err,
+      )
     }
-  }, [filtros, periodo, modoVisao])
+
+    // Fallback defensivo: se o endpoint do backend falhar ou retornar erro,
+    // calcular métricas diretamente de todas as oportunidades filtradas
+    // garantindo que NUNCA dependa da página exibida no Kanban.
+    try {
+      const filtro = construirFiltroOportunidades()
+      const allOps = await pb.collection('oportunidades').getFullList<OportunidadeModel>({
+        filter: filtro || undefined,
+        fields: 'id,etapa_id,valor,status',
+        requestKey: null,
+      })
+
+      let totalRegistros = 0
+      let totalValor = 0
+      let totalAbertas = 0
+      let valorPipeline = 0
+      let totalGanhas = 0
+      let valorGanhas = 0
+      let totalPerdidas = 0
+      let valorPerdidas = 0
+
+      const etapasMap: Record<string, { quantidade: number; valor_total: number }> = {}
+      etapas.forEach((e) => {
+        etapasMap[e.id] = { quantidade: 0, valor_total: 0 }
+      })
+
+      allOps.forEach((op) => {
+        const val = Number(op.valor) || 0
+        totalRegistros += 1
+        totalValor += val
+
+        const etId = op.etapa_id
+        if (!etapasMap[etId]) {
+          etapasMap[etId] = { quantidade: 0, valor_total: 0 }
+        }
+        etapasMap[etId].quantidade += 1
+        etapasMap[etId].valor_total = Math.round((etapasMap[etId].valor_total + val) * 100) / 100
+
+        const st = (op.status || '').toLowerCase()
+        if (st === 'aberto') {
+          totalAbertas += 1
+          valorPipeline += val
+        } else if (st === 'ganho') {
+          totalGanhas += 1
+          valorGanhas += val
+        } else if (st === 'perdido') {
+          totalPerdidas += 1
+          valorPerdidas += val
+        }
+      })
+
+      const finalizadas = totalGanhas + totalPerdidas
+      const taxaConversao = finalizadas > 0 ? (totalGanhas / finalizadas) * 100 : 0
+      const ticketMedio = totalGanhas > 0 ? valorGanhas / totalGanhas : 0
+
+      const etapasArray = etapas.map((e) => ({
+        etapa_id: e.id,
+        nome: e.nome,
+        ordem: e.ordem,
+        cor: e.cor,
+        quantidade: etapasMap[e.id]?.quantidade || 0,
+        valor_total: etapasMap[e.id]?.valor_total || 0,
+      }))
+
+      setMetricasBackend({
+        success: true,
+        totais: {
+          total_registros: totalRegistros,
+          total_valor: Math.round(totalValor * 100) / 100,
+        },
+        resumo: {
+          total_abertas: totalAbertas,
+          valor_pipeline: Math.round(valorPipeline * 100) / 100,
+          total_ganhas: totalGanhas,
+          valor_ganhas: Math.round(valorGanhas * 100) / 100,
+          total_perdidas: totalPerdidas,
+          valor_perdidas: Math.round(valorPerdidas * 100) / 100,
+          taxa_conversao: Math.round(taxaConversao * 10) / 10,
+          ticket_medio: Math.round(ticketMedio * 100) / 100,
+        },
+        etapas: etapasArray,
+      })
+    } catch (eFallback) {
+      console.error('Falha também no fallback completo de métricas:', eFallback)
+    }
+  }, [filtros, periodo, modoVisao, etapas, construirFiltroOportunidades])
 
   // Carregar oportunidades com paginação server-side
   const carregarOportunidades = useCallback(async () => {
