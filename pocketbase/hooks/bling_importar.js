@@ -2654,12 +2654,91 @@ routerAdd(
       }
 
       // ==============================================================
+      // 4.6. RECONCILIAÇÃO RETROATIVA DE DATA_ORIGEM E RESPONSÁVEL (SEMPRE POR ID EXTERNO)
+      // Garante que nenhuma oportunidade fique sem data_origem caso o documento tenha data,
+      // e propaga responsavel_id de pedidos/propostas que vierem a receber atribuição.
+      try {
+        $app
+          .db()
+          .newQuery(`
+          UPDATE oportunidades
+          SET data_origem = substr((
+            SELECT bp.data_proposta
+            FROM bling_propostas bp
+            WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id
+          ), 1, 10)
+          WHERE tipo_origem = 'bling_proposta'
+            AND (data_origem = '' OR data_origem IS NULL)
+            AND bling_proposta_id IN (
+              SELECT bp.bling_proposta_id FROM bling_propostas bp
+              WHERE bp.data_proposta != '' AND bp.data_proposta IS NOT NULL
+            )
+        `)
+          .execute()
+
+        $app
+          .db()
+          .newQuery(`
+          UPDATE oportunidades
+          SET data_origem = substr((
+            SELECT bp.data_pedido
+            FROM bling_pedidos bp
+            WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id
+          ), 1, 10)
+          WHERE tipo_origem = 'bling_pedido'
+            AND (data_origem = '' OR data_origem IS NULL)
+            AND bling_pedido_id IN (
+              SELECT bp.bling_pedido_id FROM bling_pedidos bp
+              WHERE bp.data_pedido != '' AND bp.data_pedido IS NOT NULL
+            )
+        `)
+          .execute()
+
+        $app
+          .db()
+          .newQuery(`
+          UPDATE oportunidades
+          SET responsavel_id = (
+            SELECT bp.responsavel_id
+            FROM bling_pedidos bp
+            WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id
+          )
+          WHERE tipo_origem = 'bling_pedido'
+            AND (responsavel_id = '' OR responsavel_id IS NULL)
+            AND bling_pedido_id IN (
+              SELECT bp.bling_pedido_id FROM bling_pedidos bp
+              WHERE bp.responsavel_id != '' AND bp.responsavel_id IS NOT NULL
+            )
+        `)
+          .execute()
+
+        $app
+          .db()
+          .newQuery(`
+          UPDATE oportunidades
+          SET responsavel_id = (
+            SELECT bp.responsavel_id
+            FROM bling_propostas bp
+            WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id
+          )
+          WHERE tipo_origem = 'bling_proposta'
+            AND (responsavel_id = '' OR responsavel_id IS NULL)
+            AND bling_proposta_id IN (
+              SELECT bp.bling_proposta_id FROM bling_propostas bp
+              WHERE bp.responsavel_id != '' AND bp.responsavel_id IS NOT NULL
+            )
+        `)
+          .execute()
+      } catch (errRecRetro) {
+        console.error('[BLING-IMPORT] Erro na reconciliação retroativa funil: ' + errRecRetro)
+      }
+
+      // ==============================================================
       // 5. ATUALIZAR STATUS E HISTÓRICO COMERCIAL NOS CLIENTES (IDEMPOTENTE)
       // ==============================================================
       const agora = new Date()
       const limite6Meses = new Date(agora)
       limite6Meses.setMonth(limite6Meses.getMonth() - 6)
-
       const chavesClientes = Object.keys(dadosVendasPorCliente)
       for (let k = 0; k < chavesClientes.length; k++) {
         const cId = chavesClientes[k]

@@ -22,11 +22,17 @@ interface PainelGraficosProps {
 }
 
 export function PainelGraficos({ dados }: PainelGraficosProps) {
-  const { contexto, serie_mensal_ano, pedidos_periodo, propostas_periodo } = dados
+  const { contexto, serie_mensal_ano, serie_diaria_periodo, pedidos_periodo, propostas_periodo } =
+    dados
 
   // Regra 25: Quando Ano selecionado e Mês=Todos, gráficos mensais Janeiro a Dezembro
   const isAnoCompleto = !contexto.isPersonalizado && contexto.mes === null
   const anoAtual = contexto.ano
+
+  // Granularidade automática:
+  // Se tiver serie_diaria_periodo com itens e NÃO for ano completo -> exibição diária
+  const temSerieDiaria = !isAnoCompleto && !!serie_diaria_periodo && serie_diaria_periodo.length > 0
+  const anoAtualStr = String(anoAtual)
 
   // Dados para Donut de Situação de Pedidos no Período (Regra 27)
   const dadosDonutPedidos = [
@@ -87,18 +93,20 @@ export function PainelGraficos({ dados }: PainelGraficosProps) {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-      {/* ----------------- GRÁFICO 1: VENDAS POR MÊS NO ANO (JAN A DEZ) ----------------- */}
+      {/* ----------------- GRÁFICO 1: VENDAS (MENSAL NO ANO OU DIÁRIO NO MÊS/PERÍODO) ----------------- */}
       <Card className="border border-[#E2E8F0] shadow-sm flex flex-col bg-white">
         <CardHeader className="pb-2 border-b border-slate-100 flex flex-row items-center justify-between">
           <div>
             <CardTitle className="text-sm font-bold text-[#0F172A] flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-[#16A34A]" />
-              Vendas Válidas por Mês ({anoAtual})
+              {isAnoCompleto
+                ? `Vendas Válidas por Mês (${anoAtualStr})`
+                : `Vendas Válidas por Dia (${contexto.labelPeriodo})`}
             </CardTitle>
             <p className="text-xs text-[#64748B] mt-0.5">
               {isAnoCompleto
-                ? `Janeiro a Dezembro de ${anoAtual} (Soma reconciliada: ${formatarMoeda(pedidos_periodo.valor_vendas_valido)})`
-                : `Período em foco: ${contexto.labelPeriodo}`}
+                ? `Janeiro a Dezembro de ${anoAtualStr} (Soma reconciliada: ${formatarMoeda(pedidos_periodo.valor_vendas_valido)})`
+                : `Soma dos dias: ${formatarMoeda(pedidos_periodo.valor_vendas_valido)} (Em aberto + Atendido)`}
             </p>
           </div>
         </CardHeader>
@@ -145,31 +153,77 @@ export function PainelGraficos({ dados }: PainelGraficosProps) {
                 </LineChart>
               </ResponsiveContainer>
             </div>
+          ) : temSerieDiaria ? (
+            <div className="h-64 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart
+                  data={serie_diaria_periodo}
+                  margin={{ top: 15, right: 20, left: 10, bottom: 10 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontSize: 10, fill: '#64748B' }}
+                    axisLine={{ stroke: '#E2E8F0' }}
+                    tickLine={false}
+                    interval={serie_diaria_periodo && serie_diaria_periodo.length > 20 ? 2 : 0}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 10, fill: '#64748B' }}
+                    axisLine={{ stroke: '#E2E8F0' }}
+                    tickLine={false}
+                    tickFormatter={(val) =>
+                      val >= 1000 ? `R$${(val / 1000).toFixed(0)}k` : `R$${val}`
+                    }
+                  />
+                  <Tooltip
+                    formatter={(val: number) => [formatarMoeda(val), 'Vendas Válidas']}
+                    labelFormatter={(lbl) => `Data: ${lbl}`}
+                    contentStyle={{
+                      backgroundColor: '#FFFFFF',
+                      borderColor: '#E2E8F0',
+                      borderRadius: '0.5rem',
+                      fontSize: '12px',
+                      boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                    }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="valor_vendas"
+                    stroke="#16A34A"
+                    strokeWidth={2.5}
+                    dot={{ r: 3, fill: '#16A34A', stroke: '#FFFFFF', strokeWidth: 1.5 }}
+                    activeDot={{ r: 5, fill: '#15803D' }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           ) : (
             <div className="h-64 flex flex-col items-center justify-center text-xs text-[#64748B] space-y-2">
               <TrendingUp className="w-8 h-8 text-slate-300" />
-              <p className="font-semibold text-slate-700">Visualização de Mês Individual</p>
+              <p className="font-semibold text-slate-700">Sem dados para o período</p>
               <p className="text-slate-500 max-w-xs text-center">
-                Selecione "Todos os meses" no topo para visualizar a evolução mensal completa de
-                Janeiro a Dezembro.
+                Não foram encontrados registros para o intervalo selecionado.
               </p>
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* ----------------- GRÁFICO 2: PEDIDOS VÁLIDOS POR MÊS NO ANO ----------------- */}
+      {/* ----------------- GRÁFICO 2: PEDIDOS VÁLIDOS (MENSAL NO ANO OU DIÁRIO NO MÊS/PERÍODO) ----------------- */}
       <Card className="border border-[#E2E8F0] shadow-sm flex flex-col bg-white">
         <CardHeader className="pb-2 border-b border-slate-100 flex flex-row items-center justify-between">
           <div>
             <CardTitle className="text-sm font-bold text-[#0F172A] flex items-center gap-2">
               <ShoppingBag className="w-4 h-4 text-[#2563EB]" />
-              Volume de Pedidos Válidos ({anoAtual})
+              {isAnoCompleto
+                ? `Volume de Pedidos Válidos (${anoAtualStr})`
+                : `Pedidos Válidos por Dia (${contexto.labelPeriodo})`}
             </CardTitle>
             <p className="text-xs text-[#64748B] mt-0.5">
               {isAnoCompleto
-                ? `Quantidade de pedidos faturados/abertos por mês em ${anoAtual}`
-                : `Total no período: ${pedidos_periodo.pedidos_validos} pedidos válidos`}
+                ? `Quantidade de pedidos faturados/abertos por mês em ${anoAtualStr}`
+                : `Total do período: ${pedidos_periodo.pedidos_validos} pedidos válidos`}
             </p>
           </div>
         </CardHeader>
@@ -203,6 +257,41 @@ export function PainelGraficos({ dados }: PainelGraficosProps) {
                     }}
                   />
                   <Bar dataKey="pedidos_validos" fill="#2563EB" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          ) : temSerieDiaria ? (
+            <div className="h-64 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={serie_diaria_periodo}
+                  margin={{ top: 15, right: 15, left: 0, bottom: 10 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontSize: 10, fill: '#64748B' }}
+                    axisLine={{ stroke: '#E2E8F0' }}
+                    tickLine={false}
+                    interval={serie_diaria_periodo && serie_diaria_periodo.length > 20 ? 2 : 0}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 10, fill: '#64748B' }}
+                    axisLine={{ stroke: '#E2E8F0' }}
+                    tickLine={false}
+                    allowDecimals={false}
+                  />
+                  <Tooltip
+                    formatter={(val: number) => [`${val} pedidos`, 'Pedidos Válidos']}
+                    labelFormatter={(lbl) => `Data: ${lbl}`}
+                    contentStyle={{
+                      backgroundColor: '#FFFFFF',
+                      borderColor: '#E2E8F0',
+                      borderRadius: '0.5rem',
+                      fontSize: '12px',
+                    }}
+                  />
+                  <Bar dataKey="pedidos_validos" fill="#2563EB" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

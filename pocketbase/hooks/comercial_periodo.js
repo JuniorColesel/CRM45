@@ -415,7 +415,138 @@ routerAdd('GET', '/backend/v1/painel/comercial', (e) => {
       )
     }
 
-    // 6. SÉRIE MENSAL (Janeiro a Dezembro) QUANDO O ANO ESTIVER SELECIONADO
+    // 6. SÉRIE DIÁRIA DO PERÍODO SELECIONADO (Mês individual ou personalizado <= 45 dias)
+    // Granularidade automática:
+    // - Mês = Todos -> Gráficos mensais Jan-Dez
+    // - Mês específico -> Gráfico diário 01..último dia do mês
+    // - Personalizado: <= 45 dias -> diário; > 45 dias -> mensal
+    let serieDiariaPeriodo = []
+    const dataIniDate = new Date(dataInicioYmd + 'T00:00:00')
+    const dataFimDate = new Date(dataFimYmd + 'T00:00:00')
+    const diferencaDias =
+      Math.round((dataFimDate.getTime() - dataIniDate.getTime()) / (1000 * 60 * 60 * 24)) + 1
+    const deveGerarSerieDiaria =
+      (!isPersonalizado && mesParam !== 'todos' && mesParam) ||
+      (isPersonalizado && diferencaDias <= 45)
+
+    if (deveGerarSerieDiaria) {
+      // Gerar todos os dias contínuos no intervalo [dataInicioYmd .. dataFimYmd]
+      const mapaDias = {}
+      const cur = new Date(dataIniDate)
+      while (cur <= dataFimDate) {
+        const y = cur.getFullYear()
+        const m = String(cur.getMonth() + 1).padStart(2, '0')
+        const d = String(cur.getDate()).padStart(2, '0')
+        const chaveData = y + '-' + m + '-' + d
+        const diaNumero = cur.getDate()
+        const diaMesFormatado = d + '/' + m
+
+        const ponto = {
+          data: chaveData,
+          dia: diaNumero,
+          label: diaMesFormatado,
+          pedidos_validos: 0,
+          valor_vendas: 0,
+          pedidos_cancelados: 0,
+          propostas_total: 0,
+          propostas_rascunho: 0,
+          propostas_aguardando: 0,
+          propostas_nao_aprovada: 0,
+          propostas_convertida: 0,
+        }
+        mapaDias[chaveData] = ponto
+        serieDiariaPeriodo.push(ponto)
+        cur.setDate(cur.getDate() + 1)
+      }
+
+      // Agregação diária de pedidos (vendas válidas: 6 e 9; cancelados: 12)
+      try {
+        const rowsPedDia = arrayOf(
+          new DynamicModel({
+            dia_str: '',
+            situacao_bling_id: '',
+            qtd: 0,
+            soma: '',
+          }),
+        )
+        $app
+          .db()
+          .newQuery(`
+            SELECT
+              substr(data_pedido, 1, 10) as dia_str,
+              situacao_bling_id,
+              count(*) as qtd,
+              CAST(COALESCE(sum(valor_total), 0) AS TEXT) as soma
+            FROM bling_pedidos
+            WHERE substr(data_pedido, 1, 10) >= {:ini} AND substr(data_pedido, 1, 10) <= {:fim}
+            GROUP BY dia_str, situacao_bling_id
+          `)
+          .bind({ ini: dataInicioYmd, fim: dataFimYmd })
+          .all(rowsPedDia)
+
+        for (let pd = 0; pd < rowsPedDia.length; pd++) {
+          const rowD = rowsPedDia[pd]
+          const dStr = String(rowD.dia_str || '')
+          const sitId = String(rowD.situacao_bling_id || '')
+          const qVal = Number(rowD.qtd) || 0
+          const sVal = round2(toNum(rowD.soma))
+
+          if (mapaDias[dStr]) {
+            if (sitId === '6' || sitId === '9') {
+              mapaDias[dStr].pedidos_validos += qVal
+              mapaDias[dStr].valor_vendas = round2(mapaDias[dStr].valor_vendas + sVal)
+            } else if (sitId === '12') {
+              mapaDias[dStr].pedidos_cancelados += qVal
+            }
+          }
+        }
+      } catch (errPedDia) {
+        console.error('[PAINEL-COMERCIAL] Erro agregacao diaria pedidos: ' + errPedDia)
+      }
+
+      // Agregação diária de propostas
+      try {
+        const rowsPropDia = arrayOf(
+          new DynamicModel({
+            dia_str: '',
+            status_normalizado: '',
+            qtd: 0,
+          }),
+        )
+        $app
+          .db()
+          .newQuery(`
+            SELECT
+              substr(data_proposta, 1, 10) as dia_str,
+              status_normalizado,
+              count(*) as qtd
+            FROM bling_propostas
+            WHERE substr(data_proposta, 1, 10) >= {:ini} AND substr(data_proposta, 1, 10) <= {:fim}
+            GROUP BY dia_str, status_normalizado
+          `)
+          .bind({ ini: dataInicioYmd, fim: dataFimYmd })
+          .all(rowsPropDia)
+
+        for (let prD = 0; prD < rowsPropDia.length; prD++) {
+          const rowPrD = rowsPropDia[prD]
+          const dStr = String(rowPrD.dia_str || '')
+          const stNorm = String(rowPrD.status_normalizado || '')
+          const qPr = Number(rowPrD.qtd) || 0
+
+          if (mapaDias[dStr]) {
+            mapaDias[dStr].propostas_total += qPr
+            if (stNorm === 'rascunho') mapaDias[dStr].propostas_rascunho += qPr
+            else if (stNorm === 'aguardando') mapaDias[dStr].propostas_aguardando += qPr
+            else if (stNorm === 'nao_aprovada') mapaDias[dStr].propostas_nao_aprovada += qPr
+            else if (stNorm === 'convertida') mapaDias[dStr].propostas_convertida += qPr
+          }
+        }
+      } catch (errPropDia) {
+        console.error('[PAINEL-COMERCIAL] Erro agregacao diaria propostas: ' + errPropDia)
+      }
+    }
+
+    // 7. SÉRIE MENSAL (Janeiro a Dezembro) QUANDO O ANO ESTIVER SELECIONADO
     // Garante reconciliação exata: soma(jan...dez) == total do ano
     let serieMensalAno = []
     if (!isPersonalizado && (mesParam === 'todos' || !mesParam)) {
@@ -609,6 +740,7 @@ routerAdd('GET', '/backend/v1/painel/comercial', (e) => {
       propostas_periodo: propostasDoPeriodo,
       oportunidades_periodo: oportunidadesDoPeriodo,
       serie_mensal_ano: serieMensalAno,
+      serie_diaria_periodo: serieDiariaPeriodo,
     })
   } catch (errGeral) {
     console.error(
@@ -627,4 +759,172 @@ routerAdd('GET', '/backend/v1/painel/comercial', (e) => {
 // Recalcular cache / sinc do painel
 routerAdd('POST', '/backend/v1/painel/recalcular-cache', (e) => {
   return e.json(200, { ok: true })
+})
+
+// Endpoint de auditoria estruturada direta para relatório da v0.0.88
+routerAdd('GET', '/backend/v1/painel/auditoria-v88', (e) => {
+  try {
+    const funilTotais = new DynamicModel({
+      total: 0,
+      ganhos: 0,
+      perdidos: 0,
+      abertos: 0,
+      sem_data_origem: 0,
+      com_data_origem: 0,
+      com_responsavel: 0,
+      sem_responsavel: 0,
+    })
+    $app
+      .db()
+      .newQuery(`
+        SELECT
+          COUNT(*) as total,
+          SUM(CASE WHEN status = 'ganho' THEN 1 ELSE 0 END) as ganhos,
+          SUM(CASE WHEN status = 'perdido' THEN 1 ELSE 0 END) as perdidos,
+          SUM(CASE WHEN status = 'aberto' THEN 1 ELSE 0 END) as abertos,
+          SUM(CASE WHEN data_origem = '' OR data_origem IS NULL THEN 1 ELSE 0 END) as sem_data_origem,
+          SUM(CASE WHEN data_origem != '' AND data_origem IS NOT NULL THEN 1 ELSE 0 END) as com_data_origem,
+          SUM(CASE WHEN responsavel_id != '' AND responsavel_id IS NOT NULL THEN 1 ELSE 0 END) as com_responsavel,
+          SUM(CASE WHEN responsavel_id = '' OR responsavel_id IS NULL THEN 1 ELSE 0 END) as sem_responsavel
+        FROM oportunidades
+        WHERE origem = 'bling'
+      `)
+      .one(funilTotais)
+
+    // Setembro 2026: Propostas elegíveis
+    const propSetDoc = new DynamicModel({ total_doc: 0, vinculadas: 0, pendentes: 0 })
+    $app
+      .db()
+      .newQuery(`
+        SELECT
+          COUNT(*) as total_doc,
+          SUM(CASE WHEN status_vinculo = 'vinculado' AND cliente_id != '' AND cliente_id IS NOT NULL THEN 1 ELSE 0 END) as vinculadas,
+          SUM(CASE WHEN status_vinculo != 'vinculado' OR cliente_id = '' OR cliente_id IS NULL THEN 1 ELSE 0 END) as pendentes
+        FROM bling_propostas
+        WHERE visivel_funil = 1
+          AND (status_normalizado = 'rascunho' OR status_normalizado = 'aguardando' OR status_normalizado = 'nao_aprovada')
+          AND substr(data_proposta, 1, 10) >= '2026-09-01'
+          AND substr(data_proposta, 1, 10) <= '2026-09-30'
+      `)
+      .one(propSetDoc)
+
+    const propSetOps = new DynamicModel({ total_ops: 0 })
+    $app
+      .db()
+      .newQuery(`
+        SELECT COUNT(*) as total_ops
+        FROM oportunidades
+        WHERE tipo_origem = 'bling_proposta'
+          AND substr(data_origem, 1, 10) >= '2026-09-01'
+          AND substr(data_origem, 1, 10) <= '2026-09-30'
+      `)
+      .one(propSetOps)
+
+    // Setembro 2026: Pedidos elegíveis
+    const pedSetDoc = new DynamicModel({ total_doc: 0, vinculados: 0, pendentes: 0 })
+    $app
+      .db()
+      .newQuery(`
+        SELECT
+          COUNT(*) as total_doc,
+          SUM(CASE WHEN status_vinculo = 'vinculado' AND cliente_id != '' AND cliente_id IS NOT NULL THEN 1 ELSE 0 END) as vinculados,
+          SUM(CASE WHEN status_vinculo != 'vinculado' OR cliente_id = '' OR cliente_id IS NULL THEN 1 ELSE 0 END) as pendentes
+        FROM bling_pedidos
+        WHERE (situacao_bling_nome = 'Em aberto' OR situacao_bling_nome = 'Atendido' OR situacao_bling_nome = 'Cancelado')
+          AND substr(data_pedido, 1, 10) >= '2026-09-01'
+          AND substr(data_pedido, 1, 10) <= '2026-09-30'
+      `)
+      .one(pedSetDoc)
+
+    const pedSetOps = new DynamicModel({ total_ops: 0 })
+    $app
+      .db()
+      .newQuery(`
+        SELECT COUNT(*) as total_ops
+        FROM oportunidades
+        WHERE tipo_origem = 'bling_pedido'
+          AND substr(data_origem, 1, 10) >= '2026-09-01'
+          AND substr(data_origem, 1, 10) <= '2026-09-30'
+      `)
+      .one(pedSetOps)
+
+    // Vendas Setembro
+    const dashSet = new DynamicModel({ valor_vendas: '', qtd_validos: 0 })
+    $app
+      .db()
+      .newQuery(`
+        SELECT
+          CAST(COALESCE(SUM(valor_total), 0) AS TEXT) as valor_vendas,
+          COUNT(*) as qtd_validos
+        FROM bling_pedidos
+        WHERE (situacao_bling_id = '6' OR situacao_bling_id = '9')
+          AND substr(data_pedido, 1, 10) >= '2026-09-01'
+          AND substr(data_pedido, 1, 10) <= '2026-09-30'
+      `)
+      .one(dashSet)
+
+    // Responsável auditoria
+    const respAudit = new DynamicModel({
+      ped_com_resp: 0,
+      ped_sem_resp: 0,
+      prop_com_resp: 0,
+      prop_sem_resp: 0,
+      ops_com_resp: 0,
+      ops_sem_resp: 0,
+    })
+    $app
+      .db()
+      .newQuery(`
+        SELECT
+          (SELECT COUNT(*) FROM bling_pedidos WHERE responsavel_id != '' AND responsavel_id IS NOT NULL) as ped_com_resp,
+          (SELECT COUNT(*) FROM bling_pedidos WHERE responsavel_id = '' OR responsavel_id IS NULL) as ped_sem_resp,
+          (SELECT COUNT(*) FROM bling_propostas WHERE responsavel_id != '' AND responsavel_id IS NOT NULL) as prop_com_resp,
+          (SELECT COUNT(*) FROM bling_propostas WHERE responsavel_id = '' OR responsavel_id IS NULL) as prop_sem_resp,
+          (SELECT COUNT(*) FROM oportunidades WHERE responsavel_id != '' AND responsavel_id IS NOT NULL) as ops_com_resp,
+          (SELECT COUNT(*) FROM oportunidades WHERE responsavel_id = '' OR responsavel_id IS NULL) as ops_sem_resp
+      `)
+      .one(respAudit)
+
+    return e.json(200, {
+      ok: true,
+      funilTotais: {
+        total: Number(funilTotais.total),
+        ganhos: Number(funilTotais.ganhos),
+        perdidos: Number(funilTotais.perdidos),
+        abertos: Number(funilTotais.abertos),
+        sem_data_origem: Number(funilTotais.sem_data_origem),
+        com_data_origem: Number(funilTotais.com_data_origem),
+        com_responsavel: Number(funilTotais.com_responsavel),
+        sem_responsavel: Number(funilTotais.sem_responsavel),
+      },
+      reconciliacaoSetembro: {
+        propostasDoc: {
+          total_doc: Number(propSetDoc.total_doc),
+          vinculadas: Number(propSetDoc.vinculadas),
+          pendentes: Number(propSetDoc.pendentes),
+        },
+        propostasOps: Number(propSetOps.total_ops),
+        pedidosDoc: {
+          total_doc: Number(pedSetDoc.total_doc),
+          vinculados: Number(pedSetDoc.vinculados),
+          pendentes: Number(pedSetDoc.pendentes),
+        },
+        pedidosOps: Number(pedSetOps.total_ops),
+      },
+      dashboardSetembro: {
+        valor_vendas: Math.round(Number(dashSet.valor_vendas) * 100) / 100,
+        qtd_validos: Number(dashSet.qtd_validos),
+      },
+      responsavelAudit: {
+        ped_com_resp: Number(respAudit.ped_com_resp),
+        ped_sem_resp: Number(respAudit.ped_sem_resp),
+        prop_com_resp: Number(respAudit.prop_com_resp),
+        prop_sem_resp: Number(respAudit.prop_sem_resp),
+        ops_com_resp: Number(respAudit.ops_com_resp),
+        ops_sem_resp: Number(respAudit.ops_sem_resp),
+      },
+    })
+  } catch (err) {
+    return e.json(500, { error: String(err.message || err) })
+  }
 })

@@ -92,6 +92,21 @@ export interface DadosPainelComercialCompleto {
   propostas_periodo: PropostasPeriodo
   oportunidades_periodo: OportunidadesPeriodo
   serie_mensal_ano: SerieMensalItem[]
+  serie_diaria_periodo?: SerieDiariaItem[]
+}
+
+export interface SerieDiariaItem {
+  data: string
+  dia: number
+  label: string
+  pedidos_validos: number
+  valor_vendas: number
+  pedidos_cancelados: number
+  propostas_total: number
+  propostas_rascunho: number
+  propostas_aguardando: number
+  propostas_nao_aprovada: number
+  propostas_convertida: number
 }
 
 export interface ObterDadosPainelParams {
