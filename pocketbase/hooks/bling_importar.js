@@ -2322,14 +2322,18 @@ routerAdd(
         const etapasList = $app.findRecordsByFilter('etapas_funil', '', 'ordem', 20, 0)
         let etapaPropostaId = ''
         let etapaNegociacaoId = ''
+        let etapaEmAbertoBlingId = ''
         let etapaFechadoId = ''
+        let etapaPerdidoId = ''
 
         for (let ep = 0; ep < etapasList.length; ep++) {
           const epRec = etapasList[ep]
           const epNome = epRec.getString('nome').toLowerCase()
           if (epNome.indexOf('propost') !== -1) etapaPropostaId = epRec.id
           if (epNome.indexOf('negoc') !== -1) etapaNegociacaoId = epRec.id
-          if (epNome.indexOf('fechad') !== -1) etapaFechadoId = epRec.id
+          if (epNome.indexOf('em aberto') !== -1) etapaEmAbertoBlingId = epRec.id
+          if (epNome === 'fechado') etapaFechadoId = epRec.id
+          if (epNome === 'perdido') etapaPerdidoId = epRec.id
         }
 
         // Resolver motivos de perda Bling
@@ -2352,12 +2356,18 @@ routerAdd(
           if (motCanc) motivoCanceladoId = motCanc.id
         } catch (_) {}
 
-        if (etapaPropostaId && etapaNegociacaoId && etapaFechadoId) {
+        if (
+          etapaPropostaId &&
+          etapaNegociacaoId &&
+          etapaFechadoId &&
+          etapaEmAbertoBlingId &&
+          etapaPerdidoId
+        ) {
           // 1. INSERIR PROPOSTAS ELEGÍVEIS COMO OPORTUNIDADES
-          // Regras:
+          // Regras v0.0.89:
           // - rascunho -> etapa Proposta, status 'aberto', data_origem=data_proposta
           // - aguardando -> etapa Negociação, status 'aberto', data_origem=data_proposta
-          // - nao_aprovada -> etapa Fechado, status 'perdido', motivo=motivoNaoAprovadaId, data_fechamento=data_proposta
+          // - nao_aprovada -> etapa Perdido, status 'perdido', motivo=motivoNaoAprovadaId, data_fechamento=data_proposta
           const sqlInsertPropostas = `
             INSERT INTO oportunidades (
               id,
@@ -2391,7 +2401,7 @@ routerAdd(
               CASE
                 WHEN bp.status_normalizado = 'rascunho' THEN {:etapaProposta}
                 WHEN bp.status_normalizado = 'aguardando' THEN {:etapaNegociacao}
-                WHEN bp.status_normalizado = 'nao_aprovada' THEN {:etapaFechado}
+                WHEN bp.status_normalizado = 'nao_aprovada' THEN {:etapaPerdido}
               END as etapa_id,
               CASE
                 WHEN bp.status_normalizado = 'nao_aprovada' THEN 'perdido'
@@ -2429,7 +2439,7 @@ routerAdd(
             .bind({
               etapaProposta: etapaPropostaId,
               etapaNegociacao: etapaNegociacaoId,
-              etapaFechado: etapaFechadoId,
+              etapaPerdido: etapaPerdidoId,
               motivoNaoAprovada: motivoNaoAprovadaId || '',
             })
             .execute()
@@ -2445,7 +2455,7 @@ routerAdd(
               etapa_id = CASE
                 WHEN (SELECT bp.status_normalizado FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id) = 'rascunho' THEN {:etapaProposta}
                 WHEN (SELECT bp.status_normalizado FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id) = 'aguardando' THEN {:etapaNegociacao}
-                WHEN (SELECT bp.status_normalizado FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id) = 'nao_aprovada' THEN {:etapaFechado}
+                WHEN (SELECT bp.status_normalizado FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id) = 'nao_aprovada' THEN {:etapaPerdido}
                 ELSE etapa_id
               END,
               status = CASE
@@ -2454,7 +2464,7 @@ routerAdd(
               END,
               motivo_perda_id = CASE
                 WHEN (SELECT bp.status_normalizado FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id) = 'nao_aprovada' THEN {:motivoNaoAprovada}
-                ELSE NULL
+                ELSE ''
               END,
               responsavel_id = CASE
                 WHEN (SELECT bp.responsavel_id FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id) != ''
@@ -2474,7 +2484,7 @@ routerAdd(
               data_fechamento = CASE
                 WHEN (SELECT bp.status_normalizado FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id) = 'nao_aprovada'
                 THEN substr((SELECT bp.data_proposta FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id), 1, 10)
-                ELSE NULL
+                ELSE ''
               END,
               atualizado_em = strftime('%Y-%m-%d %H:%M:%f', 'now'),
               updated = strftime('%Y-%m-%d %H:%M:%f', 'now')
@@ -2493,7 +2503,7 @@ routerAdd(
             .bind({
               etapaProposta: etapaPropostaId,
               etapaNegociacao: etapaNegociacaoId,
-              etapaFechado: etapaFechadoId,
+              etapaPerdido: etapaPerdidoId,
               motivoNaoAprovada: motivoNaoAprovadaId || '',
             })
             .execute()
@@ -2501,7 +2511,6 @@ routerAdd(
             resUpdProp && resUpdProp.rowsAffected ? resUpdProp.rowsAffected() : 0
 
           // 3. INATIVAR PROPOSTAS QUE MUDARAM PARA CONVERTIDA/CONCLUÍDO (não visível no funil sem exclusão destrutiva)
-          // Se uma proposta estava no funil e passou para convertida/concluída, removemos do funil ou marcamos
           const sqlInativarPropostas = `
             DELETE FROM oportunidades
             WHERE tipo_origem = 'bling_proposta'
@@ -2515,10 +2524,10 @@ routerAdd(
             resInatProp && resInatProp.rowsAffected ? resInatProp.rowsAffected() : 0
 
           // 4. INSERIR PEDIDOS ELEGÍVEIS COMO OPORTUNIDADES
-          // Regras:
-          // - Em aberto -> Fechado, ganho, data_fechamento = data_atendimento ou data_pedido
-          // - Atendido -> Fechado, ganho, data_fechamento = data_atendimento ou data_pedido
-          // - Cancelado -> Fechado, perdido, motivo = Cancelado no Bling, data_fechamento = data_pedido
+          // Regras v0.0.89:
+          // - Em aberto -> etapa 'Em aberto Bling', status 'ganho', data_fechamento = ''
+          // - Atendido -> etapa 'Fechado', status 'ganho', data_fechamento = data_atendimento ou data_pedido
+          // - Cancelado -> etapa 'Perdido', status 'perdido', motivo = 'Cancelado no Bling', data_fechamento = data_pedido
           const sqlInsertPedidos = `
             INSERT INTO oportunidades (
               id,
@@ -2549,13 +2558,17 @@ routerAdd(
               bp.bling_pedido_id,
               bp.cliente_id,
               COALESCE(bp.valor_total, 0) as valor,
-              {:etapaFechado} as etapa_id,
               CASE
-                WHEN bp.situacao_bling_nome = 'Cancelado' THEN 'perdido'
+                WHEN bp.situacao_bling_nome = 'Em aberto' OR bp.situacao_bling_id = '6' THEN {:etapaEmAberto}
+                WHEN bp.situacao_bling_nome = 'Atendido' OR bp.situacao_bling_id = '9' THEN {:etapaFechado}
+                WHEN bp.situacao_bling_nome = 'Cancelado' OR bp.situacao_bling_id = '12' THEN {:etapaPerdido}
+              END as etapa_id,
+              CASE
+                WHEN bp.situacao_bling_nome = 'Cancelado' OR bp.situacao_bling_id = '12' THEN 'perdido'
                 ELSE 'ganho'
               END as status,
               CASE
-                WHEN bp.situacao_bling_nome = 'Cancelado' AND {:motivoCancelado} != '' THEN {:motivoCancelado}
+                WHEN (bp.situacao_bling_nome = 'Cancelado' OR bp.situacao_bling_id = '12') AND {:motivoCancelado} != '' THEN {:motivoCancelado}
                 ELSE ''
               END as motivo_perda_id,
               CASE WHEN bp.responsavel_id IS NOT NULL AND bp.responsavel_id != '' THEN bp.responsavel_id ELSE NULL END as responsavel_id,
@@ -2576,7 +2589,7 @@ routerAdd(
             FROM bling_pedidos bp
             WHERE bp.status_vinculo = 'vinculado'
               AND bp.cliente_id IS NOT NULL AND bp.cliente_id != ''
-              AND (bp.situacao_bling_nome = 'Em aberto' OR bp.situacao_bling_nome = 'Atendido' OR bp.situacao_bling_nome = 'Cancelado')
+              AND (bp.situacao_bling_nome = 'Em aberto' OR bp.situacao_bling_nome = 'Atendido' OR bp.situacao_bling_nome = 'Cancelado' OR bp.situacao_bling_id = '6' OR bp.situacao_bling_id = '9' OR bp.situacao_bling_id = '12')
               AND bp.bling_pedido_id NOT IN (
                 SELECT o.bling_pedido_id FROM oportunidades o WHERE o.bling_pedido_id IS NOT NULL AND o.bling_pedido_id != ''
               )
@@ -2586,7 +2599,9 @@ routerAdd(
             .db()
             .newQuery(sqlInsertPedidos)
             .bind({
+              etapaEmAberto: etapaEmAbertoBlingId,
               etapaFechado: etapaFechadoId,
+              etapaPerdido: etapaPerdidoId,
               motivoCancelado: motivoCanceladoId || '',
             })
             .execute()
@@ -2599,13 +2614,24 @@ routerAdd(
             SET
               cliente_id = (SELECT bp.cliente_id FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id),
               valor = (SELECT COALESCE(bp.valor_total, 0) FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id),
+              etapa_id = CASE
+                WHEN (SELECT bp.situacao_bling_nome FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) = 'Em aberto'
+                  OR (SELECT bp.situacao_bling_id FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) = '6' THEN {:etapaEmAberto}
+                WHEN (SELECT bp.situacao_bling_nome FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) = 'Atendido'
+                  OR (SELECT bp.situacao_bling_id FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) = '9' THEN {:etapaFechado}
+                WHEN (SELECT bp.situacao_bling_nome FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) = 'Cancelado'
+                  OR (SELECT bp.situacao_bling_id FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) = '12' THEN {:etapaPerdido}
+                ELSE etapa_id
+              END,
               status = CASE
-                WHEN (SELECT bp.situacao_bling_nome FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) = 'Cancelado' THEN 'perdido'
+                WHEN (SELECT bp.situacao_bling_nome FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) = 'Cancelado'
+                  OR (SELECT bp.situacao_bling_id FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) = '12' THEN 'perdido'
                 ELSE 'ganho'
               END,
               motivo_perda_id = CASE
-                WHEN (SELECT bp.situacao_bling_nome FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) = 'Cancelado' THEN {:motivoCancelado}
-                ELSE NULL
+                WHEN (SELECT bp.situacao_bling_nome FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) = 'Cancelado'
+                  OR (SELECT bp.situacao_bling_id FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) = '12' THEN {:motivoCancelado}
+                ELSE ''
               END,
               responsavel_id = CASE
                 WHEN (SELECT bp.responsavel_id FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) != ''
@@ -2618,6 +2644,9 @@ routerAdd(
                 ELSE data_origem
               END,
               data_fechamento = CASE
+                WHEN (SELECT bp.situacao_bling_nome FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) = 'Em aberto'
+                  OR (SELECT bp.situacao_bling_id FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) = '6'
+                THEN ''
                 WHEN (SELECT bp.situacao_bling_nome FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) = 'Atendido'
                   AND (SELECT bp.data_atendimento FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) != ''
                 THEN substr((SELECT bp.data_atendimento FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id), 1, 10)
@@ -2632,13 +2661,16 @@ routerAdd(
                 SELECT bp.bling_pedido_id FROM bling_pedidos bp
                 WHERE bp.status_vinculo = 'vinculado'
                   AND bp.cliente_id IS NOT NULL AND bp.cliente_id != ''
-                  AND (bp.situacao_bling_nome = 'Em aberto' OR bp.situacao_bling_nome = 'Atendido' OR bp.situacao_bling_nome = 'Cancelado')
+                  AND (bp.situacao_bling_nome = 'Em aberto' OR bp.situacao_bling_nome = 'Atendido' OR bp.situacao_bling_nome = 'Cancelado' OR bp.situacao_bling_id = '6' OR bp.situacao_bling_id = '9' OR bp.situacao_bling_id = '12')
               )
           `
           const resUpdPed = $app
             .db()
             .newQuery(sqlUpdatePedidos)
             .bind({
+              etapaEmAberto: etapaEmAbertoBlingId,
+              etapaFechado: etapaFechadoId,
+              etapaPerdido: etapaPerdidoId,
               motivoCancelado: motivoCanceladoId || '',
             })
             .execute()
@@ -2729,6 +2761,73 @@ routerAdd(
             )
         `)
           .execute()
+
+        // 4.6.1 Propagar vendedor comercial para oportunidades Bling
+        const usuariosV = $app.findRecordsByFilter('usuarios', 'ativo = true', 'nome', 50, 0)
+        const mapVendedorUser = {}
+        for (let u = 0; u < usuariosV.length; u++) {
+          const uRec = usuariosV[u]
+          const uId = uRec.id
+          const uNome = uRec.getString('nome') || ''
+          const uEmail = uRec.getString('email') || ''
+          const uPerfil = uRec.getString('perfil') || ''
+
+          if (uNome.indexOf('Alice') !== -1 || uEmail.indexOf('alice') !== -1) {
+            mapVendedorUser['Alice'] = uId
+          } else if (uNome.indexOf('Renan') !== -1 || uEmail.indexOf('renan') !== -1) {
+            mapVendedorUser['Renan'] = uId
+          } else if (
+            uPerfil === 'vendedor_1' ||
+            uNome.indexOf('Vendas 1') !== -1 ||
+            uNome.indexOf('Karoline') !== -1
+          ) {
+            mapVendedorUser['Karoline (Vendas 1)'] = uId
+          } else if (uPerfil === 'vendedor_2' || uNome.indexOf('Vendas 2') !== -1) {
+            mapVendedorUser['Vendas 2'] = uId
+          }
+        }
+
+        for (const [vNome, uId] of Object.entries(mapVendedorUser)) {
+          if (!uId) continue
+          $app
+            .db()
+            .newQuery(`
+            UPDATE oportunidades
+            SET vendedor = {:userId}
+            WHERE (vendedor = '' OR vendedor IS NULL)
+              AND cliente_id IN (
+                SELECT c.id FROM clientes c WHERE c.vendedor = {:vNome}
+              )
+          `)
+            .bind({ userId: uId, vNome: vNome })
+            .execute()
+
+          $app
+            .db()
+            .newQuery(`
+            UPDATE oportunidades
+            SET vendedor = {:userId}
+            WHERE (vendedor = '' OR vendedor IS NULL)
+              AND bling_pedido_id IN (
+                SELECT bp.bling_pedido_id FROM bling_pedidos bp WHERE bp.vendedor_crm = {:vNome}
+              )
+          `)
+            .bind({ userId: uId, vNome: vNome })
+            .execute()
+
+          $app
+            .db()
+            .newQuery(`
+            UPDATE oportunidades
+            SET vendedor = {:userId}
+            WHERE (vendedor = '' OR vendedor IS NULL)
+              AND bling_proposta_id IN (
+                SELECT bp.bling_proposta_id FROM bling_propostas bp WHERE bp.vendedor_crm = {:vNome}
+              )
+          `)
+            .bind({ userId: uId, vNome: vNome })
+            .execute()
+        }
       } catch (errRecRetro) {
         console.error('[BLING-IMPORT] Erro na reconciliação retroativa funil: ' + errRecRetro)
       }
@@ -2979,14 +3078,18 @@ cronAdd('bling_sync_automatica', '*/15 * * * *', () => {
     const etapasList = $app.findRecordsByFilter('etapas_funil', '', 'ordem', 20, 0)
     let etapaPropostaId = ''
     let etapaNegociacaoId = ''
+    let etapaEmAbertoBlingId = ''
     let etapaFechadoId = ''
+    let etapaPerdidoId = ''
 
     for (let ep = 0; ep < etapasList.length; ep++) {
       const epRec = etapasList[ep]
       const epNome = epRec.getString('nome').toLowerCase()
       if (epNome.indexOf('propost') !== -1) etapaPropostaId = epRec.id
       if (epNome.indexOf('negoc') !== -1) etapaNegociacaoId = epRec.id
-      if (epNome.indexOf('fechad') !== -1) etapaFechadoId = epRec.id
+      if (epNome.indexOf('em aberto') !== -1) etapaEmAbertoBlingId = epRec.id
+      if (epNome === 'fechado') etapaFechadoId = epRec.id
+      if (epNome === 'perdido') etapaPerdidoId = epRec.id
     }
 
     let motivoNaoAprovadaId = ''
@@ -3004,7 +3107,13 @@ cronAdd('bling_sync_automatica', '*/15 * * * *', () => {
       if (motCanc) motivoCanceladoId = motCanc.id
     } catch (_) {}
 
-    if (etapaPropostaId && etapaNegociacaoId && etapaFechadoId) {
+    if (
+      etapaPropostaId &&
+      etapaNegociacaoId &&
+      etapaFechadoId &&
+      etapaEmAbertoBlingId &&
+      etapaPerdidoId
+    ) {
       // 1. Inserir propostas elegíveis faltantes
       $app
         .db()
@@ -3025,7 +3134,7 @@ cronAdd('bling_sync_automatica', '*/15 * * * *', () => {
           CASE
             WHEN bp.status_normalizado = 'rascunho' THEN {:etapaProposta}
             WHEN bp.status_normalizado = 'aguardando' THEN {:etapaNegociacao}
-            WHEN bp.status_normalizado = 'nao_aprovada' THEN {:etapaFechado}
+            WHEN bp.status_normalizado = 'nao_aprovada' THEN {:etapaPerdido}
           END as etapa_id,
           CASE
             WHEN bp.status_normalizado = 'nao_aprovada' THEN 'perdido'
@@ -3059,7 +3168,7 @@ cronAdd('bling_sync_automatica', '*/15 * * * *', () => {
         .bind({
           etapaProposta: etapaPropostaId,
           etapaNegociacao: etapaNegociacaoId,
-          etapaFechado: etapaFechadoId,
+          etapaPerdido: etapaPerdidoId,
           motivoNaoAprovada: motivoNaoAprovadaId || '',
         })
         .execute()
@@ -3081,19 +3190,24 @@ cronAdd('bling_sync_automatica', '*/15 * * * *', () => {
           bp.bling_pedido_id,
           bp.cliente_id,
           COALESCE(bp.valor_total, 0) as valor,
-          {:etapaFechado} as etapa_id,
           CASE
-            WHEN bp.situacao_bling_nome = 'Cancelado' THEN 'perdido'
+            WHEN bp.situacao_bling_nome = 'Em aberto' OR bp.situacao_bling_id = '6' THEN {:etapaEmAberto}
+            WHEN bp.situacao_bling_nome = 'Atendido' OR bp.situacao_bling_id = '9' THEN {:etapaFechado}
+            WHEN bp.situacao_bling_nome = 'Cancelado' OR bp.situacao_bling_id = '12' THEN {:etapaPerdido}
+          END as etapa_id,
+          CASE
+            WHEN bp.situacao_bling_nome = 'Cancelado' OR bp.situacao_bling_id = '12' THEN 'perdido'
             ELSE 'ganho'
           END as status,
           CASE
-            WHEN bp.situacao_bling_nome = 'Cancelado' AND {:motivoCancelado} != '' THEN {:motivoCancelado}
+            WHEN (bp.situacao_bling_nome = 'Cancelado' OR bp.situacao_bling_id = '12') AND {:motivoCancelado} != '' THEN {:motivoCancelado}
             ELSE ''
           END as motivo_perda_id,
           CASE WHEN bp.responsavel_id IS NOT NULL AND bp.responsavel_id != '' THEN bp.responsavel_id ELSE NULL END as responsavel_id,
           CASE WHEN bp.data_pedido != '' THEN substr(bp.data_pedido, 1, 10) ELSE '' END as data_origem,
           CASE WHEN bp.data_pedido != '' THEN substr(bp.data_pedido, 1, 10) ELSE '' END as data_prevista_fechamento,
           CASE
+            WHEN bp.situacao_bling_nome = 'Em aberto' OR bp.situacao_bling_id = '6' THEN ''
             WHEN bp.situacao_bling_nome = 'Atendido' AND bp.data_atendimento != '' THEN substr(bp.data_atendimento, 1, 10)
             WHEN bp.situacao_bling_nome = 'Cancelado' AND bp.data_pedido != '' THEN substr(bp.data_pedido, 1, 10)
             WHEN bp.data_atendimento != '' THEN substr(bp.data_atendimento, 1, 10)
@@ -3108,13 +3222,15 @@ cronAdd('bling_sync_automatica', '*/15 * * * *', () => {
         FROM bling_pedidos bp
         WHERE bp.status_vinculo = 'vinculado'
           AND bp.cliente_id IS NOT NULL AND bp.cliente_id != ''
-          AND (bp.situacao_bling_nome = 'Em aberto' OR bp.situacao_bling_nome = 'Atendido' OR bp.situacao_bling_nome = 'Cancelado')
+          AND (bp.situacao_bling_nome = 'Em aberto' OR bp.situacao_bling_nome = 'Atendido' OR bp.situacao_bling_nome = 'Cancelado' OR bp.situacao_bling_id = '6' OR bp.situacao_bling_id = '9' OR bp.situacao_bling_id = '12')
           AND bp.bling_pedido_id NOT IN (
             SELECT o.bling_pedido_id FROM oportunidades o WHERE o.bling_pedido_id IS NOT NULL AND o.bling_pedido_id != ''
           )
       `)
         .bind({
+          etapaEmAberto: etapaEmAbertoBlingId,
           etapaFechado: etapaFechadoId,
+          etapaPerdido: etapaPerdidoId,
           motivoCancelado: motivoCanceladoId || '',
         })
         .execute()
