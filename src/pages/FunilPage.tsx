@@ -21,7 +21,8 @@ import OportunidadeModal from '@/components/funil/OportunidadeModal'
 import OportunidadeDetalhesSheet from '@/components/funil/OportunidadeDetalhesSheet'
 import { SeletorDePeriodo } from '@/components/common/SeletorDePeriodo'
 import { usePeriodo } from '@/contexts/PeriodoContext'
-import { PaginacaoControles } from '@/components/common/PaginacaoControles'
+
+const TAMANHO_PAGINA_COLUNA = 30
 
 export default function FunilPage() {
   const { user } = useAuth()
@@ -29,19 +30,19 @@ export default function FunilPage() {
 
   // Estados principais de dados
   const [etapas, setEtapas] = useState<EtapaFunilModel[]>([])
-  const [oportunidades, setOportunidades] = useState<OportunidadeModel[]>([])
+  const [oportunidadesPorEtapa, setOportunidadesPorEtapa] = useState<
+    Record<string, OportunidadeModel[]>
+  >({})
+  const [paginasPorEtapa, setPaginasPorEtapa] = useState<Record<string, number>>({})
+  const [temMaisPorEtapa, setTemMaisPorEtapa] = useState<Record<string, boolean>>({})
+  const [carregandoPorEtapa, setCarregandoPorEtapa] = useState<Record<string, boolean>>({})
+
   const [clientes, setClientes] = useState<ClienteModel[]>([])
   const [usuarios, setUsuarios] = useState<Usuario[]>([])
   const [motivosPerda, setMotivosPerda] = useState<MotivoPerdaModel[]>([])
   const [loading, setLoading] = useState(true)
 
-  // Paginação server-side (limit 50 + offset)
-  const [paginaAtual, setPaginaAtual] = useState(1)
-  const [itensPorPagina, setItensPorPagina] = useState(50)
-  const [totalRegistros, setTotalRegistros] = useState(0)
-  const [totalPaginas, setTotalPaginas] = useState(1)
-
-  // Subtotais e métricas do BACKEND (Etapa 3 - agregados completos sobre todas as oportunidades)
+  // Subtotais e métricas do BACKEND (agregados completos sobre todas as oportunidades)
   const [metricasBackend, setMetricasBackend] = useState<{
     success?: boolean
     totais?: { total_registros: number; total_valor: number }
@@ -359,24 +360,53 @@ export default function FunilPage() {
     }
   }, [filtros, periodo, modoVisao, etapas, construirFiltroOportunidades])
 
-  // Carregar oportunidades com paginação server-side
-  const carregarOportunidades = useCallback(async () => {
+  // Carregar cards iniciais INDEPENDENTEMENTE por coluna (lazy loading / sem paginação global)
+  const carregarTodasColunasIniciais = useCallback(async () => {
+    if (etapas.length === 0) return
     try {
       setLoading(true)
-      const filtro = construirFiltroOportunidades()
-      const [opsResult] = await Promise.all([
-        pb.collection('oportunidades').getList<OportunidadeModel>(paginaAtual, itensPorPagina, {
-          sort: '-created',
-          expand: 'cliente_id,responsavel_id,etapa_id,motivo_perda_id',
-          filter: filtro || undefined,
-          requestKey: null,
-        }),
+      const baseFiltro = construirFiltroOportunidades()
+
+      // Dispara o carregamento das métricas globais e a 1ª página (30 registros) de CADA coluna em paralelo
+      const promessasColunas = etapas.map(async (etapa) => {
+        const filtroColuna = baseFiltro
+          ? `(${baseFiltro}) && etapa_id = '${etapa.id}'`
+          : `etapa_id = '${etapa.id}'`
+
+        const res = await pb
+          .collection('oportunidades')
+          .getList<OportunidadeModel>(1, TAMANHO_PAGINA_COLUNA, {
+            sort: '-created',
+            expand: 'cliente_id,responsavel_id,etapa_id,motivo_perda_id',
+            filter: filtroColuna,
+            requestKey: null,
+          })
+
+        return {
+          etapaId: etapa.id,
+          items: res.items,
+          temMais: res.page < res.totalPages,
+        }
+      })
+
+      const [resultadosColunas] = await Promise.all([
+        Promise.all(promessasColunas),
         carregarMetricasBackend(),
       ])
 
-      setOportunidades(opsResult.items)
-      setTotalRegistros(opsResult.totalItems)
-      setTotalPaginas(Math.max(1, opsResult.totalPages))
+      const novoMapa: Record<string, OportunidadeModel[]> = {}
+      const novasPaginas: Record<string, number> = {}
+      const novosTemMais: Record<string, boolean> = {}
+
+      resultadosColunas.forEach((col) => {
+        novoMapa[col.etapaId] = col.items
+        novasPaginas[col.etapaId] = 1
+        novosTemMais[col.etapaId] = col.temMais
+      })
+
+      setOportunidadesPorEtapa(novoMapa)
+      setPaginasPorEtapa(novasPaginas)
+      setTemMaisPorEtapa(novosTemMais)
     } catch (err: unknown) {
       const msg = getErrorMessage(err)
       toast({
@@ -387,26 +417,58 @@ export default function FunilPage() {
             ? 'Você não tem permissão para visualizar algumas informações do funil de vendas.'
             : 'Não foi possível carregar os dados do funil comercial.',
       })
-      setOportunidades([])
-      setTotalRegistros(0)
-      setTotalPaginas(1)
+      setOportunidadesPorEtapa({})
     } finally {
       setLoading(false)
     }
-  }, [paginaAtual, itensPorPagina, construirFiltroOportunidades, carregarMetricasBackend])
+  }, [etapas, construirFiltroOportunidades, carregarMetricasBackend])
 
-  // Voltar à página 1 ao alterar filtros ou período
+  // Lazy loading incremental por coluna (ao rolar até o fim de uma coluna específica)
+  const carregarMaisOportunidadesEtapa = useCallback(
+    async (etapaId: string) => {
+      if (carregandoPorEtapa[etapaId] || !temMaisPorEtapa[etapaId]) return
+
+      const paginaAtual = paginasPorEtapa[etapaId] || 1
+      const proximaPagina = paginaAtual + 1
+
+      setCarregandoPorEtapa((prev) => ({ ...prev, [etapaId]: true }))
+
+      try {
+        const baseFiltro = construirFiltroOportunidades()
+        const filtroColuna = baseFiltro
+          ? `(${baseFiltro}) && etapa_id = '${etapaId}'`
+          : `etapa_id = '${etapaId}'`
+
+        const res = await pb
+          .collection('oportunidades')
+          .getList<OportunidadeModel>(proximaPagina, TAMANHO_PAGINA_COLUNA, {
+            sort: '-created',
+            expand: 'cliente_id,responsavel_id,etapa_id,motivo_perda_id',
+            filter: filtroColuna,
+            requestKey: null,
+          })
+
+        setOportunidadesPorEtapa((prev) => ({
+          ...prev,
+          [etapaId]: [...(prev[etapaId] || []), ...res.items],
+        }))
+        setPaginasPorEtapa((prev) => ({ ...prev, [etapaId]: proximaPagina }))
+        setTemMaisPorEtapa((prev) => ({ ...prev, [etapaId]: res.page < res.totalPages }))
+      } catch (err) {
+        console.error(`Erro ao carregar mais oportunidades para etapa ${etapaId}:`, err)
+      } finally {
+        setCarregandoPorEtapa((prev) => ({ ...prev, [etapaId]: false }))
+      }
+    },
+    [carregandoPorEtapa, temMaisPorEtapa, paginasPorEtapa, construirFiltroOportunidades],
+  )
+
+  // Disparar requisição de oportunidades quando mudam parâmetros ou etapas
   useEffect(() => {
-    setPaginaAtual(1)
-  }, [filtros, periodo, modoVisao, itensPorPagina])
-
-  // Disparar requisição de oportunidades quando mudam parâmetros
-  useEffect(() => {
-    carregarOportunidades()
-  }, [carregarOportunidades])
-
-  // As oportunidades já vêm filtradas do PocketBase de acordo com período e filtros server-side
-  const oportunidadesFiltradas = oportunidades
+    if (etapas.length > 0) {
+      carregarTodasColunasIniciais()
+    }
+  }, [carregarTodasColunasIniciais, etapas.length])
 
   // Mapa de subtotais por etapa vindos do BACKEND (sobre TODAS as oportunidades, não apenas da página atual)
   const subtotaisEtapasBackend = useMemo(() => {
@@ -432,9 +494,10 @@ export default function FunilPage() {
       }
     }
 
-    const abertas = oportunidades.filter((o) => o.status === 'aberto')
-    const ganhas = oportunidades.filter((o) => o.status === 'ganho')
-    const perdidas = oportunidades.filter((o) => o.status === 'perdido')
+    const todasCarregadas = Object.values(oportunidadesPorEtapa).flat()
+    const abertas = todasCarregadas.filter((o) => o.status === 'aberto')
+    const ganhas = todasCarregadas.filter((o) => o.status === 'ganho')
+    const perdidas = todasCarregadas.filter((o) => o.status === 'perdido')
 
     const totalAbertas = abertas.length
     const valorPipeline = abertas.reduce((acc, curr) => acc + (curr.valor || 0), 0)
@@ -451,7 +514,7 @@ export default function FunilPage() {
       taxaConversao,
       ticketMedio,
     }
-  }, [metricasBackend, oportunidades])
+  }, [metricasBackend, oportunidadesPorEtapa])
 
   // Ações de abertura de modais
   const handleNovaOportunidade = (etapaId?: string) => {
@@ -486,15 +549,26 @@ export default function FunilPage() {
 
   // Drag and drop: mudança de etapa ao soltar card
   const handleMudarEtapa = async (opId: string, novaEtapaId: string) => {
-    const op = oportunidades.find((o) => o.id === opId)
-    if (!op || op.etapa_id === novaEtapaId) return
+    // Localizar oportunidade em qualquer coluna
+    let opEncontrada: OportunidadeModel | undefined
+    let etapaAnteriorId = ''
+    for (const [etId, ops] of Object.entries(oportunidadesPorEtapa)) {
+      const encontrada = ops.find((o) => o.id === opId)
+      if (encontrada) {
+        opEncontrada = encontrada
+        etapaAnteriorId = etId
+        break
+      }
+    }
+
+    if (!opEncontrada || etapaAnteriorId === novaEtapaId) return
 
     // Checagem prévia de permissão RLS do frontend e trava Bling
-    if (!podeEditarOportunidade(user, op)) {
+    if (!podeEditarOportunidade(user, opEncontrada)) {
       const isBling =
-        op.origem === 'bling' ||
-        op.tipo_origem === 'bling_proposta' ||
-        op.tipo_origem === 'bling_pedido'
+        opEncontrada.origem === 'bling' ||
+        opEncontrada.tipo_origem === 'bling_proposta' ||
+        opEncontrada.tipo_origem === 'bling_pedido'
       toast({
         variant: 'destructive',
         title: isBling ? 'Edição Bloqueada' : 'Permissão negada',
@@ -505,24 +579,26 @@ export default function FunilPage() {
       return
     }
 
-    const etapaAnterior = op.etapa_id
     const etapaDestino = etapas.find((e) => e.id === novaEtapaId)
+    const opMovida: OportunidadeModel = {
+      ...opEncontrada,
+      etapa_id: novaEtapaId,
+      expand: {
+        ...opEncontrada.expand,
+        etapa_id: etapaDestino || opEncontrada.expand?.etapa_id,
+      },
+    }
 
-    // Atualização otimista
-    setOportunidades((prev) =>
-      prev.map((item) =>
-        item.id === opId
-          ? {
-              ...item,
-              etapa_id: novaEtapaId,
-              expand: {
-                ...item.expand,
-                etapa_id: etapaDestino || item.expand?.etapa_id,
-              },
-            }
-          : item,
-      ),
-    )
+    // Atualização otimista nas colunas
+    setOportunidadesPorEtapa((prev) => {
+      const origemLista = (prev[etapaAnteriorId] || []).filter((o) => o.id !== opId)
+      const destinoLista = [opMovida, ...(prev[novaEtapaId] || [])]
+      return {
+        ...prev,
+        [etapaAnteriorId]: origemLista,
+        [novaEtapaId]: destinoLista,
+      }
+    })
 
     try {
       const atualizada = (await pb
@@ -533,7 +609,12 @@ export default function FunilPage() {
           { expand: 'cliente_id,responsavel_id,etapa_id,motivo_perda_id' },
         )) as unknown as OportunidadeModel
 
-      setOportunidades((prev) => prev.map((item) => (item.id === opId ? atualizada : item)))
+      setOportunidadesPorEtapa((prev) => ({
+        ...prev,
+        [novaEtapaId]: (prev[novaEtapaId] || []).map((o) => (o.id === opId ? atualizada : o)),
+      }))
+
+      carregarMetricasBackend()
 
       toast({
         title: 'Etapa atualizada',
@@ -541,16 +622,15 @@ export default function FunilPage() {
       })
     } catch (err: unknown) {
       // Reverte em caso de erro da API ou RLS
-      setOportunidades((prev) =>
-        prev.map((item) =>
-          item.id === opId
-            ? {
-                ...item,
-                etapa_id: etapaAnterior,
-              }
-            : item,
-        ),
-      )
+      setOportunidadesPorEtapa((prev) => {
+        const destinoSemOp = (prev[novaEtapaId] || []).filter((o) => o.id !== opId)
+        const origemComOp = [opEncontrada!, ...(prev[etapaAnteriorId] || [])]
+        return {
+          ...prev,
+          [novaEtapaId]: destinoSemOp,
+          [etapaAnteriorId]: origemComOp,
+        }
+      })
 
       const msg = getErrorMessage(err)
       toast({
@@ -566,7 +646,7 @@ export default function FunilPage() {
 
   // Callback de sucesso ao salvar modal (criar ou editar)
   const handleOportunidadeSalva = (salva: OportunidadeModel) => {
-    carregarOportunidades()
+    carregarTodasColunasIniciais()
     if (oportunidadeSelecionada?.id === salva.id) {
       setOportunidadeSelecionada(salva)
     }
@@ -574,7 +654,7 @@ export default function FunilPage() {
 
   // Callback ao excluir
   const handleOportunidadeExcluida = (_opId: string) => {
-    carregarOportunidades()
+    carregarTodasColunasIniciais()
     setOportunidadeSelecionada(null)
   }
 
@@ -604,7 +684,7 @@ export default function FunilPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={carregarOportunidades}
+            onClick={carregarTodasColunasIniciais}
             disabled={loading}
             className="text-[#64748B] hover:text-[#0F172A]"
             title="Atualizar dados do funil"
@@ -651,25 +731,25 @@ export default function FunilPage() {
         </Badge>
       </div>
 
-      <div className="flex items-center justify-between text-xs text-[#64748B] px-1">
-        <span>
-          <strong className="text-[#0F172A]">{totalRegistros}</strong>{' '}
-          {totalRegistros === 1 ? 'registro encontrado' : 'registros encontrados'}
-        </span>
-      </div>
-      {/* 2) FILTROS EM TEMPO REAL */}
+      {/* 2) FILTROS EM TEMPO REAL (apenas Vendedor, Origem, Tipo, Status e Busca; período único no topo) */}
       <FunilFiltros
         filtros={filtros}
         onFiltrosChange={setFiltros}
         usuarios={usuarios}
-        totalFiltrado={oportunidadesFiltradas.length}
-        totalGeral={totalRegistros}
+        totalFiltrado={
+          metricasBackend?.totais?.total_registros ??
+          Object.values(oportunidadesPorEtapa).reduce((acc, curr) => acc + curr.length, 0)
+        }
+        totalGeral={
+          metricasBackend?.totais?.total_registros ??
+          Object.values(oportunidadesPorEtapa).reduce((acc, curr) => acc + curr.length, 0)
+        }
       />
 
-      {/* 1) BOARD KANBAN */}
-      <div className="relative">
-        {loading ? (
-          <div className="p-16 text-center flex flex-col items-center justify-center space-y-3 bg-white rounded-2xl border border-[#E2E8F0]">
+      {/* 1) BOARD KANBAN COM SCROLL VERTICAL INDEPENDENTE POR COLUNA E ALTURA AJUSTADA */}
+      <div className="relative h-[calc(100vh-340px)] min-h-[520px]">
+        {loading && Object.keys(oportunidadesPorEtapa).length === 0 ? (
+          <div className="h-full p-16 text-center flex flex-col items-center justify-center space-y-3 bg-white rounded-2xl border border-[#E2E8F0]">
             <RefreshCw className="w-8 h-8 text-[#2563EB] animate-spin" />
             <p className="text-sm font-medium text-[#64748B]">
               Carregando pipeline de oportunidades...
@@ -684,36 +764,19 @@ export default function FunilPage() {
             </p>
           </div>
         ) : (
-          <div className="space-y-4">
-            <KanbanBoard
-              etapas={etapas}
-              oportunidades={oportunidadesFiltradas}
-              subtotaisEtapasBackend={subtotaisEtapasBackend}
-              modoVisao={modoVisao}
-              usuarios={usuarios}
-              onCardClick={handleCardClick}
-              onNovaOportunidadeEtapa={handleNovaOportunidade}
-              onMudarEtapa={handleMudarEtapa}
-            />
-
-            {/* Controles de paginação server-side com seletor 25, 50, 100 */}
-            <div className="rounded-xl border border-[#E2E8F0] overflow-hidden">
-              <PaginacaoControles
-                paginaAtual={paginaAtual}
-                totalPaginas={totalPaginas}
-                totalRegistros={totalRegistros}
-                itensPorPagina={itensPorPagina}
-                onPaginaChange={setPaginaAtual}
-                onItensPorPaginaChange={(qtd) => {
-                  setItensPorPagina(qtd)
-                  setPaginaAtual(1)
-                }}
-                opcoesItensPorPagina={[25, 50, 100]}
-                nomeItens="oportunidades"
-                loading={loading}
-              />
-            </div>
-          </div>
+          <KanbanBoard
+            etapas={etapas}
+            oportunidadesPorEtapa={oportunidadesPorEtapa}
+            subtotaisEtapasBackend={subtotaisEtapasBackend}
+            modoVisao={modoVisao}
+            usuarios={usuarios}
+            carregandoPorEtapa={carregandoPorEtapa}
+            temMaisPorEtapa={temMaisPorEtapa}
+            onCarregarMaisEtapa={carregarMaisOportunidadesEtapa}
+            onCardClick={handleCardClick}
+            onNovaOportunidadeEtapa={handleNovaOportunidade}
+            onMudarEtapa={handleMudarEtapa}
+          />
         )}
       </div>
 

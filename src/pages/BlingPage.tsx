@@ -1206,288 +1206,202 @@ export default function BlingPage() {
         <SeletorDePeriodo mostrarModoVisao={false} />
       </section>
 
-      {/* 4. SEÇÃO CLIENTES & 5. SEÇÃO VENDAS & SEÇÃO PROPOSTAS (CARDS) */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* SEÇÃO CLIENTES */}
-        <Card className="border-[#E2E8F0] shadow-sm rounded-2xl overflow-hidden bg-white">
-          <CardHeader className="bg-[#F8FAFC] border-b border-[#E2E8F0] pb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-purple-100 text-[#7C3AED] flex items-center justify-center flex-shrink-0">
+      {/* 4. SEÇÃO CLIENTES & 5. SEÇÃO VENDAS & SEÇÃO PROPOSTAS (FORMATO LISTAS COMPACTAS — Parte P) */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* LISTA CLIENTES DO BLING */}
+        <Card className="border-[#E2E8F0] shadow-2xs rounded-xl overflow-hidden bg-white flex flex-col">
+          <CardHeader className="bg-[#F8FAFC] border-b border-[#E2E8F0] py-3 px-4">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-purple-100 text-[#7C3AED] flex items-center justify-center shrink-0">
                 <Users className="w-4 h-4" />
               </div>
               <div>
-                <CardTitle className="text-base font-bold text-[#0F172A]">
-                  Clientes do Bling
+                <CardTitle className="text-sm font-bold text-[#0F172A]">
+                  CLIENTES DO BLING
                 </CardTitle>
-                <CardDescription className="text-xs text-[#64748B]">
-                  Indicadores da base vinculada ao ERP.
+                <CardDescription className="text-[11px] text-[#64748B]">
+                  Base vinculada ao ERP
                 </CardDescription>
               </div>
             </div>
           </CardHeader>
-          <CardContent className="p-6">
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                <span className="text-[10px] text-[#64748B] font-semibold block">
-                  Total na Base
+          <CardContent className="p-4 flex-1">
+            <ul className="divide-y divide-slate-100 text-xs font-mono">
+              <li className="flex items-center justify-between py-2 gap-2">
+                <span className="text-slate-600 font-sans">Total na Base</span>
+                <span className="flex-1 border-b border-dotted border-slate-300 mx-1 mb-1" />
+                <span className="font-bold text-[#0F172A] font-sans">{indicadores.total}</span>
+              </li>
+              <li className="flex items-center justify-between py-2 gap-2">
+                <span className="text-purple-700 font-sans">Com Bling ID</span>
+                <span className="flex-1 border-b border-dotted border-purple-200 mx-1 mb-1" />
+                <span className="font-bold text-purple-700 font-sans">
+                  {indicadores.comBlingId}
                 </span>
-                <span className="text-lg font-bold text-[#0F172A]">{indicadores.total}</span>
-              </div>
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                <span className="text-[10px] text-purple-700 font-semibold block">
-                  Com Bling ID
-                </span>
-                <span className="text-lg font-bold text-purple-700">{indicadores.comBlingId}</span>
-              </div>
-              <div className="p-3 rounded-xl bg-emerald-50/60 border border-emerald-200">
-                <span className="text-[10px] text-emerald-800 font-semibold block">
-                  Ativos (&lt; 6 meses)
-                </span>
-                <span className="text-lg font-bold text-emerald-700">{indicadores.ativos}</span>
-              </div>
-              <div className="p-3 rounded-xl bg-amber-50/60 border border-amber-200">
-                <span className="text-[10px] text-amber-800 font-semibold block">
-                  Reativação (&gt; 6 m)
-                </span>
-                <span className="text-lg font-bold text-amber-700">
+              </li>
+              <li className="flex items-center justify-between py-2 gap-2">
+                <span className="text-emerald-700 font-sans">Ativos (&lt; 6 meses)</span>
+                <span className="flex-1 border-b border-dotted border-emerald-200 mx-1 mb-1" />
+                <span className="font-bold text-emerald-700 font-sans">{indicadores.ativos}</span>
+              </li>
+              <li className="flex items-center justify-between py-2 gap-2">
+                <span className="text-amber-700 font-sans">Reativação (&gt; 6 meses)</span>
+                <span className="flex-1 border-b border-dotted border-amber-200 mx-1 mb-1" />
+                <span className="font-bold text-amber-700 font-sans">
                   {indicadores.paraReativacao}
                 </span>
-              </div>
-            </div>
+              </li>
+            </ul>
           </CardContent>
         </Card>
 
-        {/* SEÇÃO VENDAS */}
-        <Card className="border-[#E2E8F0] shadow-sm rounded-2xl overflow-hidden bg-white">
-          <CardHeader className="bg-[#F8FAFC] border-b border-[#E2E8F0] pb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-emerald-100 text-[#16A34A] flex items-center justify-center flex-shrink-0">
+        {/* LISTA VENDAS / PEDIDOS */}
+        <Card className="border-[#E2E8F0] shadow-2xs rounded-xl overflow-hidden bg-white flex flex-col">
+          <CardHeader className="bg-[#F8FAFC] border-b border-[#E2E8F0] py-3 px-4">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-emerald-100 text-[#16A34A] flex items-center justify-center shrink-0">
                 <ShoppingBag className="w-4 h-4" />
               </div>
               <div>
-                <CardTitle className="text-base font-bold text-[#0F172A]">
-                  Vendas / Pedidos
-                </CardTitle>
-                <CardDescription className="text-xs text-[#64748B]">
-                  Consolidação do histórico comercial.
+                <CardTitle className="text-sm font-bold text-[#0F172A]">VENDAS / PEDIDOS</CardTitle>
+                <CardDescription className="text-[11px] text-[#64748B]">
+                  Consolidação comercial
                 </CardDescription>
               </div>
             </div>
           </CardHeader>
-          <CardContent className="p-6">
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div className="p-3 rounded-xl bg-purple-50/60 border border-purple-200">
-                <span className="text-[10px] text-purple-800 font-semibold block">
-                  Pedidos Salvos
-                </span>
-                <span className="text-lg font-bold text-purple-900">
+          <CardContent className="p-4 flex-1">
+            <ul className="divide-y divide-slate-100 text-xs font-mono">
+              <li className="flex items-center justify-between py-2 gap-2">
+                <span className="text-purple-800 font-sans">Pedidos Salvos</span>
+                <span className="flex-1 border-b border-dotted border-purple-200 mx-1 mb-1" />
+                <span className="font-bold text-purple-900 font-sans">
                   {indicadores.totalPedidosPersistidos}
                 </span>
-              </div>
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                <span className="text-[10px] text-[#64748B] font-semibold block">Com Compras</span>
-                <span className="text-lg font-bold text-[#0F172A]">{indicadores.comCompras}</span>
-              </div>
-              <div className="col-span-2 p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
-                <span className="text-[10px] text-[#64748B] font-semibold">
-                  Vínculo Pendente / Sem Cliente
-                </span>
-                <span className="text-sm font-bold text-amber-700">
+              </li>
+              <li className="flex items-center justify-between py-2 gap-2">
+                <span className="text-slate-600 font-sans">Com Compras</span>
+                <span className="flex-1 border-b border-dotted border-slate-300 mx-1 mb-1" />
+                <span className="font-bold text-[#0F172A] font-sans">{indicadores.comCompras}</span>
+              </li>
+              <li className="flex items-center justify-between py-2 gap-2">
+                <span className="text-amber-700 font-sans">Vínculo Pendente</span>
+                <span className="flex-1 border-b border-dotted border-amber-200 mx-1 mb-1" />
+                <span className="font-bold text-amber-700 font-sans">
                   {indicadores.pedidosSemCliente}
                 </span>
-              </div>
-              <div className="col-span-2 p-3 rounded-xl bg-emerald-50/80 border border-emerald-200 flex items-center justify-between">
-                <div>
-                  <span className="text-[10px] text-emerald-800 font-semibold block">
-                    Vendas ({nomeMesAno})
-                  </span>
-                  <span className="text-base font-bold text-emerald-950">
-                    {formatarMoeda(indicadores.valorVendas2026)}
-                  </span>
-                </div>
-                <Badge variant="outline" className="text-[9px] bg-white text-emerald-700">
-                  {indicadores.pedidosValidos2026} ped. válidos
-                </Badge>
-              </div>
-            </div>
+              </li>
+              <li className="flex items-center justify-between py-2 gap-2">
+                <span className="text-emerald-800 font-sans">Pedidos Válidos no Período</span>
+                <span className="flex-1 border-b border-dotted border-emerald-200 mx-1 mb-1" />
+                <span className="font-bold text-emerald-900 font-sans">
+                  {indicadores.pedidosValidos2026}
+                </span>
+              </li>
+              <li className="flex items-center justify-between py-2 gap-2 bg-emerald-50/50 px-2 rounded-md">
+                <span className="text-emerald-900 font-semibold font-sans">Vendas do Período</span>
+                <span className="flex-1 border-b border-dotted border-emerald-300 mx-1 mb-1" />
+                <span className="font-extrabold text-emerald-950 font-sans">
+                  {formatarMoeda(indicadores.valorVendas2026)}
+                </span>
+              </li>
+            </ul>
           </CardContent>
         </Card>
 
-        {/* SEÇÃO PROPOSTAS (v0.0.82 — Separação Clara entre Base Total e Período) */}
-        <Card className="border-[#E2E8F0] shadow-sm rounded-2xl overflow-hidden bg-white">
-          <CardHeader className="bg-[#F8FAFC] border-b border-[#E2E8F0] pb-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center flex-shrink-0">
+        {/* LISTA PROPOSTAS COMERCIAIS (Base Total x Resultado do Período) */}
+        <Card className="border-[#E2E8F0] shadow-2xs rounded-xl overflow-hidden bg-white flex flex-col">
+          <CardHeader className="bg-[#F8FAFC] border-b border-[#E2E8F0] py-3 px-4">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
                   <FileText className="w-4 h-4" />
                 </div>
                 <div>
-                  <CardTitle className="text-base font-bold text-[#0F172A]">
-                    Propostas Comerciais
+                  <CardTitle className="text-sm font-bold text-[#0F172A]">
+                    PROPOSTAS COMERCIAIS
                   </CardTitle>
-                  <CardDescription className="text-xs text-[#64748B]">
-                    Base Total atemporal e resultado analítico filtrado por período (
-                    <code>bling_propostas</code>).
+                  <CardDescription className="text-[11px] text-[#64748B]">
+                    Atemporal e por período
                   </CardDescription>
                 </div>
               </div>
-              <Badge variant="outline" className="text-[10px] bg-white text-slate-700">
-                Filtro: {nomeMesAno}
+              <Badge variant="outline" className="text-[10px] bg-white text-slate-700 shrink-0">
+                {nomeMesAno}
               </Badge>
             </div>
           </CardHeader>
-          <CardContent className="p-6 space-y-6">
-            {/* Bloco 1: Base Total Atemporal */}
+          <CardContent className="p-4 space-y-4 flex-1">
+            {/* Bloco 1: BASE TOTAL */}
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold text-[#0F172A] uppercase tracking-wider">
-                  Base Total Salva (Atemporal)
-                </span>
-                <span className="text-[11px] text-[#64748B]">
-                  Todos os registros já sincronizados do ERP
-                </span>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-200">
-                  <span className="text-[10px] text-amber-800 font-semibold block">
-                    Propostas Salvas (Total)
-                  </span>
-                  <span className="text-lg font-bold text-amber-950">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
+                BASE TOTAL
+              </span>
+              <ul className="divide-y divide-slate-100 text-xs font-mono">
+                <li className="flex items-center justify-between py-1.5 gap-2">
+                  <span className="text-amber-900 font-sans">Propostas Salvas</span>
+                  <span className="flex-1 border-b border-dotted border-amber-200 mx-1 mb-1" />
+                  <span className="font-bold text-amber-950 font-sans">
                     {indicadores.totalPropostasPersistidas}
                   </span>
-                </div>
-                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                  <span className="text-[10px] text-slate-600 font-semibold block">
-                    Rascunho (Total)
-                  </span>
-                  <span className="text-lg font-bold text-slate-900">
-                    {indicadores.propostasRascunhoTotal}
-                  </span>
-                </div>
-                <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-200">
-                  <span className="text-[10px] text-blue-800 font-semibold block">
-                    Aguardando (Total)
-                  </span>
-                  <span className="text-lg font-bold text-blue-950">
-                    {indicadores.propostasAguardandoTotal}
-                  </span>
-                </div>
-                <div className="p-3 rounded-xl bg-rose-50/70 border border-rose-200">
-                  <span className="text-[10px] text-rose-800 font-semibold block">
-                    Não Aprovada (Total)
-                  </span>
-                  <span className="text-lg font-bold text-rose-950">
-                    {indicadores.propostasNaoAprovadaTotal}
-                  </span>
-                </div>
-                <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200">
-                  <span className="text-[10px] text-emerald-800 font-semibold block">
-                    Convertidas (Total)
-                  </span>
-                  <span className="text-lg font-bold text-emerald-950">
-                    {indicadores.propostasConvertidasTotal}
-                  </span>
-                </div>
-                <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200">
-                  <span className="text-[10px] text-zinc-600 font-semibold block">
-                    Outras / Concluído (Total)
-                  </span>
-                  <span className="text-lg font-bold text-zinc-900">
-                    {indicadores.propostasOutrasTotal}
-                  </span>
-                </div>
-                <div className="col-span-2 p-3 rounded-xl bg-amber-50/50 border border-amber-200 flex items-center justify-between">
-                  <div>
-                    <span className="text-[10px] text-amber-800 font-semibold block">
-                      Vínculo Pendente (sem cliente)
-                    </span>
-                    <span className="text-xs text-[#64748B]">
-                      Propostas aguardando vínculo automático/manual
-                    </span>
-                  </div>
-                  <span className="text-lg font-bold text-amber-700">
+                </li>
+                <li className="flex items-center justify-between py-1.5 gap-2">
+                  <span className="text-amber-700 font-sans">Vínculo Pendente</span>
+                  <span className="flex-1 border-b border-dotted border-amber-200 mx-1 mb-1" />
+                  <span className="font-bold text-amber-700 font-sans">
                     {indicadores.propostasSemCliente}
                   </span>
-                </div>
-              </div>
+                </li>
+              </ul>
             </div>
 
-            {/* Bloco 2: Período Selecionado */}
-            <div className="pt-4 border-t border-slate-100">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold text-blue-900 uppercase tracking-wider">
-                  Propostas no Período ({nomeMesAno})
+            {/* Bloco 2: RESULTADO DO PERÍODO */}
+            <div className="pt-2 border-t border-slate-100">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-900 block">
+                  RESULTADO DO PERÍODO
                 </span>
-                <Badge
-                  variant="outline"
-                  className="text-[10px] bg-blue-50 text-blue-700 border-blue-200"
-                >
-                  Filtrado por data_proposta
-                </Badge>
+                <span className="text-[11px] font-bold text-blue-950 font-sans">
+                  Total: {indicadores.propostasPeriodoTotal}
+                </span>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
-                <div className="p-3 rounded-xl bg-blue-50/80 border border-blue-200">
-                  <span className="text-[10px] text-blue-800 font-semibold block">
-                    Total do Período
-                  </span>
-                  <span className="text-lg font-bold text-blue-950">
-                    {indicadores.propostasPeriodoTotal}
-                  </span>
-                </div>
-                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                  <span className="text-[10px] text-slate-600 font-semibold block">Rascunho</span>
-                  <span className="text-lg font-bold text-slate-900">
+              <ul className="divide-y divide-slate-100 text-xs font-mono">
+                <li className="flex items-center justify-between py-1.5 gap-2">
+                  <span className="text-slate-600 font-sans">Rascunho</span>
+                  <span className="flex-1 border-b border-dotted border-slate-300 mx-1 mb-1" />
+                  <span className="font-bold text-slate-900 font-sans">
                     {indicadores.propostasPeriodoRascunho}
                   </span>
-                </div>
-                <div className="p-3 rounded-xl bg-sky-50/70 border border-sky-200">
-                  <span className="text-[10px] text-sky-800 font-semibold block">Aguardando</span>
-                  <span className="text-lg font-bold text-sky-950">
+                </li>
+                <li className="flex items-center justify-between py-1.5 gap-2">
+                  <span className="text-sky-800 font-sans">Aguardando</span>
+                  <span className="flex-1 border-b border-dotted border-sky-200 mx-1 mb-1" />
+                  <span className="font-bold text-sky-950 font-sans">
                     {indicadores.propostasPeriodoAguardando}
                   </span>
-                </div>
-                <div className="p-3 rounded-xl bg-rose-50/70 border border-rose-200">
-                  <span className="text-[10px] text-rose-800 font-semibold block">
-                    Não Aprovada
-                  </span>
-                  <span className="text-lg font-bold text-rose-950">
+                </li>
+                <li className="flex items-center justify-between py-1.5 gap-2">
+                  <span className="text-rose-800 font-sans">Não aprovada</span>
+                  <span className="flex-1 border-b border-dotted border-rose-200 mx-1 mb-1" />
+                  <span className="font-bold text-rose-950 font-sans">
                     {indicadores.propostasPeriodoNaoAprovada}
                   </span>
-                </div>
-                <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200">
-                  <span className="text-[10px] text-emerald-800 font-semibold block">
-                    Convertidas
-                  </span>
-                  <span className="text-lg font-bold text-emerald-950">
+                </li>
+                <li className="flex items-center justify-between py-1.5 gap-2">
+                  <span className="text-emerald-800 font-sans">Convertidas</span>
+                  <span className="flex-1 border-b border-dotted border-emerald-200 mx-1 mb-1" />
+                  <span className="font-bold text-emerald-950 font-sans">
                     {indicadores.propostasPeriodoConvertida}
                   </span>
-                </div>
-                <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200">
-                  <span className="text-[10px] text-zinc-600 font-semibold block">Outras</span>
-                  <span className="text-lg font-bold text-zinc-900">
+                </li>
+                <li className="flex items-center justify-between py-1.5 gap-2">
+                  <span className="text-zinc-600 font-sans">Outras</span>
+                  <span className="flex-1 border-b border-dotted border-zinc-200 mx-1 mb-1" />
+                  <span className="font-bold text-zinc-900 font-sans">
                     {indicadores.propostasPeriodoOutras}
                   </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Aviso de integração automática com Funil */}
-            <div className="mt-3 p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="space-y-0.5">
-                <span className="text-[10px] font-semibold text-[#0F172A] block">
-                  Sincronização automática com o Funil
-                </span>
-                <p className="text-[10px] text-[#64748B]">
-                  Sincronização automática com o Funil. Registros originados do Bling são
-                  controlados pelo ERP e somente leitura no CRM.
-                </p>
-              </div>
-              <Badge
-                variant="outline"
-                className="text-[9px] bg-white text-emerald-700 self-start sm:self-auto border-emerald-300"
-              >
-                ✓ Funil Integrado
-              </Badge>
+                </li>
+              </ul>
             </div>
           </CardContent>
         </Card>

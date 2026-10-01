@@ -6,10 +6,13 @@ import type { Usuario } from '@/contexts/AuthContext'
 
 interface KanbanBoardProps {
   etapas: EtapaFunilModel[]
-  oportunidades: OportunidadeModel[]
+  oportunidadesPorEtapa: Record<string, OportunidadeModel[]>
   subtotaisEtapasBackend?: Record<string, { quantidade: number; valor_total: number }>
   modoVisao?: 'origem' | 'fechamento'
   usuarios?: Usuario[]
+  carregandoPorEtapa?: Record<string, boolean>
+  temMaisPorEtapa?: Record<string, boolean>
+  onCarregarMaisEtapa?: (etapaId: string) => void
   onCardClick: (op: OportunidadeModel) => void
   onNovaOportunidadeEtapa: (etapaId: string) => void
   onMudarEtapa: (opId: string, novaEtapaId: string) => void
@@ -17,10 +20,13 @@ interface KanbanBoardProps {
 
 export default function KanbanBoard({
   etapas,
-  oportunidades,
+  oportunidadesPorEtapa,
   subtotaisEtapasBackend,
   modoVisao,
   usuarios,
+  carregandoPorEtapa,
+  temMaisPorEtapa,
+  onCarregarMaisEtapa,
   onCardClick,
   onNovaOportunidadeEtapa,
   onMudarEtapa,
@@ -36,51 +42,40 @@ export default function KanbanBoard({
   }
 
   const handleDropOnEtapa = (novaEtapaId: string, opId: string) => {
-    const op = oportunidades.find((o) => o.id === opId)
-    if (!op) return
-    if (op.etapa_id === novaEtapaId) return
     onMudarEtapa(opId, novaEtapaId)
   }
 
-  // Agrupar oportunidades por etapa
-  const oportunidadesPorEtapa = React.useMemo(() => {
-    const mapa: Record<string, OportunidadeModel[]> = {}
-    etapas.forEach((et) => {
-      mapa[et.id] = []
-    })
-    oportunidades.forEach((op) => {
-      if (mapa[op.etapa_id]) {
-        mapa[op.etapa_id].push(op)
-      } else if (etapas.length > 0) {
-        // Fallback caso a etapa não esteja na lista de etapas conhecidas
-        if (!mapa[etapas[0].id]) mapa[etapas[0].id] = []
-        mapa[etapas[0].id].push(op)
-      }
-    })
-    return mapa
-  }, [etapas, oportunidades])
-
   return (
-    <div className="w-full">
-      {/* Desktop: scroll horizontal com colunas lado a lado */}
-      {/* Mobile: colunas empilhadas verticalmente */}
-      <div className="flex flex-col md:flex-row gap-4 overflow-x-auto pb-4 pt-1 items-stretch">
-        {etapas.map((etapa) => (
-          <KanbanColumn
-            key={etapa.id}
-            etapa={etapa}
-            oportunidades={oportunidadesPorEtapa[etapa.id] || []}
-            subtotalBackend={subtotaisEtapasBackend ? subtotaisEtapasBackend[etapa.id] : undefined}
-            modoVisao={modoVisao}
-            usuarios={usuarios}
-            draggedOpId={draggedOpId}
-            onCardClick={onCardClick}
-            onNovaOportunidadeEtapa={onNovaOportunidadeEtapa}
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-            onDropOnEtapa={handleDropOnEtapa}
-          />
-        ))}
+    <div className="w-full h-full min-h-0">
+      {/* Desktop: scroll horizontal do Kanban se não couber na largura; colunas com altura total do container */}
+      <div className="flex flex-col md:flex-row gap-3 overflow-x-auto pb-2 pt-0.5 items-stretch h-full min-h-0">
+        {etapas.map((etapa) => {
+          const opsColuna = oportunidadesPorEtapa[etapa.id] || []
+          const carregandoMais = Boolean(carregandoPorEtapa && carregandoPorEtapa[etapa.id])
+          const temMais = Boolean(temMaisPorEtapa && temMaisPorEtapa[etapa.id])
+
+          return (
+            <KanbanColumn
+              key={etapa.id}
+              etapa={etapa}
+              oportunidades={opsColuna}
+              subtotalBackend={
+                subtotaisEtapasBackend ? subtotaisEtapasBackend[etapa.id] : undefined
+              }
+              modoVisao={modoVisao}
+              usuarios={usuarios}
+              draggedOpId={draggedOpId}
+              carregandoMais={carregandoMais}
+              temMais={temMais}
+              onCarregarMais={() => onCarregarMaisEtapa?.(etapa.id)}
+              onCardClick={onCardClick}
+              onNovaOportunidadeEtapa={onNovaOportunidadeEtapa}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+              onDropOnEtapa={handleDropOnEtapa}
+            />
+          )
+        })}
       </div>
     </div>
   )

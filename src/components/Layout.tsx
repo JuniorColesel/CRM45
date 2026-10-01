@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import {
@@ -19,7 +19,10 @@ import {
   X,
   BookOpen,
   Layers,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { PerfilUsuario } from '@/contexts/AuthContext'
 
 export interface NavigationItem {
@@ -98,6 +101,23 @@ interface LayoutProps {
 
 export default function Layout({ children }: LayoutProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [sidebarRecolhida, setSidebarRecolhida] = useState<boolean>(() => {
+    try {
+      const salva = localStorage.getItem('crm_sidebar_recolhida')
+      return salva === 'true'
+    } catch {
+      return false
+    }
+  })
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('crm_sidebar_recolhida', String(sidebarRecolhida))
+    } catch {
+      // Ignora erro se localStorage inacessível
+    }
+  }, [sidebarRecolhida])
+
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -120,107 +140,202 @@ export default function Layout({ children }: LayoutProps) {
     navigate('/')
   }
 
-  const renderNavContent = () => (
-    <div className="flex flex-col h-full bg-white select-none">
-      {/* Top Logo */}
-      <div className="h-16 flex items-center px-6 border-b border-[#E2E8F0] gap-3">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#16A34A] to-[#2563EB] flex items-center justify-center text-white shadow-sm flex-shrink-0">
-          <TrendingUp className="w-5 h-5 stroke-[2.5]" />
-        </div>
-        <div className="flex flex-col">
-          <span className="font-bold text-lg leading-tight text-[#0F172A] tracking-tight">
-            Colesel 45
-          </span>
-          <span className="text-xs text-[#64748B] font-medium leading-none">CRM Comercial</span>
-        </div>
-      </div>
-
-      {/* Navigation items list */}
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto" aria-label="Menu principal">
-        {NAVIGATION_ITEMS.filter((item) => {
-          if (!item.perfisPermitidos) return true
-          return user?.perfil ? item.perfisPermitidos.includes(user.perfil) : false
-        }).map((item) => {
-          const Icon = item.icon
-          const isActive = location.pathname === item.href
-
-          // Se estiver no modo obrigatório, bloqueia navegação para outras rotas (apenas logout permitido)
-          if (isTreinamentoObrigatorio && item.href !== '/pop-treinamento') {
-            return (
-              <div
-                key={item.href}
-                className="flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-[15px] font-medium text-slate-400 opacity-50 cursor-not-allowed select-none"
-                title="Conclua o treinamento obrigatório para liberar os módulos"
-              >
-                <Icon className="w-5 h-5 flex-shrink-0 text-slate-400" />
-                <span className="truncate">{item.name}</span>
-              </div>
-            )
-          }
-
-          return (
-            <NavLink
-              key={item.href}
-              to={item.href}
-              end={item.href === '/pop-treinamento'}
-              aria-label={item.ariaLabel}
-              onClick={() => setMobileMenuOpen(false)}
-              className={({ isActive: isLinkActive }) =>
-                [
-                  'group flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-[15px] font-medium transition-all duration-150',
-                  isLinkActive || isActive
-                    ? 'bg-[#16A34A] text-white shadow-sm font-semibold'
-                    : 'text-[#0F172A] hover:bg-[#F1F5F9] hover:text-[#7C3AED]',
-                ].join(' ')
-              }
-            >
-              <Icon
-                className={[
-                  'w-5 h-5 flex-shrink-0 transition-colors duration-150',
-                  isActive ? 'text-white' : 'text-[#64748B] group-hover:text-[#7C3AED]',
-                ].join(' ')}
-              />
-              <span className="truncate">{item.name}</span>
-            </NavLink>
-          )
-        })}
-      </nav>
-
-      {/* Footer do Menu / Usuário e Sair */}
-      <div className="p-3 border-t border-[#E2E8F0] bg-white">
-        <div className="flex items-center justify-between p-2.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0]">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#16A34A] to-[#7C3AED] text-white font-bold text-sm flex items-center justify-center flex-shrink-0 shadow-sm">
-              {user?.nome ? user.nome.charAt(0).toUpperCase() : 'C45'}
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs font-semibold text-[#0F172A] truncate leading-tight">
-                {user?.nome || 'Equipe Colesel 45'}
-              </p>
-              <p className="text-[11px] text-[#64748B] truncate leading-tight">
-                {user?.perfil || 'Comercial'}
-              </p>
-            </div>
+  const renderNavContent = (isRecolhida = false) => (
+    <TooltipProvider delayDuration={150}>
+      <div className="flex flex-col h-full bg-white select-none">
+        {/* Top Logo */}
+        <div
+          className={`h-16 flex items-center border-b border-[#E2E8F0] gap-3 transition-all duration-200 ${
+            isRecolhida ? 'px-3 justify-center' : 'px-6'
+          }`}
+        >
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#16A34A] to-[#2563EB] flex items-center justify-center text-white shadow-sm flex-shrink-0">
+            <TrendingUp className="w-5 h-5 stroke-[2.5]" />
           </div>
+          {!isRecolhida && (
+            <div className="flex flex-col min-w-0">
+              <span className="font-bold text-lg leading-tight text-[#0F172A] tracking-tight truncate">
+                Colesel 45
+              </span>
+              <span className="text-xs text-[#64748B] font-medium leading-none truncate">
+                CRM Comercial
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Navigation items list */}
+        <nav
+          className={`flex-1 py-4 space-y-1 overflow-y-auto ${isRecolhida ? 'px-2' : 'px-3'}`}
+          aria-label="Menu principal"
+        >
+          {NAVIGATION_ITEMS.filter((item) => {
+            if (!item.perfisPermitidos) return true
+            return user?.perfil ? item.perfisPermitidos.includes(user.perfil) : false
+          }).map((item) => {
+            const Icon = item.icon
+            const isActive = location.pathname === item.href
+
+            // Se estiver no modo obrigatório, bloqueia navegação para outras rotas (apenas logout permitido)
+            if (isTreinamentoObrigatorio && item.href !== '/pop-treinamento') {
+              const disabledContent = (
+                <div
+                  className={`flex items-center rounded-lg text-[15px] font-medium text-slate-400 opacity-50 cursor-not-allowed select-none ${
+                    isRecolhida ? 'justify-center p-2.5' : 'gap-3 px-3.5 py-2.5'
+                  }`}
+                >
+                  <Icon className="w-5 h-5 flex-shrink-0 text-slate-400" />
+                  {!isRecolhida && <span className="truncate">{item.name}</span>}
+                </div>
+              )
+
+              if (isRecolhida) {
+                return (
+                  <Tooltip key={item.href}>
+                    <TooltipTrigger asChild>
+                      <div>{disabledContent}</div>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      <p className="font-medium text-xs">{item.name} (Bloqueado)</p>
+                    </TooltipContent>
+                  </Tooltip>
+                )
+              }
+              return <div key={item.href}>{disabledContent}</div>
+            }
+
+            const linkElement = (
+              <NavLink
+                key={item.href}
+                to={item.href}
+                end={item.href === '/pop-treinamento'}
+                aria-label={item.ariaLabel}
+                onClick={() => setMobileMenuOpen(false)}
+                className={({ isActive: isLinkActive }) =>
+                  [
+                    'group flex items-center rounded-lg text-[15px] font-medium transition-all duration-150',
+                    isRecolhida ? 'justify-center p-2.5' : 'gap-3 px-3.5 py-2.5',
+                    isLinkActive || isActive
+                      ? 'bg-[#16A34A] text-white shadow-sm font-semibold'
+                      : 'text-[#0F172A] hover:bg-[#F1F5F9] hover:text-[#7C3AED]',
+                  ].join(' ')
+                }
+              >
+                <Icon
+                  className={[
+                    'w-5 h-5 flex-shrink-0 transition-colors duration-150',
+                    isActive ? 'text-white' : 'text-[#64748B] group-hover:text-[#7C3AED]',
+                  ].join(' ')}
+                />
+                {!isRecolhida && <span className="truncate">{item.name}</span>}
+              </NavLink>
+            )
+
+            if (isRecolhida) {
+              return (
+                <Tooltip key={item.href}>
+                  <TooltipTrigger asChild>{linkElement}</TooltipTrigger>
+                  <TooltipContent side="right" className="font-medium text-xs">
+                    {item.name}
+                  </TooltipContent>
+                </Tooltip>
+              )
+            }
+
+            return linkElement
+          })}
+        </nav>
+
+        {/* Botão recolher / expandir (desktop) */}
+        <div className="hidden lg:flex px-3 py-2 border-t border-[#E2E8F0] justify-end">
           <button
             type="button"
-            onClick={handleLogout}
-            aria-label="Sair da conta e voltar ao login"
-            className="p-2 rounded-lg text-[#64748B] hover:text-[#DC2626] hover:bg-red-50 transition-colors duration-150 flex-shrink-0"
-            title="Sair"
+            onClick={() => setSidebarRecolhida((prev) => !prev)}
+            className="w-full flex items-center justify-center gap-2 p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 text-xs font-medium transition-colors"
+            title={sidebarRecolhida ? 'Expandir menu lateral' : 'Recolher menu lateral'}
+            aria-label={sidebarRecolhida ? 'Expandir menu lateral' : 'Recolher menu lateral'}
           >
-            <LogOut className="w-4 h-4" />
+            {sidebarRecolhida ? (
+              <ChevronRight className="w-4 h-4 shrink-0" />
+            ) : (
+              <>
+                <ChevronLeft className="w-4 h-4 shrink-0" />
+                <span className="truncate">Recolher menu</span>
+              </>
+            )}
           </button>
         </div>
+
+        {/* Footer do Menu / Usuário e Sair */}
+        <div className="p-3 border-t border-[#E2E8F0] bg-white">
+          {isRecolhida ? (
+            <div className="flex flex-col items-center gap-2">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#16A34A] to-[#7C3AED] text-white font-bold text-sm flex items-center justify-center flex-shrink-0 shadow-sm cursor-default">
+                    {user?.nome ? user.nome.charAt(0).toUpperCase() : 'C45'}
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  <p className="font-semibold text-xs">{user?.nome || 'Equipe Colesel 45'}</p>
+                  <p className="text-[11px] text-slate-400">{user?.perfil || 'Comercial'}</p>
+                </TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    aria-label="Sair da conta e voltar ao login"
+                    className="p-2 rounded-lg text-[#64748B] hover:text-[#DC2626] hover:bg-red-50 transition-colors duration-150 flex-shrink-0"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">Sair</TooltipContent>
+              </Tooltip>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between p-2.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0]">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#16A34A] to-[#7C3AED] text-white font-bold text-sm flex items-center justify-center flex-shrink-0 shadow-sm">
+                  {user?.nome ? user.nome.charAt(0).toUpperCase() : 'C45'}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-[#0F172A] truncate leading-tight">
+                    {user?.nome || 'Equipe Colesel 45'}
+                  </p>
+                  <p className="text-[11px] text-[#64748B] truncate leading-tight">
+                    {user?.perfil || 'Comercial'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleLogout}
+                aria-label="Sair da conta e voltar ao login"
+                className="p-2 rounded-lg text-[#64748B] hover:text-[#DC2626] hover:bg-red-50 transition-colors duration-150 flex-shrink-0"
+                title="Sair"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </TooltipProvider>
   )
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex text-[#0F172A] font-sans antialiased">
-      {/* Desktop Sidebar (Fixo 280px) */}
-      <aside className="hidden lg:flex lg:flex-col lg:w-[280px] lg:fixed lg:inset-y-0 z-30 border-r border-[#E2E8F0] bg-white">
-        {renderNavContent()}
+      {/* Desktop Sidebar (Expandida: 260px / Recolhida: 72px) */}
+      <aside
+        className={`hidden lg:flex lg:flex-col lg:fixed lg:inset-y-0 z-30 border-r border-[#E2E8F0] bg-white transition-all duration-200 ease-in-out ${
+          sidebarRecolhida ? 'lg:w-[72px]' : 'lg:w-[260px]'
+        }`}
+      >
+        {renderNavContent(sidebarRecolhida)}
       </aside>
 
       {/* Mobile Drawer (Telas < 1024px) */}
@@ -253,12 +368,16 @@ export default function Layout({ children }: LayoutProps) {
               <X className="w-5 h-5" />
             </button>
           </div>
-          {renderNavContent()}
+          {renderNavContent(false)}
         </aside>
       </div>
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col lg:pl-[280px] min-h-screen">
+      {/* Main Content Area: ocupa automaticamente a largura liberada ao recolher o menu */}
+      <div
+        className={`flex-1 flex flex-col min-h-screen transition-all duration-200 ease-in-out ${
+          sidebarRecolhida ? 'lg:pl-[72px]' : 'lg:pl-[260px]'
+        }`}
+      >
         {/* Top Header */}
         <header className="sticky top-0 z-20 h-16 bg-white/95 backdrop-blur border-b border-[#E2E8F0] px-4 sm:px-8 flex items-center justify-between">
           <div className="flex items-center gap-3">

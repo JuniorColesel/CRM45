@@ -22,10 +22,10 @@ export interface FunilFiltrosState {
 // Opções reais de vendedores existentes no CRM Colesel 45
 export const OPCOES_VENDEDORES_REAIS = [
   { id: 'todos', nome: 'Todos os Vendedores' },
-  { id: '4esottmb9weuv6f', nome: 'Alice' },
-  { id: '7nngwxctdc2209b', nome: 'Renan' },
+  { id: '7nngwxctdc2209b', nome: 'Alice' },
+  { id: '4esottmb9weuv6f', nome: 'Renan' },
   { id: 'yfnf6za3jx1fuxn', nome: 'Karoline (Vendas 1)' },
-  { id: 'vendas_2', nome: 'Vendas 2' },
+  { id: '0jzl0jrcja5z2c5', nome: 'Vendas 2' },
   { id: 'sem_vendedor', nome: 'Sem vendedor' },
 ]
 
@@ -52,9 +52,9 @@ export default function FunilFiltros({
     filtros.status !== 'todos'
 
   // Resolver ID real para Vendas 2 se existir em usuarios
-  const idVendas2 = usuarios?.find(
-    (u) => u.perfil === 'vendedor_2' || u.nome?.includes('Vendas 2'),
-  )?.id
+  const idVendas2 =
+    usuarios?.find((u) => u.perfil === 'vendedor_2' || u.nome?.includes('Vendas 2'))?.id ||
+    '0jzl0jrcja5z2c5'
 
   const limparFiltros = () => {
     onFiltrosChange({
