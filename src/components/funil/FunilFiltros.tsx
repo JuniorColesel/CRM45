@@ -1,5 +1,5 @@
 import React from 'react'
-import { Search, Filter, Calendar, User, X } from 'lucide-react'
+import { Search, Filter, User, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import {
@@ -16,8 +16,6 @@ export interface FunilFiltrosState {
   vendedorId: string // 'todos', 'sem_vendedor' ou id do usuario
   origem: 'todas' | 'crm' | 'bling'
   tipoOrigem: 'todos' | 'crm' | 'bling_proposta' | 'bling_pedido'
-  dataInicio: string // YYYY-MM-DD
-  dataFim: string // YYYY-MM-DD
   status: 'todos' | 'aberto' | 'ganho' | 'perdido'
 }
 
@@ -51,8 +49,6 @@ export default function FunilFiltros({
     filtros.vendedorId !== 'todos' ||
     filtros.origem !== 'todas' ||
     filtros.tipoOrigem !== 'todos' ||
-    Boolean(filtros.dataInicio) ||
-    Boolean(filtros.dataFim) ||
     filtros.status !== 'todos'
 
   // Resolver ID real para Vendas 2 se existir em usuarios
@@ -66,35 +62,15 @@ export default function FunilFiltros({
       vendedorId: 'todos',
       origem: 'todas',
       tipoOrigem: 'todos',
-      dataInicio: '',
-      dataFim: '',
       status: 'todos',
     })
   }
 
   return (
     <div className="bg-white p-4 rounded-xl border border-[#E2E8F0] shadow-sm space-y-3">
+      {/* Linha de Filtros Comerciais: Vendedor, Origem, Tipo e Busca */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-3 items-center">
-        {/* Busca por cliente ou vendedor */}
-        <div className="lg:col-span-4 relative">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-[#64748B]" />
-          <Input
-            placeholder="Buscar por cliente, documento ou vendedor..."
-            value={filtros.busca}
-            onChange={(e) => onFiltrosChange({ ...filtros, busca: e.target.value })}
-            className="pl-9 bg-[#F8FAFC] border-[#E2E8F0] focus-visible:bg-white text-xs sm:text-sm h-9"
-          />
-          {filtros.busca && (
-            <button
-              onClick={() => onFiltrosChange({ ...filtros, busca: '' })}
-              className="absolute right-2.5 top-2.5 text-xs text-[#64748B] hover:text-[#0F172A]"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-
-        {/* Filtro por Vendedor (trocado visualmente de Responsável para Vendedor) */}
+        {/* Filtro por Vendedor: [Todos os Vendedores] */}
         <div className="lg:col-span-3">
           <Select
             value={filtros.vendedorId}
@@ -122,7 +98,7 @@ export default function FunilFiltros({
           </Select>
         </div>
 
-        {/* Filtro por Origem */}
+        {/* Filtro por Origem: [Todas as Origens] */}
         <div className="lg:col-span-2">
           <Select
             value={filtros.origem}
@@ -150,8 +126,8 @@ export default function FunilFiltros({
           </Select>
         </div>
 
-        {/* Filtro por Tipo de Origem */}
-        <div className="lg:col-span-3">
+        {/* Filtro por Tipo de Origem: [Todos os Tipos] */}
+        <div className="lg:col-span-2">
           <Select
             value={filtros.tipoOrigem}
             onValueChange={(val: 'todos' | 'crm' | 'bling_proposta' | 'bling_pedido') =>
@@ -178,11 +154,9 @@ export default function FunilFiltros({
             </SelectContent>
           </Select>
         </div>
-      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-3 items-center pt-1">
         {/* Filtro por Status */}
-        <div className="lg:col-span-4">
+        <div className="lg:col-span-2">
           <Select
             value={filtros.status}
             onValueChange={(val: 'todos' | 'aberto' | 'ganho' | 'perdido') =>
@@ -204,28 +178,23 @@ export default function FunilFiltros({
           </Select>
         </div>
 
-        {/* Intervalo de Data (Comercial / Origem ou Prevista) */}
-        <div className="lg:col-span-8 flex items-center gap-2">
-          <span className="text-xs text-[#64748B] shrink-0">Período:</span>
-          <div className="relative flex-1">
-            <Input
-              type="date"
-              title="Data inicial"
-              value={filtros.dataInicio}
-              onChange={(e) => onFiltrosChange({ ...filtros, dataInicio: e.target.value })}
-              className="bg-[#F8FAFC] border-[#E2E8F0] text-xs h-9 px-2"
-            />
-          </div>
-          <span className="text-xs text-[#64748B]">até</span>
-          <div className="relative flex-1">
-            <Input
-              type="date"
-              title="Data final"
-              value={filtros.dataFim}
-              onChange={(e) => onFiltrosChange({ ...filtros, dataFim: e.target.value })}
-              className="bg-[#F8FAFC] border-[#E2E8F0] text-xs h-9 px-2"
-            />
-          </div>
+        {/* Busca por cliente ou vendedor */}
+        <div className="lg:col-span-3 relative">
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-[#64748B]" />
+          <Input
+            placeholder="Buscar por cliente, documento ou vendedor..."
+            value={filtros.busca}
+            onChange={(e) => onFiltrosChange({ ...filtros, busca: e.target.value })}
+            className="pl-9 bg-[#F8FAFC] border-[#E2E8F0] focus-visible:bg-white text-xs sm:text-sm h-9"
+          />
+          {filtros.busca && (
+            <button
+              onClick={() => onFiltrosChange({ ...filtros, busca: '' })}
+              className="absolute right-2.5 top-2.5 text-xs text-[#64748B] hover:text-[#0F172A]"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
 

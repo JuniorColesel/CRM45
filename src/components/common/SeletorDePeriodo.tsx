@@ -22,7 +22,6 @@ export interface SeletorDePeriodoProps {
   className?: string
   anosDisponiveis?: number[]
   mostrarModoVisao?: boolean // alternar entre data_origem e data_fechamento
-  mostrarHistoricoTotalCard?: boolean
   labelCustomizado?: string
   onChange?: (ano: number, mes: MesFiltro) => void
 }
@@ -59,6 +58,12 @@ export function SeletorDePeriodo({
   const [dataInicioInput, setDataInicioInput] = useState(dataInicioPersonalizada || '')
   const [dataFimInput, setDataFimInput] = useState(dataFimPersonalizada || '')
   const [popoverAberto, setPopoverAberto] = useState(false)
+
+  // Manter inputs sincronizados caso o contexto mude externamente
+  React.useEffect(() => {
+    setDataInicioInput(dataInicioPersonalizada || '')
+    setDataFimInput(dataFimPersonalizada || '')
+  }, [dataInicioPersonalizada, dataFimPersonalizada])
 
   // Anos disponíveis para seleção (baseados nos dados do Bling e CRM: 2026, 2025, 2024, etc.)
   const listaAnos = React.useMemo(() => {

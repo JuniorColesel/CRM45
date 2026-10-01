@@ -71,8 +71,6 @@ export default function FunilPage() {
     vendedorId: 'todos',
     origem: 'todas',
     tipoOrigem: 'todos',
-    dataInicio: '',
-    dataFim: '',
     status: 'todos',
   })
 
@@ -150,9 +148,9 @@ export default function FunilPage() {
     }
 
     // 3 e 4. Filtro por Período e Data (modo Visão Origem vs Fechamento)
-    // Se o usuário digitou data específica no FunilFiltros, ela prevalece; caso contrário, usa o SeletorDePeriodo global
-    const efetivoInicioYmd = filtros.dataInicio || periodo.dataInicioYmd
-    const efetivoFimYmd = filtros.dataFim || periodo.dataFimYmd
+    // Fonte única de verdade: SeletorDePeriodo superior via PeriodoContext
+    const efetivoInicioYmd = periodo.dataInicioYmd
+    const efetivoFimYmd = periodo.dataFimYmd
     const iniIso = `${efetivoInicioYmd} 00:00:00`
     const fimIso = `${efetivoFimYmd} 23:59:59`
 
@@ -226,8 +224,8 @@ export default function FunilPage() {
   // Carregar métricas agregadas do BACKEND (Etapa 3 do plano)
   const carregarMetricasBackend = useCallback(async () => {
     try {
-      const efetivoInicioYmd = filtros.dataInicio || periodo.dataInicioYmd
-      const efetivoFimYmd = filtros.dataFim || periodo.dataFimYmd
+      const efetivoInicioYmd = periodo.dataInicioYmd
+      const efetivoFimYmd = periodo.dataFimYmd
 
       const queryParams = new URLSearchParams({
         modo_visao: modoVisao,
