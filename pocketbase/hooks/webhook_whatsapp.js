@@ -561,9 +561,10 @@ cronAdd('processar_webhooks_whatsapp_pendentes', '* * * * *', () => {
 
       $app.save(novaMensagem)
 
-      // 2.7 Ação decorrente de alta intenção de compra: criar oportunidade / follow-up se cliente existir
+      // 2.7 Ação decorrente de alta intenção de compra: criar oportunidade comercial CRM-nativa em Prospecção com deduplicação
       if (intencaoDetectada === 'alta' && clienteRecord) {
         try {
+          // DEDUPLICAÇÃO: verificar se já existe oportunidade aberta para o prospect/cliente
           const opsAbertas = $app.findRecordsByFilter(
             'oportunidades',
             `cliente_id = '${clienteRecord.id}' && status = 'aberto'`,
@@ -572,18 +573,32 @@ cronAdd('processar_webhooks_whatsapp_pendentes', '* * * * *', () => {
             0,
           )
           if (!opsAbertas || opsAbertas.length === 0) {
-            let primeiraEtapaId = ''
-            const etapas = $app.findRecordsByFilter('etapas_funil', '', 'ordem', 1, 0)
-            if (etapas && etapas.length > 0) {
-              primeiraEtapaId = etapas[0].id
+            // Garantir que a primeira etapa é Prospecção
+            let etapaProspeccaoId = '66j47f9qg6x925k' // ID canônico de Prospecção
+            try {
+              const etProsp = $app.findFirstRecordByData('etapas_funil', 'nome', 'Prospecção')
+              if (etProsp) etapaProspeccaoId = etProsp.id
+            } catch (_) {
+              const etapas = $app.findRecordsByFilter('etapas_funil', '', 'ordem', 1, 0)
+              if (etapas && etapas.length > 0) etapaProspeccaoId = etapas[0].id
             }
 
-            if (primeiraEtapaId) {
+            if (etapaProspeccaoId) {
               const opsCol = $app.findCollectionByNameOrId('oportunidades')
               const novaOp = new Record(opsCol)
+              const hojeStr = new Date().toISOString().slice(0, 10)
+              const nomeCli =
+                clienteRecord.getString('nome_contato') ||
+                clienteRecord.getString('nome_empresa') ||
+                'Lead WhatsApp'
+
               novaOp.set('cliente_id', clienteRecord.id)
-              novaOp.set('etapa_id', primeiraEtapaId)
+              novaOp.set('titulo', `Lead WhatsApp: ${nomeCli}`)
+              novaOp.set('etapa_id', etapaProspeccaoId)
               novaOp.set('status', 'aberto')
+              novaOp.set('origem', 'crm')
+              novaOp.set('tipo_origem', 'crm')
+              novaOp.set('data_origem', hojeStr)
               novaOp.set('valor', 0)
               if (vendedorFinal) {
                 novaOp.set('responsavel_id', vendedorFinal)
@@ -594,9 +609,21 @@ cronAdd('processar_webhooks_whatsapp_pendentes', '* * * * *', () => {
                 `Oportunidade criada via Webhook WhatsApp (intenção alta): "${(textoMsg || '').substring(0, 100)}"`,
               )
               $app.save(novaOp)
+              console.log(
+                '[WEBHOOK-WHATSAPP] Oportunidade CRM criada em Prospecção para cliente:',
+                clienteRecord.id,
+              )
             }
+          } else {
+            console.log(
+              '[WEBHOOK-WHATSAPP] Oportunidade aberta já existente para cliente',
+              clienteRecord.id,
+              '- deduplicado com sucesso.',
+            )
           }
-        } catch (_) {}
+        } catch (errHookOp) {
+          console.error('[WEBHOOK-WHATSAPP] Erro ao criar oportunidade CRM:', errHookOp)
+        }
       }
 
       sucesso = true

@@ -13,7 +13,7 @@ import type { Usuario } from '@/contexts/AuthContext'
 
 export interface FunilFiltrosState {
   busca: string
-  responsavelId: string // 'todos', 'sem_responsavel' ou id do usuario
+  vendedorId: string // 'todos', 'sem_vendedor' ou id do usuario
   origem: 'todas' | 'crm' | 'bling'
   tipoOrigem: 'todos' | 'crm' | 'bling_proposta' | 'bling_pedido'
   dataInicio: string // YYYY-MM-DD
@@ -21,10 +21,20 @@ export interface FunilFiltrosState {
   status: 'todos' | 'aberto' | 'ganho' | 'perdido'
 }
 
+// Opções reais de vendedores existentes no CRM Colesel 45
+export const OPCOES_VENDEDORES_REAIS = [
+  { id: 'todos', nome: 'Todos os Vendedores' },
+  { id: '4esottmb9weuv6f', nome: 'Alice' },
+  { id: '7nngwxctdc2209b', nome: 'Renan' },
+  { id: 'yfnf6za3jx1fuxn', nome: 'Karoline (Vendas 1)' },
+  { id: 'vendas_2', nome: 'Vendas 2' },
+  { id: 'sem_vendedor', nome: 'Sem vendedor' },
+]
+
 interface FunilFiltrosProps {
   filtros: FunilFiltrosState
   onFiltrosChange: (novos: FunilFiltrosState) => void
-  usuarios: Usuario[]
+  usuarios?: Usuario[]
   totalFiltrado: number
   totalGeral: number
 }
@@ -38,17 +48,22 @@ export default function FunilFiltros({
 }: FunilFiltrosProps) {
   const temFiltroAtivo =
     Boolean(filtros.busca.trim()) ||
-    filtros.responsavelId !== 'todos' ||
+    filtros.vendedorId !== 'todos' ||
     filtros.origem !== 'todas' ||
     filtros.tipoOrigem !== 'todos' ||
     Boolean(filtros.dataInicio) ||
     Boolean(filtros.dataFim) ||
     filtros.status !== 'todos'
 
+  // Resolver ID real para Vendas 2 se existir em usuarios
+  const idVendas2 = usuarios?.find(
+    (u) => u.perfil === 'vendedor_2' || u.nome?.includes('Vendas 2'),
+  )?.id
+
   const limparFiltros = () => {
     onFiltrosChange({
       busca: '',
-      responsavelId: 'todos',
+      vendedorId: 'todos',
       origem: 'todas',
       tipoOrigem: 'todos',
       dataInicio: '',
@@ -60,11 +75,11 @@ export default function FunilFiltros({
   return (
     <div className="bg-white p-4 rounded-xl border border-[#E2E8F0] shadow-sm space-y-3">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-3 items-center">
-        {/* Busca por cliente ou responsável */}
+        {/* Busca por cliente ou vendedor */}
         <div className="lg:col-span-4 relative">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-[#64748B]" />
           <Input
-            placeholder="Buscar por cliente ou responsável..."
+            placeholder="Buscar por cliente, documento ou vendedor..."
             value={filtros.busca}
             onChange={(e) => onFiltrosChange({ ...filtros, busca: e.target.value })}
             className="pl-9 bg-[#F8FAFC] border-[#E2E8F0] focus-visible:bg-white text-xs sm:text-sm h-9"
@@ -79,26 +94,30 @@ export default function FunilFiltros({
           )}
         </div>
 
-        {/* Filtro por Responsável */}
+        {/* Filtro por Vendedor (trocado visualmente de Responsável para Vendedor) */}
         <div className="lg:col-span-3">
           <Select
-            value={filtros.responsavelId}
-            onValueChange={(val) => onFiltrosChange({ ...filtros, responsavelId: val })}
+            value={filtros.vendedorId}
+            onValueChange={(val) => {
+              const valFinal = val === 'vendas_2' && idVendas2 ? idVendas2 : val
+              onFiltrosChange({ ...filtros, vendedorId: valFinal })
+            }}
           >
             <SelectTrigger className="w-full bg-[#F8FAFC] border-[#E2E8F0] text-xs sm:text-sm h-9">
               <div className="flex items-center gap-1.5 truncate">
                 <User className="w-3.5 h-3.5 text-[#64748B] shrink-0" />
-                <SelectValue placeholder="Responsável" />
+                <SelectValue placeholder="Vendedor" />
               </div>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="todos">Todos os Responsáveis</SelectItem>
-              <SelectItem value="sem_responsavel">Sem responsável</SelectItem>
-              {usuarios.map((u) => (
-                <SelectItem key={u.id} value={u.id}>
-                  {u.nome}
-                </SelectItem>
-              ))}
+              {OPCOES_VENDEDORES_REAIS.map((opc) => {
+                const valorItem = opc.id === 'vendas_2' && idVendas2 ? idVendas2 : opc.id
+                return (
+                  <SelectItem key={opc.id} value={valorItem}>
+                    {opc.nome}
+                  </SelectItem>
+                )
+              })}
             </SelectContent>
           </Select>
         </div>

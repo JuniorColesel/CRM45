@@ -41,10 +41,33 @@ export default function FunilPage() {
   const [totalRegistros, setTotalRegistros] = useState(0)
   const [totalPaginas, setTotalPaginas] = useState(1)
 
-  // Filtros em tempo real
+  // Subtotais e métricas do BACKEND (Etapa 3 - agregados completos sobre todas as oportunidades)
+  const [metricasBackend, setMetricasBackend] = useState<{
+    totais?: { total_registros: number; total_valor: number }
+    resumo?: {
+      total_abertas: number
+      valor_pipeline: number
+      total_ganhas: number
+      valor_ganhas: number
+      total_perdidas: number
+      valor_perdidas: number
+      taxa_conversao: number
+      ticket_medio: number
+    }
+    etapas?: Array<{
+      etapa_id: string
+      nome: string
+      ordem: number
+      cor: string
+      quantidade: number
+      valor_total: number
+    }>
+  } | null>(null)
+
+  // Filtros em tempo real (com vendedorId ao invés de responsavelId no contexto comercial)
   const [filtros, setFiltros] = useState<FunilFiltrosState>({
     busca: '',
-    responsavelId: 'todos',
+    vendedorId: 'todos',
     origem: 'todas',
     tipoOrigem: 'todos',
     dataInicio: '',
@@ -94,12 +117,16 @@ export default function FunilPage() {
       condicoes.push(`status = '${filtros.status}'`)
     }
 
-    // 2. Filtro por responsável (suporte a sem_responsavel)
-    if (filtros.responsavelId !== 'todos') {
-      if (filtros.responsavelId === 'sem_responsavel') {
-        condicoes.push("(responsavel_id = '' || responsavel_id = null)")
+    // 2. Filtro por Vendedor (suporte a sem_vendedor)
+    if (filtros.vendedorId !== 'todos') {
+      if (filtros.vendedorId === 'sem_vendedor' || filtros.vendedorId === 'sem_responsavel') {
+        condicoes.push(
+          "((vendedor = '' || vendedor = null) && (responsavel_id = '' || responsavel_id = null))",
+        )
       } else {
-        condicoes.push(`responsavel_id = '${filtros.responsavelId}'`)
+        condicoes.push(
+          `(vendedor = '${filtros.vendedorId}' || ((vendedor = '' || vendedor = null) && responsavel_id = '${filtros.vendedorId}'))`,
+        )
       }
     }
 
@@ -195,19 +222,69 @@ export default function FunilPage() {
     }
   }, [user])
 
+  // Carregar métricas agregadas do BACKEND (Etapa 3 do plano)
+  const carregarMetricasBackend = useCallback(async () => {
+    try {
+      const efetivoInicioYmd = filtros.dataInicio || periodo.dataInicioYmd
+      const efetivoFimYmd = filtros.dataFim || periodo.dataFimYmd
+
+      const queryParams = new URLSearchParams({
+        modo_visao: modoVisao,
+        data_inicio: efetivoInicioYmd || '',
+        data_fim: efetivoFimYmd || '',
+        vendedor_id: filtros.vendedorId || 'todos',
+        origem: filtros.origem || 'todas',
+        tipo_origem: filtros.tipoOrigem || 'todos',
+        status: filtros.status || 'todos',
+      })
+
+      const res = await pb.send<{
+        success: boolean
+        totais: { total_registros: number; total_valor: number }
+        resumo: {
+          total_abertas: number
+          valor_pipeline: number
+          total_ganhas: number
+          valor_ganhas: number
+          total_perdidas: number
+          valor_perdidas: number
+          taxa_conversao: number
+          ticket_medio: number
+        }
+        etapas: Array<{
+          etapa_id: string
+          nome: string
+          ordem: number
+          cor: string
+          quantidade: number
+          valor_total: number
+        }>
+      }>('/backend/v1/funil/metricas?' + queryParams.toString(), {
+        method: 'GET',
+      })
+
+      if (res && res.success) {
+        setMetricasBackend(res)
+      }
+    } catch (err) {
+      console.error('Erro ao carregar métricas agregadas do funil:', err)
+    }
+  }, [filtros, periodo, modoVisao])
+
   // Carregar oportunidades com paginação server-side
   const carregarOportunidades = useCallback(async () => {
     try {
       setLoading(true)
       const filtro = construirFiltroOportunidades()
-      const opsResult = await pb
-        .collection('oportunidades')
-        .getList<OportunidadeModel>(paginaAtual, itensPorPagina, {
+      const [opsResult] = await Promise.all([
+        pb.collection('oportunidades').getList<OportunidadeModel>(paginaAtual, itensPorPagina, {
           sort: '-created',
           expand: 'cliente_id,responsavel_id,etapa_id,motivo_perda_id',
           filter: filtro || undefined,
           requestKey: null,
-        })
+        }),
+        carregarMetricasBackend(),
+      ])
 
       setOportunidades(opsResult.items)
       setTotalRegistros(opsResult.totalItems)
@@ -228,7 +305,7 @@ export default function FunilPage() {
     } finally {
       setLoading(false)
     }
-  }, [paginaAtual, itensPorPagina, construirFiltroOportunidades])
+  }, [paginaAtual, itensPorPagina, construirFiltroOportunidades, carregarMetricasBackend])
 
   // Voltar à página 1 ao alterar filtros ou período
   useEffect(() => {
@@ -243,8 +320,30 @@ export default function FunilPage() {
   // As oportunidades já vêm filtradas do PocketBase de acordo com período e filtros server-side
   const oportunidadesFiltradas = oportunidades
 
-  // Métricas do resumo no topo (calculadas sobre as oportunidades retornadas da página atual)
+  // Mapa de subtotais por etapa vindos do BACKEND (sobre TODAS as oportunidades, não apenas da página atual)
+  const subtotaisEtapasBackend = useMemo(() => {
+    if (!metricasBackend?.etapas) return undefined
+    const mapa: Record<string, { quantidade: number; valor_total: number }> = {}
+    metricasBackend.etapas.forEach((et) => {
+      mapa[et.etapa_id] = {
+        quantidade: et.quantidade,
+        valor_total: et.valor_total,
+      }
+    })
+    return mapa
+  }, [metricasBackend])
+
+  // Métricas do resumo no topo: SEMPRE prioritárias a partir do BACKEND completo
   const metricasResumo = useMemo(() => {
+    if (metricasBackend?.resumo) {
+      return {
+        totalAbertas: metricasBackend.resumo.total_abertas,
+        valorPipeline: metricasBackend.resumo.valor_pipeline,
+        taxaConversao: metricasBackend.resumo.taxa_conversao,
+        ticketMedio: metricasBackend.resumo.ticket_medio,
+      }
+    }
+
     const abertas = oportunidades.filter((o) => o.status === 'aberto')
     const ganhas = oportunidades.filter((o) => o.status === 'ganho')
     const perdidas = oportunidades.filter((o) => o.status === 'perdido')
@@ -264,7 +363,7 @@ export default function FunilPage() {
       taxaConversao,
       ticketMedio,
     }
-  }, [oportunidades])
+  }, [metricasBackend, oportunidades])
 
   // Ações de abertura de modais
   const handleNovaOportunidade = (etapaId?: string) => {
@@ -501,7 +600,9 @@ export default function FunilPage() {
             <KanbanBoard
               etapas={etapas}
               oportunidades={oportunidadesFiltradas}
+              subtotaisEtapasBackend={subtotaisEtapasBackend}
               modoVisao={modoVisao}
+              usuarios={usuarios}
               onCardClick={handleCardClick}
               onNovaOportunidadeEtapa={handleNovaOportunidade}
               onMudarEtapa={handleMudarEtapa}
@@ -545,6 +646,7 @@ export default function FunilPage() {
       <OportunidadeDetalhesSheet
         oportunidade={oportunidadeSelecionada}
         open={detalhesOpen}
+        usuarios={usuarios}
         onOpenChange={setDetalhesOpen}
         onEditar={handleEditarOportunidade}
         onExcluida={handleOportunidadeExcluida}

@@ -5,10 +5,14 @@ import type { EtapaFunilModel, OportunidadeModel } from '@/types/clientes'
 import { formatarMoeda } from '@/types/clientes'
 import KanbanCard from './KanbanCard'
 
+import type { Usuario } from '@/contexts/AuthContext'
+
 interface KanbanColumnProps {
   etapa: EtapaFunilModel
   oportunidades: OportunidadeModel[]
+  subtotalBackend?: { quantidade: number; valor_total: number }
   modoVisao?: 'origem' | 'fechamento'
+  usuarios?: Usuario[]
   draggedOpId?: string | null
   onCardClick: (op: OportunidadeModel) => void
   onNovaOportunidadeEtapa: (etapaId: string) => void
@@ -20,7 +24,9 @@ interface KanbanColumnProps {
 export default function KanbanColumn({
   etapa,
   oportunidades,
+  subtotalBackend,
   modoVisao,
+  usuarios,
   draggedOpId,
   onCardClick,
   onNovaOportunidadeEtapa,
@@ -31,7 +37,13 @@ export default function KanbanColumn({
   const [isDragOver, setIsDragOver] = useState(false)
 
   const etapaCor = etapa.cor || '#2563EB'
-  const totalValor = oportunidades.reduce((acc, curr) => acc + (curr.valor || 0), 0)
+  // Contadores e subtotais vêm da agregação do BACKEND (Etapa 3 do plano)
+  // Se o backend fornecer, usa estritamente o valor do backend sobre todas as 306+ oportunidades
+  const totalValor =
+    subtotalBackend !== undefined
+      ? subtotalBackend.valor_total
+      : oportunidades.reduce((acc, curr) => acc + (curr.valor || 0), 0)
+  const totalQtd = subtotalBackend !== undefined ? subtotalBackend.quantidade : oportunidades.length
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -86,8 +98,11 @@ export default function KanbanColumn({
             <h3 className="font-bold text-sm text-[#0F172A] truncate" title={etapa.nome}>
               {etapa.nome}
             </h3>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-[#64748B]">
-              {oportunidades.length}
+            <span
+              className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-[#64748B]"
+              title={`Total no filtro: ${totalQtd} (${oportunidades.length} carregados visualmente)`}
+            >
+              {totalQtd}
             </span>
           </div>
 
@@ -134,6 +149,7 @@ export default function KanbanColumn({
               key={op.id}
               oportunidade={op}
               modoVisao={modoVisao}
+              usuarios={usuarios}
               onClick={onCardClick}
               onDragStart={onDragStart}
               onDragEnd={onDragEnd}

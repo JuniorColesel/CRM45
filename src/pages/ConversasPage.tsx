@@ -450,8 +450,13 @@ export default function ConversasPage() {
 
       await pb.collection('oportunidades').create({
         cliente_id: cliId,
+        titulo: `Lead WhatsApp: ${conversaAtiva?.expand?.cliente_id?.nome_contato || conversaAtiva?.expand?.cliente_id?.nome_empresa || conversaAtiva?.telefone_formatado || 'Oportunidade'}`,
         etapa_id: formOpEtapa,
         responsavel_id: user?.id,
+        vendedor: user?.id,
+        origem: 'crm',
+        tipo_origem: 'crm',
+        data_origem: new Date().toISOString().slice(0, 10),
         valor: valorNum,
         status: 'aberto',
         observacoes: formOpObs.trim(),

@@ -124,6 +124,42 @@ export default function AbaLigacoes({ clienteId }: AbaLigacoesProps) {
         expand: 'responsavel_id',
       })
 
+      // REGRA PROSPECÇÃO CRM-NATIVA (Etapa 5):
+      // Nova ligação com resultado positivo / atendeu cria oportunidade em Prospecção com deduplicação
+      if (resultado === 'atendeu') {
+        try {
+          const opsAbertas = await pb.collection('oportunidades').getList(1, 1, {
+            filter: `cliente_id = '${clienteId}' && status = 'aberto'`,
+            requestKey: null,
+          })
+          if (opsAbertas.totalItems === 0) {
+            const etapas = await pb.collection('etapas_funil').getList(1, 1, {
+              filter: 'nome = "Prospecção"',
+              sort: 'ordem',
+              requestKey: null,
+            })
+            const etapaProspId = etapas.items[0]?.id || '66j47f9qg6x925k'
+            const hojeStr = new Date().toISOString().slice(0, 10)
+
+            await pb.collection('oportunidades').create({
+              cliente_id: clienteId,
+              titulo: `Lead Ligação: Cliente #${clienteId.slice(0, 6)}`,
+              etapa_id: etapaProspId,
+              status: 'aberto',
+              origem: 'crm',
+              tipo_origem: 'crm',
+              data_origem: hojeStr,
+              valor: 0,
+              responsavel_id: user?.id || '',
+              vendedor: user?.id || '',
+              observacoes: `Criada automaticamente a partir de ligação: ${observacoes.trim()}`,
+            })
+          }
+        } catch (errAbaOp) {
+          console.error('[ABA-LIGACOES] Erro ao deduplicar/criar oportunidade comercial:', errAbaOp)
+        }
+      }
+
       setLigacoes((prev) => [nova, ...prev])
       toast({
         title: 'Ligação registrada',

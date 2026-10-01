@@ -34,7 +34,7 @@ import {
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import pb from '@/lib/pocketbase/client'
-import { useAuth } from '@/contexts/AuthContext'
+import { useAuth, type Usuario } from '@/contexts/AuthContext'
 import type { OportunidadeModel } from '@/types/clientes'
 import {
   formatarMoeda,
@@ -48,6 +48,7 @@ import { getErrorMessage } from '@/lib/pocketbase/errors'
 interface OportunidadeDetalhesSheetProps {
   oportunidade: OportunidadeModel | null
   open: boolean
+  usuarios?: Usuario[]
   onOpenChange: (open: boolean) => void
   onEditar: (op: OportunidadeModel) => void
   onExcluida: (opId: string) => void
@@ -56,6 +57,7 @@ interface OportunidadeDetalhesSheetProps {
 export default function OportunidadeDetalhesSheet({
   oportunidade,
   open,
+  usuarios,
   onOpenChange,
   onEditar,
   onExcluida,
@@ -78,13 +80,32 @@ export default function OportunidadeDetalhesSheet({
     oportunidade.origem === 'bling' ||
     oportunidade.tipo_origem === 'bling_proposta' ||
     oportunidade.tipo_origem === 'bling_pedido'
-  const respNome =
-    oportunidade.expand?.responsavel_id?.nome ||
-    (isBling
-      ? 'Sem responsável'
-      : oportunidade.responsavel_id === user?.id
-        ? user?.nome
-        : 'Responsável')
+
+  // Resolver Vendedor comercialmente
+  const vendedorId = oportunidade.vendedor || oportunidade.responsavel_id
+  let nomeVendedor = 'Sem vendedor'
+  if (vendedorId && usuarios) {
+    const userFound = usuarios.find((u) => u.id === vendedorId)
+    if (userFound) {
+      if (userFound.nome.includes('Alice')) nomeVendedor = 'Alice'
+      else if (userFound.nome.includes('Renan')) nomeVendedor = 'Renan'
+      else if (userFound.nome.includes('Karoline') || userFound.perfil === 'vendedor_1') {
+        nomeVendedor = 'Karoline (Vendas 1)'
+      } else if (userFound.perfil === 'vendedor_2') nomeVendedor = 'Vendas 2'
+      else nomeVendedor = userFound.nome
+    }
+  } else if (oportunidade.expand?.responsavel_id?.nome) {
+    nomeVendedor = oportunidade.expand.responsavel_id.nome
+  }
+
+  // Regra de Data de Fechamento:
+  // Para pedido em aberto Bling (etapa Em aberto Bling ou situacao Em aberto):
+  // data_fechamento fica vazia até ficar Atendido -> mostrar "Em andamento"
+  const isEmAbertoBling =
+    oportunidade.tipo_origem === 'bling_pedido' &&
+    (etapaNome.toLowerCase().includes('em aberto') ||
+      oportunidade.observacoes?.includes('Em aberto') ||
+      !oportunidade.data_fechamento)
 
   const motivoDescricao = oportunidade.expand?.motivo_perda_id?.descricao
 
@@ -222,9 +243,9 @@ export default function OportunidadeDetalhesSheet({
                 <div className="p-3 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC]">
                   <span className="text-[11px] font-medium text-[#64748B] flex items-center gap-1">
                     <User className="w-3 h-3 text-[#64748B]" />
-                    Responsável
+                    Vendedor
                   </span>
-                  <p className="text-xs font-bold text-[#0F172A] mt-1 truncate">{respNome}</p>
+                  <p className="text-xs font-bold text-[#0F172A] mt-1 truncate">{nomeVendedor}</p>
                 </div>
 
                 <div className="p-3 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC]">
@@ -255,9 +276,11 @@ export default function OportunidadeDetalhesSheet({
                   <p className="text-xs font-bold text-[#0F172A] mt-1">
                     {oportunidade.data_fechamento
                       ? formatarData(oportunidade.data_fechamento)
-                      : oportunidade.data_prevista_fechamento
-                        ? `Prev: ${formatarData(oportunidade.data_prevista_fechamento)}`
-                        : 'Não informada'}
+                      : isEmAbertoBling
+                        ? 'Em andamento'
+                        : oportunidade.data_prevista_fechamento
+                          ? `Prev: ${formatarData(oportunidade.data_prevista_fechamento)}`
+                          : 'Não informada'}
                   </p>
                 </div>
               </div>

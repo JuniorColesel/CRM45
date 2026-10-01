@@ -212,6 +212,48 @@ export default function LigacoesPage() {
         })
       }
 
+      // REGRA PROSPECÇÃO CRM-NATIVA (Etapa 5):
+      // Nova ligação com resultado positivo / proposta / reunião / interesse
+      // se não houver oportunidade CRM ativa para o cliente, cria oportunidade em Prospecção
+      if (formResultado === 'atendeu') {
+        try {
+          const opsAbertas = await pb.collection('oportunidades').getList(1, 1, {
+            filter: `cliente_id = '${formClienteId}' && status = 'aberto'`,
+            requestKey: null,
+          })
+          if (opsAbertas.totalItems === 0) {
+            const etapas = await pb.collection('etapas_funil').getList(1, 1, {
+              filter: 'nome = "Prospecção"',
+              sort: 'ordem',
+              requestKey: null,
+            })
+            const etapaProspId = etapas.items[0]?.id || '66j47f9qg6x925k'
+            const hojeStr = new Date().toISOString().slice(0, 10)
+            const cliEncontrado = clientes.find((c) => c.id === formClienteId)
+
+            await pb.collection('oportunidades').create({
+              cliente_id: formClienteId,
+              titulo: `Lead Ligação: ${cliEncontrado?.nome_contato || cliEncontrado?.nome_empresa || 'Cliente'}`,
+              etapa_id: etapaProspId,
+              status: 'aberto',
+              origem: 'crm',
+              tipo_origem: 'crm',
+              data_origem: hojeStr,
+              valor: 0,
+              responsavel_id: user?.id || '',
+              vendedor: user?.id || '',
+              observacoes: `Criada automaticamente a partir de ligação: ${formObservacoes.trim()}`,
+            })
+            console.log(
+              '[LIGACOES] Oportunidade em Prospecção criada com sucesso para cliente:',
+              formClienteId,
+            )
+          }
+        } catch (errOpLig) {
+          console.error('[LIGACOES] Erro ao deduplicar/criar oportunidade comercial:', errOpLig)
+        }
+      }
+
       // Atualiza lista em memória
       setLigacoes((prev) => [novaLigacao, ...prev])
 

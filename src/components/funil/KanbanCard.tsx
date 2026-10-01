@@ -1,21 +1,61 @@
 import React, { useRef } from 'react'
 import { Badge } from '@/components/ui/badge'
-import { User, Calendar, Building, DollarSign } from 'lucide-react'
+import { User, Calendar, Building } from 'lucide-react'
 import type { OportunidadeModel } from '@/types/clientes'
 import { formatarMoeda, formatarData } from '@/types/clientes'
+import type { Usuario } from '@/contexts/AuthContext'
 
 interface KanbanCardProps {
   oportunidade: OportunidadeModel
   modoVisao?: 'origem' | 'fechamento'
+  usuarios?: Usuario[]
   onClick: (op: OportunidadeModel) => void
   onDragStart: (e: React.DragEvent<HTMLDivElement>, opId: string) => void
   onDragEnd: (e: React.DragEvent<HTMLDivElement>) => void
   isDragging?: boolean
 }
 
+// Resolução de nome do vendedor a partir do ID salvo em vendedor ou responsavel_id
+function obterNomeVendedor(oportunidade: OportunidadeModel, usuarios?: Usuario[]): string {
+  const isBling =
+    oportunidade.origem === 'bling' ||
+    oportunidade.tipo_origem === 'bling_proposta' ||
+    oportunidade.tipo_origem === 'bling_pedido'
+
+  const vendedorId = oportunidade.vendedor || oportunidade.responsavel_id
+  if (vendedorId && usuarios) {
+    const userFound = usuarios.find((u) => u.id === vendedorId)
+    if (userFound) {
+      if (userFound.nome.includes('Alice')) return 'Alice'
+      if (userFound.nome.includes('Renan')) return 'Renan'
+      if (userFound.nome.includes('Karoline') || userFound.perfil === 'vendedor_1') {
+        return 'Karoline (Vendas 1)'
+      }
+      if (userFound.perfil === 'vendedor_2') return 'Vendas 2'
+      return userFound.nome
+    }
+  }
+
+  if (oportunidade.expand?.responsavel_id?.nome) {
+    const n = oportunidade.expand.responsavel_id.nome
+    if (n.includes('Alice')) return 'Alice'
+    if (n.includes('Renan')) return 'Renan'
+    if (n.includes('Karoline')) return 'Karoline (Vendas 1)'
+    return n
+  }
+
+  // Se Bling e não tiver vendedor confiável: "Sem vendedor". NUNCA Renan por fallback!
+  if (isBling) {
+    return 'Sem vendedor'
+  }
+
+  return 'Sem vendedor'
+}
+
 export default function KanbanCard({
   oportunidade,
   modoVisao = 'origem',
+  usuarios,
   onClick,
   onDragStart,
   onDragEnd,
@@ -30,10 +70,7 @@ export default function KanbanCard({
 
   const clienteNome = oportunidade.expand?.cliente_id?.nome_contato || 'Cliente não identificado'
   const empresaNome = oportunidade.expand?.cliente_id?.nome_empresa
-  const respNome =
-    oportunidade.expand?.responsavel_id?.nome ||
-    oportunidade.expand?.responsavel_id?.email ||
-    (isBling ? 'Sem responsável' : 'Responsável')
+  const nomeVendedor = obterNomeVendedor(oportunidade, usuarios)
 
   const renderOrigemBadge = () => {
     if (!isBling) return null
@@ -135,15 +172,15 @@ export default function KanbanCard({
 
       {/* Rodapé: Responsável e Data Prevista */}
       <div className="mt-3 pt-2.5 border-t border-[#F1F5F9] flex items-center justify-between gap-2 text-[11px] text-[#64748B]">
-        {/* Responsável com mini avatar */}
+        {/* Vendedor com mini avatar */}
         <div
           className="flex items-center gap-1.5 truncate min-w-0"
-          title={`Responsável: ${respNome}`}
+          title={`Vendedor: ${nomeVendedor}`}
         >
           <div className="w-5 h-5 rounded-full bg-slate-100 text-slate-700 font-bold text-[9px] flex items-center justify-center shrink-0">
-            {respNome.charAt(0).toUpperCase()}
+            {nomeVendedor.charAt(0).toUpperCase()}
           </div>
-          <span className="truncate font-medium">{respNome}</span>
+          <span className="truncate font-medium">Vendedor: {nomeVendedor}</span>
         </div>
 
         {/* Data contextualizada conforme modo de visão: Origem vs Fechamento */}

@@ -72,12 +72,28 @@ routerAdd(
             etapaId = etapas[0].id
           }
 
-          if (etapaId) {
+          // Buscar etapa Prospecção
+          let etapaProspId = etapaId
+          try {
+            const et = $app.findFirstRecordByData('etapas_funil', 'nome', 'Prospecção')
+            if (et) etapaProspId = et.id
+          } catch (_) {}
+
+          if (etapaProspId) {
             const opsCol = $app.findCollectionByNameOrId('oportunidades')
             const novaOp = new Record(opsCol)
+            const hojeStr = new Date().toISOString().slice(0, 10)
             novaOp.set('cliente_id', clienteId)
-            novaOp.set('etapa_id', etapaId)
+            novaOp.set(
+              'titulo',
+              'Lead WhatsApp: ' + (conversa.getString('telefone_formatado') || 'Lead Reavaliado'),
+            )
+            novaOp.set('etapa_id', etapaProspId)
             novaOp.set('responsavel_id', authRecord.id)
+            novaOp.set('vendedor', authRecord.id)
+            novaOp.set('origem', 'crm')
+            novaOp.set('tipo_origem', 'crm')
+            novaOp.set('data_origem', hojeStr)
             novaOp.set('status', 'aberto')
             novaOp.set('valor', 0)
             novaOp.set(
