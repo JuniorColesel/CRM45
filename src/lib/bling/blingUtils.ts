@@ -14,9 +14,9 @@ import type { VendedorCliente, StatusCliente } from '@/types/clientes'
  * - Qualquer OUTRO vendedor (TAISA TOLEDO, GABRIELA CULTOM, GEISEBEL, "-", vazio,
  *   qualquer nome não reconhecido) -> "Renan".
  */
-export function mapearVendedorBlingParaCrm(vendedorBling?: string | null): VendedorCliente {
+export function mapearVendedorBlingParaCrm(vendedorBling?: string | null): VendedorCliente | null {
   if (!vendedorBling) {
-    return 'Renan'
+    return null
   }
 
   const v = vendedorBling
@@ -36,10 +36,11 @@ export function mapearVendedorBlingParaCrm(vendedorBling?: string | null): Vende
   }
 
   // 3. Karoline (Vendas 1)
-  // "Karoline", "Vendas 1", "MARIA CAROLINE SANTOS", "Consumidor Final", "Consumidor Final."
+  // "Karoline", "Vendas 1", "Maria Caroline", "Maria Caroline Santos", "Consumidor Final", "Consumidor Final."
   if (
     v === 'KAROLINE' ||
     v === 'VENDAS 1' ||
+    v === 'MARIA CAROLINE' ||
     v === 'MARIA CAROLINE SANTOS' ||
     v === 'CONSUMIDOR FINAL' ||
     v === 'CONSUMIDOR FINAL.' ||
@@ -54,8 +55,13 @@ export function mapearVendedorBlingParaCrm(vendedorBling?: string | null): Vende
     return 'Vendas 2'
   }
 
-  // 5. Qualquer outro vendedor (TAISA TOLEDO, GABRIELA CULTOM, GEISEBEL, "-", etc.) -> Renan
-  return 'Renan'
+  // Nome desconhecido -> NÃO atribuir outro usuário automaticamente (sem fallback Renan)
+  console.warn(
+    '[VENDEDOR] Nome desconhecido no Bling não mapeado: "' +
+      vendedorBling +
+      '" -> tratado como sem vendedor.',
+  )
+  return null
 }
 
 /**

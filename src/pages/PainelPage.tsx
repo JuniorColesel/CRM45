@@ -77,9 +77,31 @@ export function PainelPage() {
             <div>
               <h1 className="text-xl sm:text-2xl font-black text-[#0F172A] tracking-tight">
                 Painel Comercial
+                {perfil === 'vendedor_1' && (
+                  <span className="ml-2 text-xs font-semibold py-0.5 px-2 rounded-full bg-blue-100 text-blue-800 align-middle">
+                    Visão: Karoline (Vendas 1)
+                  </span>
+                )}
+                {perfil === 'vendedor_2' && (
+                  <span className="ml-2 text-xs font-semibold py-0.5 px-2 rounded-full bg-blue-100 text-blue-800 align-middle">
+                    Visão: Vendas 2
+                  </span>
+                )}
+                {perfil === 'coordenador_vendas' && (
+                  <span className="ml-2 text-xs font-semibold py-0.5 px-2 rounded-full bg-purple-100 text-purple-800 align-middle">
+                    Consolidado Equipe
+                  </span>
+                )}
+                {perfil === 'ceo_financeiro' && (
+                  <span className="ml-2 text-xs font-semibold py-0.5 px-2 rounded-full bg-emerald-100 text-emerald-800 align-middle">
+                    Consolidado Geral
+                  </span>
+                )}
               </h1>
               <p className="text-xs text-[#64748B]">
-                Indicadores consolidados por período comercial com reconciliação anual no backend
+                {perfil === 'vendedor_1' || perfil === 'vendedor_2'
+                  ? 'Exibindo exclusivamente seus indicadores individuais no período'
+                  : 'Indicadores consolidados por período comercial com reconciliação anual no backend'}
               </p>
             </div>
           </div>

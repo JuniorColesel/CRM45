@@ -856,6 +856,24 @@ routerAdd(
     }
 
     const usuarioIdOuSistema = authRecord.id
+    const agoraMs = Date.now()
+    const limiteLockIso = new Date(agoraMs - 10 * 60 * 1000).toISOString()
+    const syncsEmAndamento = $app.findRecordsByFilter(
+      'bling_sync_logs',
+      `status = 'processando' && iniciado_em >= '${limiteLockIso}'`,
+      '-created',
+      1,
+      0,
+    )
+
+    if (syncsEmAndamento && syncsEmAndamento.length > 0) {
+      return e.json(409, {
+        success: false,
+        message:
+          'Já existe uma sincronização em processamento no momento. Aguarde o término antes de disparar outra.',
+      })
+    }
+
     const iniciadoEm = new Date()
     const t0 = Date.now()
 
@@ -1041,6 +1059,7 @@ routerAdd(
       if (
         v === 'KAROLINE' ||
         v === 'VENDAS 1' ||
+        v === 'MARIA CAROLINE' ||
         v === 'MARIA CAROLINE SANTOS' ||
         v === 'CONSUMIDOR FINAL' ||
         v === 'CONSUMIDOR FINAL.' ||
@@ -1052,6 +1071,11 @@ routerAdd(
       if (v === 'VENDAS 2') {
         return 'Vendas 2'
       }
+      console.warn(
+        '[BLING-SYNC] Vendedor Bling desconhecido não mapeado: "' +
+          vendedorBling +
+          '" -> tratado como sem vendedor.',
+      )
       return null
     }
 
@@ -1315,6 +1339,28 @@ routerAdd(
           let vendedorBlingNome = ''
           if (item.vendedor && item.vendedor.nome) {
             vendedorBlingNome = item.vendedor.nome
+          }
+
+          // Enriquecimento seletivo Bling: se a listagem não trouxe vendedor, enriquecer via GET /Api/v3/contatos/{id}
+          // somente se o cliente for novo, não tiver vendedor, ou o registro estiver mudando
+          if (!vendedorBlingNome && blingId) {
+            try {
+              const resDetContato = getBlingGet(
+                'https://api.bling.com.br/Api/v3/contatos/' + blingId,
+                2,
+              )
+              if (
+                resDetContato &&
+                resDetContato.statusCode === 200 &&
+                resDetContato.json &&
+                resDetContato.json.data
+              ) {
+                const detC = resDetContato.json.data
+                if (detC.vendedor && detC.vendedor.nome) {
+                  vendedorBlingNome = detC.vendedor.nome
+                }
+              }
+            } catch (_) {}
           }
 
           const vendedorCrm = mapearVendedor(vendedorBlingNome)
@@ -1711,11 +1757,39 @@ routerAdd(
           const sitNome = resolucaoSit.nome
           const statusNormalizado = resolucaoSit.status
 
-          // Vendedor do pedido
+          // Vendedor do pedido: se listagem não trouxe, enriquecer seletivamente via GET /Api/v3/pedidos/vendas/{id}
+          // Regra Parte G: enriquecimento seletivo (apenas para registros novos, ou sem vendedor em bling_pedidos)
           let vendedorBlingNome = ''
           if (ped.vendedor && ped.vendedor.nome) {
             vendedorBlingNome = ped.vendedor.nome
           }
+
+          if (!vendedorBlingNome && pedidoIdRaw) {
+            const pedJaSalvo = mapBlingPedidosExistentes[pedidoIdRaw]
+            const precisaEnriquecer = !pedJaSalvo || !pedJaSalvo.getString('vendedor_crm')
+            if (precisaEnriquecer) {
+              try {
+                const resDetPed = getBlingGet(
+                  'https://api.bling.com.br/Api/v3/pedidos/vendas/' + pedidoIdRaw,
+                  2,
+                )
+                if (
+                  resDetPed &&
+                  resDetPed.statusCode === 200 &&
+                  resDetPed.json &&
+                  resDetPed.json.data
+                ) {
+                  const detPed = resDetPed.json.data
+                  if (detPed.vendedor && detPed.vendedor.nome) {
+                    vendedorBlingNome = detPed.vendedor.nome
+                  }
+                }
+              } catch (_) {}
+            } else if (pedJaSalvo) {
+              vendedorBlingNome = pedJaSalvo.getString('vendedor_bling') || ''
+            }
+          }
+
           const vendedorCrm = mapearVendedor(vendedorBlingNome)
           const responsavelUsuarioId = resolverUsuarioIdPorVendedorCrm(vendedorCrm)
 
@@ -2140,11 +2214,38 @@ routerAdd(
           }
           const resolucaoSitProp = resolverSituacaoProposta(sitObjProp, sitIdProp)
 
-          // Vendedor da proposta (se vier vazio no payload, mantém default Renan conforme regra)
+          // Vendedor da proposta: enriquecer seletivamente via GET /Api/v3/propostas-comerciais/{id} se necessário
           let vendedorBlingNome = ''
           if (propItem.vendedor && propItem.vendedor.nome) {
             vendedorBlingNome = propItem.vendedor.nome
           }
+
+          if (!vendedorBlingNome && propostaIdRaw) {
+            const propJaSalva = mapBlingPropostasExistentes[propostaIdRaw]
+            const precisaEnriquecerProp = !propJaSalva || !propJaSalva.getString('vendedor_crm')
+            if (precisaEnriquecerProp) {
+              try {
+                const resDetProp = getBlingGet(
+                  'https://api.bling.com.br/Api/v3/propostas-comerciais/' + propostaIdRaw,
+                  2,
+                )
+                if (
+                  resDetProp &&
+                  resDetProp.statusCode === 200 &&
+                  resDetProp.json &&
+                  resDetProp.json.data
+                ) {
+                  const detProp = resDetProp.json.data
+                  if (detProp.vendedor && detProp.vendedor.nome) {
+                    vendedorBlingNome = detProp.vendedor.nome
+                  }
+                }
+              } catch (_) {}
+            } else if (propJaSalva) {
+              vendedorBlingNome = propJaSalva.getString('vendedor_bling') || ''
+            }
+          }
+
           const vendedorCrm = mapearVendedor(vendedorBlingNome)
           const responsavelUsuarioId = resolverUsuarioIdPorVendedorCrm(vendedorCrm)
 
@@ -2762,7 +2863,11 @@ routerAdd(
         `)
           .execute()
 
-        // 4.6.1 Propagar vendedor comercial para oportunidades Bling
+        // 4.6.1 Propagar vendedor comercial para oportunidades Bling (Regra Parte B/D/I):
+        // Fonte da verdade:
+        // - Pedidos: vendedor vem estritamente de bling_pedidos.vendedor_crm (NÃO usar vendedor do cliente como fallback!)
+        // - Propostas: vendedor vem estritamente de bling_propostas.vendedor_crm
+        // - Oportunidades CRM (sem bling_pedido_id e sem bling_proposta_id): mantém CRM-native ou cliente.vendedor
         const usuariosV = $app.findRecordsByFilter('usuarios', 'ativo = true', 'nome', 50, 0)
         const mapVendedorUser = {}
         for (let u = 0; u < usuariosV.length; u++) {
@@ -2787,6 +2892,7 @@ routerAdd(
           }
         }
 
+        // Para oportunidades de pedidos Bling: sincronizar vendedor do pedido
         for (const [vNome, uId] of Object.entries(mapVendedorUser)) {
           if (!uId) continue
           $app
@@ -2794,23 +2900,11 @@ routerAdd(
             .newQuery(`
             UPDATE oportunidades
             SET vendedor = {:userId}
-            WHERE (vendedor = '' OR vendedor IS NULL)
-              AND cliente_id IN (
-                SELECT c.id FROM clientes c WHERE c.vendedor = {:vNome}
-              )
-          `)
-            .bind({ userId: uId, vNome: vNome })
-            .execute()
-
-          $app
-            .db()
-            .newQuery(`
-            UPDATE oportunidades
-            SET vendedor = {:userId}
-            WHERE (vendedor = '' OR vendedor IS NULL)
+            WHERE tipo_origem = 'bling_pedido'
               AND bling_pedido_id IN (
                 SELECT bp.bling_pedido_id FROM bling_pedidos bp WHERE bp.vendedor_crm = {:vNome}
               )
+              AND (vendedor != {:userId} OR vendedor IS NULL OR vendedor = '')
           `)
             .bind({ userId: uId, vNome: vNome })
             .execute()
@@ -2820,14 +2914,42 @@ routerAdd(
             .newQuery(`
             UPDATE oportunidades
             SET vendedor = {:userId}
-            WHERE (vendedor = '' OR vendedor IS NULL)
+            WHERE tipo_origem = 'bling_proposta'
               AND bling_proposta_id IN (
                 SELECT bp.bling_proposta_id FROM bling_propostas bp WHERE bp.vendedor_crm = {:vNome}
               )
+              AND (vendedor != {:userId} OR vendedor IS NULL OR vendedor = '')
           `)
             .bind({ userId: uId, vNome: vNome })
             .execute()
         }
+
+        // Limpar vendedor em oportunidades de pedidos/propostas que não têm vendedor no documento Bling
+        $app
+          .db()
+          .newQuery(`
+          UPDATE oportunidades
+          SET vendedor = ''
+          WHERE tipo_origem = 'bling_pedido'
+            AND bling_pedido_id IN (
+              SELECT bp.bling_pedido_id FROM bling_pedidos bp WHERE bp.vendedor_crm = '' OR bp.vendedor_crm IS NULL
+            )
+            AND vendedor != '' AND vendedor IS NOT NULL
+        `)
+          .execute()
+
+        $app
+          .db()
+          .newQuery(`
+          UPDATE oportunidades
+          SET vendedor = ''
+          WHERE tipo_origem = 'bling_proposta'
+            AND bling_proposta_id IN (
+              SELECT bp.bling_proposta_id FROM bling_propostas bp WHERE bp.vendedor_crm = '' OR bp.vendedor_crm IS NULL
+            )
+            AND vendedor != '' AND vendedor IS NOT NULL
+        `)
+          .execute()
       } catch (errRecRetro) {
         console.error('[BLING-IMPORT] Erro na reconciliação retroativa funil: ' + errRecRetro)
       }

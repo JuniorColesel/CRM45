@@ -120,6 +120,39 @@ export function normalizarVendedor(
   return 'Alice'
 }
 
+export function mapearVendedorParaCrm(
+  vendedorBling?: string | null,
+): 'Alice' | 'Renan' | 'Karoline (Vendas 1)' | 'Vendas 2' | null {
+  if (!vendedorBling) return null
+  const v = vendedorBling
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+
+  if (v === 'ALICE PAITRA COLESEL' || v === 'ALICE' || v.startsWith('ALICE PAITRA')) {
+    return 'Alice'
+  }
+  if (v === 'RENAN SOUZA' || v === 'RENAN') {
+    return 'Renan'
+  }
+  if (
+    v === 'KAROLINE' ||
+    v === 'VENDAS 1' ||
+    v === 'MARIA CAROLINE' ||
+    v === 'MARIA CAROLINE SANTOS' ||
+    v === 'CONSUMIDOR FINAL' ||
+    v === 'CONSUMIDOR FINAL.' ||
+    v.startsWith('KAROLINE ') ||
+    v.startsWith('MARIA CAROLINE')
+  ) {
+    return 'Karoline (Vendas 1)'
+  }
+  if (v === 'VENDAS 2') {
+    return 'Vendas 2'
+  }
+  return null
+}
 /**
  * Normaliza o status do cliente: se fizer nova compra ou se for ativo, 'ativo'; senão 'para_reativacao'
  */

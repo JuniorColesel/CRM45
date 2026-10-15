@@ -21,6 +21,37 @@ routerAdd('GET', '/backend/v1/painel/comercial', (e) => {
 
   const perfil = authRecord.getString('perfil')
   const usuarioId = authRecord.id
+  const usuarioNome = authRecord.getString('nome') || ''
+  const usuarioEmail = authRecord.getString('email') || ''
+
+  // Regra Parte J: Segurança e Escopo por Usuário Logado
+  // - vendedor_1: apenas dados de Karoline (Vendas 1)
+  // - vendedor_2: apenas dados de Vendas 2
+  // - coordenador_vendas: consolidado da equipe comercial
+  // - ceo_financeiro / admin: consolidado geral
+  // NÃO permitir que vendedor veja números de outro alterando query params.
+  let escopoVendedorCrm = null // null = consolidado completo
+  let escopoVendedorUserId = null
+
+  if (perfil === 'vendedor_1') {
+    escopoVendedorCrm = 'Karoline (Vendas 1)'
+    escopoVendedorUserId = usuarioId
+  } else if (perfil === 'vendedor_2') {
+    escopoVendedorCrm = 'Vendas 2'
+    escopoVendedorUserId = usuarioId
+  } else if (perfil === 'coordenador_vendas' || perfil === 'ceo_financeiro') {
+    escopoVendedorCrm = null
+    escopoVendedorUserId = null
+  } else {
+    // Para outros usuários/vendedores diretos (ex: Alice, Renan se cadastrados)
+    if (usuarioNome.indexOf('Alice') !== -1 || usuarioEmail.indexOf('alice') !== -1) {
+      escopoVendedorCrm = 'Alice'
+      escopoVendedorUserId = usuarioId
+    } else if (usuarioNome.indexOf('Renan') !== -1 || usuarioEmail.indexOf('renan') !== -1) {
+      escopoVendedorCrm = 'Renan'
+      escopoVendedorUserId = usuarioId
+    }
+  }
 
   // Helper inline: arredondar 2 casas decimais
   function round2(num) {
@@ -141,12 +172,16 @@ routerAdd('GET', '/backend/v1/painel/comercial', (e) => {
 
     try {
       const rowCli = new DynamicModel({ total: 0, com_bling: 0 })
-      $app
-        .db()
-        .newQuery(
-          "SELECT count(*) as total, sum(CASE WHEN bling_id != '' THEN 1 ELSE 0 END) as com_bling FROM clientes",
-        )
-        .one(rowCli)
+      let sqlCliBase =
+        "SELECT count(*) as total, sum(CASE WHEN bling_id != '' THEN 1 ELSE 0 END) as com_bling FROM clientes"
+      if (escopoVendedorCrm) {
+        sqlCliBase += ' WHERE vendedor = {:escopoVend}'
+      }
+      const qCliBase = $app.db().newQuery(sqlCliBase)
+      if (escopoVendedorCrm) {
+        qCliBase.bind({ escopoVend: escopoVendedorCrm })
+      }
+      qCliBase.one(rowCli)
       totalClientesCadastrados = Number(rowCli.total) || 0
       clientesComBlingId = Number(rowCli.com_bling) || 0
     } catch (errCli) {
@@ -154,13 +189,37 @@ routerAdd('GET', '/backend/v1/painel/comercial', (e) => {
     }
 
     try {
-      totalPedidosCadastradosBase = $app.countRecords('bling_pedidos')
+      if (escopoVendedorCrm) {
+        const rowPedBase = new DynamicModel({ total: 0 })
+        $app
+          .db()
+          .newQuery(
+            'SELECT count(*) as total FROM bling_pedidos WHERE vendedor_crm = {:escopoVend}',
+          )
+          .bind({ escopoVend: escopoVendedorCrm })
+          .one(rowPedBase)
+        totalPedidosCadastradosBase = Number(rowPedBase.total) || 0
+      } else {
+        totalPedidosCadastradosBase = $app.countRecords('bling_pedidos')
+      }
     } catch (errPedCount) {
       console.error('[PAINEL-COMERCIAL] Erro contagem bling_pedidos: ' + errPedCount)
     }
 
     try {
-      totalPropostasCadastradasBase = $app.countRecords('bling_propostas')
+      if (escopoVendedorCrm) {
+        const rowPropBase = new DynamicModel({ total: 0 })
+        $app
+          .db()
+          .newQuery(
+            'SELECT count(*) as total FROM bling_propostas WHERE vendedor_crm = {:escopoVend}',
+          )
+          .bind({ escopoVend: escopoVendedorCrm })
+          .one(rowPropBase)
+        totalPropostasCadastradasBase = Number(rowPropBase.total) || 0
+      } else {
+        totalPropostasCadastradasBase = $app.countRecords('bling_propostas')
+      }
     } catch (errPropCount) {
       console.error('[PAINEL-COMERCIAL] Erro contagem bling_propostas: ' + errPropCount)
     }
@@ -170,14 +229,19 @@ routerAdd('GET', '/backend/v1/painel/comercial', (e) => {
     let qtdPedidosValidosHistoricoTotal = 0
     try {
       const rowHist = new DynamicModel({ soma: '', qtd: 0 })
-      $app
-        .db()
-        .newQuery(`
-          SELECT CAST(COALESCE(sum(valor_total), 0) AS TEXT) as soma, count(*) as qtd
-          FROM bling_pedidos
-          WHERE situacao_bling_id = '6' OR situacao_bling_id = '9'
-        `)
-        .one(rowHist)
+      let sqlHist = `
+        SELECT CAST(COALESCE(sum(valor_total), 0) AS TEXT) as soma, count(*) as qtd
+        FROM bling_pedidos
+        WHERE (situacao_bling_id = '6' OR situacao_bling_id = '9')
+      `
+      if (escopoVendedorCrm) {
+        sqlHist += ' AND vendedor_crm = {:escopoVend}'
+      }
+      const qHist = $app.db().newQuery(sqlHist)
+      if (escopoVendedorCrm) {
+        qHist.bind({ escopoVend: escopoVendedorCrm })
+      }
+      qHist.one(rowHist)
       valorVendasHistoricoTotal = round2(toNum(rowHist.soma))
       qtdPedidosValidosHistoricoTotal = Number(rowHist.qtd) || 0
     } catch (errHist) {
@@ -205,19 +269,27 @@ routerAdd('GET', '/backend/v1/painel/comercial', (e) => {
           soma: '',
         }),
       )
-      $app
+      let sqlPedPeriodo = `
+        SELECT
+          situacao_bling_id,
+          count(*) as qtd,
+          CAST(COALESCE(sum(valor_total), 0) AS TEXT) as soma
+        FROM bling_pedidos
+        WHERE substr(data_pedido, 1, 10) >= {:ini} AND substr(data_pedido, 1, 10) <= {:fim}
+      `
+      if (escopoVendedorCrm) {
+        sqlPedPeriodo += ' AND vendedor_crm = {:escopoVend}'
+      }
+      sqlPedPeriodo += ' GROUP BY situacao_bling_id'
+
+      const qPedPeriodo = $app
         .db()
-        .newQuery(`
-          SELECT
-            situacao_bling_id,
-            count(*) as qtd,
-            CAST(COALESCE(sum(valor_total), 0) AS TEXT) as soma
-          FROM bling_pedidos
-          WHERE substr(data_pedido, 1, 10) >= {:ini} AND substr(data_pedido, 1, 10) <= {:fim}
-          GROUP BY situacao_bling_id
-        `)
+        .newQuery(sqlPedPeriodo)
         .bind({ ini: dataInicioYmd, fim: dataFimYmd })
-        .all(rowsPed)
+      if (escopoVendedorCrm) {
+        qPedPeriodo.bind({ escopoVend: escopoVendedorCrm })
+      }
+      qPedPeriodo.all(rowsPed)
 
       for (let i = 0; i < rowsPed.length; i++) {
         const r = rowsPed[i]
@@ -248,17 +320,21 @@ routerAdd('GET', '/backend/v1/painel/comercial', (e) => {
 
       // Clientes distintos com pedidos válidos no período
       const rowCliDist = new DynamicModel({ qtd: 0 })
-      $app
-        .db()
-        .newQuery(`
-          SELECT count(DISTINCT cliente_id) as qtd
-          FROM bling_pedidos
-          WHERE (situacao_bling_id = '6' OR situacao_bling_id = '9')
-            AND substr(data_pedido, 1, 10) >= {:ini} AND substr(data_pedido, 1, 10) <= {:fim}
-            AND cliente_id != '' AND cliente_id IS NOT NULL
-        `)
-        .bind({ ini: dataInicioYmd, fim: dataFimYmd })
-        .one(rowCliDist)
+      let sqlCliDist = `
+        SELECT count(DISTINCT cliente_id) as qtd
+        FROM bling_pedidos
+        WHERE (situacao_bling_id = '6' OR situacao_bling_id = '9')
+          AND substr(data_pedido, 1, 10) >= {:ini} AND substr(data_pedido, 1, 10) <= {:fim}
+          AND cliente_id != '' AND cliente_id IS NOT NULL
+      `
+      if (escopoVendedorCrm) {
+        sqlCliDist += ' AND vendedor_crm = {:escopoVend}'
+      }
+      const qCliDist = $app.db().newQuery(sqlCliDist).bind({ ini: dataInicioYmd, fim: dataFimYmd })
+      if (escopoVendedorCrm) {
+        qCliDist.bind({ escopoVend: escopoVendedorCrm })
+      }
+      qCliDist.one(rowCliDist)
       pedidosDoPeriodo.clientes_distintos_com_compra = Number(rowCliDist.qtd) || 0
     } catch (errPedPeriodo) {
       console.error('[PAINEL-COMERCIAL] Erro ao calcular pedidos do período: ' + errPedPeriodo)
@@ -285,20 +361,28 @@ routerAdd('GET', '/backend/v1/painel/comercial', (e) => {
           sem_vinc: 0,
         }),
       )
-      $app
+      let sqlPropPeriodo = `
+        SELECT
+          status_normalizado,
+          count(*) as qtd,
+          CAST(COALESCE(sum(valor_total), 0) AS TEXT) as soma,
+          sum(CASE WHEN status_vinculo != 'vinculado' THEN 1 ELSE 0 END) as sem_vinc
+        FROM bling_propostas
+        WHERE substr(data_proposta, 1, 10) >= {:ini} AND substr(data_proposta, 1, 10) <= {:fim}
+      `
+      if (escopoVendedorCrm) {
+        sqlPropPeriodo += ' AND vendedor_crm = {:escopoVend}'
+      }
+      sqlPropPeriodo += ' GROUP BY status_normalizado'
+
+      const qPropPeriodo = $app
         .db()
-        .newQuery(`
-          SELECT
-            status_normalizado,
-            count(*) as qtd,
-            CAST(COALESCE(sum(valor_total), 0) AS TEXT) as soma,
-            sum(CASE WHEN status_vinculo != 'vinculado' THEN 1 ELSE 0 END) as sem_vinc
-          FROM bling_propostas
-          WHERE substr(data_proposta, 1, 10) >= {:ini} AND substr(data_proposta, 1, 10) <= {:fim}
-          GROUP BY status_normalizado
-        `)
+        .newQuery(sqlPropPeriodo)
         .bind({ ini: dataInicioYmd, fim: dataFimYmd })
-        .all(rowsProp)
+      if (escopoVendedorCrm) {
+        qPropPeriodo.bind({ escopoVend: escopoVendedorCrm })
+      }
+      qPropPeriodo.all(rowsProp)
 
       for (let j = 0; j < rowsProp.length; j++) {
         const rp = rowsProp[j]
@@ -336,6 +420,11 @@ routerAdd('GET', '/backend/v1/painel/comercial', (e) => {
       // Visão Origem: data_origem (ou substr(created,1,10))
       // Visão Fechamento: data_fechamento (quando preenchida)
       let sqlOportunidades = ''
+      let condicaoVendedorOps = ''
+      if (escopoVendedorUserId) {
+        condicaoVendedorOps = ' AND (vendedor = {:escopoUser} OR responsavel_id = {:escopoUser})'
+      }
+
       if (modoVisao === 'fechamento') {
         sqlOportunidades = `
             SELECT
@@ -347,6 +436,7 @@ routerAdd('GET', '/backend/v1/painel/comercial', (e) => {
               (data_fechamento != '' AND substr(data_fechamento, 1, 10) >= {:ini} AND substr(data_fechamento, 1, 10) <= {:fim})
               OR (status = 'aberto' AND substr(data_prevista_fechamento, 1, 10) >= {:ini} AND substr(data_prevista_fechamento, 1, 10) <= {:fim})
             )
+            ${condicaoVendedorOps}
             GROUP BY status
           `
       } else {
@@ -361,6 +451,7 @@ routerAdd('GET', '/backend/v1/painel/comercial', (e) => {
               (data_origem != '' AND substr(data_origem, 1, 10) >= {:ini} AND substr(data_origem, 1, 10) <= {:fim})
               OR ((data_origem = '' OR data_origem IS NULL) AND substr(created, 1, 10) >= {:ini} AND substr(created, 1, 10) <= {:fim})
             )
+            ${condicaoVendedorOps}
             GROUP BY status
           `
       }
@@ -372,11 +463,14 @@ routerAdd('GET', '/backend/v1/painel/comercial', (e) => {
           soma: '',
         }),
       )
-      $app
+      const qOps = $app
         .db()
         .newQuery(sqlOportunidades)
         .bind({ ini: dataInicioYmd, fim: dataFimYmd })
-        .all(rowsOps)
+      if (escopoVendedorUserId) {
+        qOps.bind({ escopoUser: escopoVendedorUserId })
+      }
+      qOps.all(rowsOps)
 
       for (let k = 0; k < rowsOps.length; k++) {
         const ro = rowsOps[k]
@@ -469,20 +563,25 @@ routerAdd('GET', '/backend/v1/painel/comercial', (e) => {
             soma: '',
           }),
         )
-        $app
-          .db()
-          .newQuery(`
-            SELECT
-              substr(data_pedido, 1, 10) as dia_str,
-              situacao_bling_id,
-              count(*) as qtd,
-              CAST(COALESCE(sum(valor_total), 0) AS TEXT) as soma
-            FROM bling_pedidos
-            WHERE substr(data_pedido, 1, 10) >= {:ini} AND substr(data_pedido, 1, 10) <= {:fim}
-            GROUP BY dia_str, situacao_bling_id
-          `)
-          .bind({ ini: dataInicioYmd, fim: dataFimYmd })
-          .all(rowsPedDia)
+        let sqlPedDia = `
+          SELECT
+            substr(data_pedido, 1, 10) as dia_str,
+            situacao_bling_id,
+            count(*) as qtd,
+            CAST(COALESCE(sum(valor_total), 0) AS TEXT) as soma
+          FROM bling_pedidos
+          WHERE substr(data_pedido, 1, 10) >= {:ini} AND substr(data_pedido, 1, 10) <= {:fim}
+        `
+        if (escopoVendedorCrm) {
+          sqlPedDia += ' AND vendedor_crm = {:escopoVend}'
+        }
+        sqlPedDia += ' GROUP BY dia_str, situacao_bling_id'
+
+        const qPedDia = $app.db().newQuery(sqlPedDia).bind({ ini: dataInicioYmd, fim: dataFimYmd })
+        if (escopoVendedorCrm) {
+          qPedDia.bind({ escopoVend: escopoVendedorCrm })
+        }
+        qPedDia.all(rowsPedDia)
 
         for (let pd = 0; pd < rowsPedDia.length; pd++) {
           const rowD = rowsPedDia[pd]
@@ -513,19 +612,27 @@ routerAdd('GET', '/backend/v1/painel/comercial', (e) => {
             qtd: 0,
           }),
         )
-        $app
+        let sqlPropDia = `
+          SELECT
+            substr(data_proposta, 1, 10) as dia_str,
+            status_normalizado,
+            count(*) as qtd
+          FROM bling_propostas
+          WHERE substr(data_proposta, 1, 10) >= {:ini} AND substr(data_proposta, 1, 10) <= {:fim}
+        `
+        if (escopoVendedorCrm) {
+          sqlPropDia += ' AND vendedor_crm = {:escopoVend}'
+        }
+        sqlPropDia += ' GROUP BY dia_str, status_normalizado'
+
+        const qPropDia = $app
           .db()
-          .newQuery(`
-            SELECT
-              substr(data_proposta, 1, 10) as dia_str,
-              status_normalizado,
-              count(*) as qtd
-            FROM bling_propostas
-            WHERE substr(data_proposta, 1, 10) >= {:ini} AND substr(data_proposta, 1, 10) <= {:fim}
-            GROUP BY dia_str, status_normalizado
-          `)
+          .newQuery(sqlPropDia)
           .bind({ ini: dataInicioYmd, fim: dataFimYmd })
-          .all(rowsPropDia)
+        if (escopoVendedorCrm) {
+          qPropDia.bind({ escopoVend: escopoVendedorCrm })
+        }
+        qPropDia.all(rowsPropDia)
 
         for (let prD = 0; prD < rowsPropDia.length; prD++) {
           const rowPrD = rowsPropDia[prD]
@@ -605,20 +712,28 @@ routerAdd('GET', '/backend/v1/painel/comercial', (e) => {
             soma: '',
           }),
         )
-        $app
+        let sqlPedMes = `
+          SELECT
+            cast(substr(data_pedido, 6, 2) as integer) as mes_num,
+            count(*) as qtd,
+            CAST(COALESCE(sum(valor_total), 0) AS TEXT) as soma
+          FROM bling_pedidos
+          WHERE (situacao_bling_id = '6' OR situacao_bling_id = '9')
+            AND substr(data_pedido, 1, 4) = {:anoStr}
+        `
+        if (escopoVendedorCrm) {
+          sqlPedMes += ' AND vendedor_crm = {:escopoVend}'
+        }
+        sqlPedMes += ' GROUP BY mes_num'
+
+        const qPedMes = $app
           .db()
-          .newQuery(`
-            SELECT
-              cast(substr(data_pedido, 6, 2) as integer) as mes_num,
-              count(*) as qtd,
-              CAST(COALESCE(sum(valor_total), 0) AS TEXT) as soma
-            FROM bling_pedidos
-            WHERE (situacao_bling_id = '6' OR situacao_bling_id = '9')
-              AND substr(data_pedido, 1, 4) = {:anoStr}
-            GROUP BY mes_num
-          `)
+          .newQuery(sqlPedMes)
           .bind({ anoStr: String(anoParam) })
-          .all(rowsPedMes)
+        if (escopoVendedorCrm) {
+          qPedMes.bind({ escopoVend: escopoVendedorCrm })
+        }
+        qPedMes.all(rowsPedMes)
 
         for (let pm = 0; pm < rowsPedMes.length; pm++) {
           const rowP = rowsPedMes[pm]
@@ -641,19 +756,27 @@ routerAdd('GET', '/backend/v1/painel/comercial', (e) => {
             conv: 0,
           }),
         )
-        $app
+        let sqlPropMes = `
+          SELECT
+            cast(substr(data_proposta, 6, 2) as integer) as mes_num,
+            count(*) as total,
+            sum(CASE WHEN status_normalizado = 'convertida' THEN 1 ELSE 0 END) as conv
+          FROM bling_propostas
+          WHERE substr(data_proposta, 1, 4) = {:anoStr}
+        `
+        if (escopoVendedorCrm) {
+          sqlPropMes += ' AND vendedor_crm = {:escopoVend}'
+        }
+        sqlPropMes += ' GROUP BY mes_num'
+
+        const qPropMes = $app
           .db()
-          .newQuery(`
-            SELECT
-              cast(substr(data_proposta, 6, 2) as integer) as mes_num,
-              count(*) as total,
-              sum(CASE WHEN status_normalizado = 'convertida' THEN 1 ELSE 0 END) as conv
-            FROM bling_propostas
-            WHERE substr(data_proposta, 1, 4) = {:anoStr}
-            GROUP BY mes_num
-          `)
+          .newQuery(sqlPropMes)
           .bind({ anoStr: String(anoParam) })
-          .all(rowsPropMes)
+        if (escopoVendedorCrm) {
+          qPropMes.bind({ escopoVend: escopoVendedorCrm })
+        }
+        qPropMes.all(rowsPropMes)
 
         for (let prM = 0; prM < rowsPropMes.length; prM++) {
           const rowPr = rowsPropMes[prM]
@@ -678,20 +801,30 @@ routerAdd('GET', '/backend/v1/painel/comercial', (e) => {
             soma: '',
           }),
         )
-        $app
+        let condicaoUserOpsMes = ''
+        if (escopoVendedorUserId) {
+          condicaoUserOpsMes = ' AND (vendedor = {:escopoUser} OR responsavel_id = {:escopoUser})'
+        }
+
+        let sqlOpsMes = `
+          SELECT
+            cast(substr(CASE WHEN ${campoDataOp} != '' THEN ${campoDataOp} ELSE created END, 6, 2) as integer) as mes_num,
+            status,
+            count(*) as qtd,
+            CAST(COALESCE(sum(valor), 0) AS TEXT) as soma
+          FROM oportunidades
+          WHERE substr(CASE WHEN ${campoDataOp} != '' THEN ${campoDataOp} ELSE created END, 1, 4) = {:anoStr}
+          ${condicaoUserOpsMes}
+          GROUP BY mes_num, status
+        `
+        const qOpsMes = $app
           .db()
-          .newQuery(`
-            SELECT
-              cast(substr(CASE WHEN ${campoDataOp} != '' THEN ${campoDataOp} ELSE created END, 6, 2) as integer) as mes_num,
-              status,
-              count(*) as qtd,
-              CAST(COALESCE(sum(valor), 0) AS TEXT) as soma
-            FROM oportunidades
-            WHERE substr(CASE WHEN ${campoDataOp} != '' THEN ${campoDataOp} ELSE created END, 1, 4) = {:anoStr}
-            GROUP BY mes_num, status
-          `)
+          .newQuery(sqlOpsMes)
           .bind({ anoStr: String(anoParam) })
-          .all(rowsOpsMes)
+        if (escopoVendedorUserId) {
+          qOpsMes.bind({ escopoUser: escopoVendedorUserId })
+        }
+        qOpsMes.all(rowsOpsMes)
 
         for (let om = 0; om < rowsOpsMes.length; om++) {
           const rowO = rowsOpsMes[om]
