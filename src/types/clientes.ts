@@ -261,8 +261,10 @@ export function podeEditarOportunidade(user: Usuario | null, op: OportunidadeMod
   ) {
     return false
   }
-  if (user.perfil === 'ceo_financeiro') return true
-  return op.responsavel_id === user.id
+  // ceo_financeiro e coordenador_vendas podem editar oportunidades CRM-native
+  if (user.perfil === 'ceo_financeiro' || user.perfil === 'coordenador_vendas') return true
+  // Vendedor só pode editar se for a oportunidade dele (por vendedor ou responsavel_id)
+  return op.vendedor === user.id || op.responsavel_id === user.id
 }
 
 export function podeExcluirOportunidade(user: Usuario | null, op: OportunidadeModel): boolean {

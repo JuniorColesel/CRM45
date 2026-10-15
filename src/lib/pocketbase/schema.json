@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-15T20:30:04.787Z",
+  "generatedAt": "2026-10-15T20:53:49.419Z",
   "collections": [
     {
       "name": "users",
@@ -354,9 +354,9 @@
       "apiRules": {
         "list": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && (vendedor.perfil = 'vendedor_1' || vendedor.perfil = 'vendedor_2' || vendedor = @request.auth.id || responsavel_id.perfil = 'vendedor_1' || responsavel_id.perfil = 'vendedor_2' || responsavel_id = @request.auth.id || (vendedor = null && responsavel_id = null))) || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && (vendedor = @request.auth.id || responsavel_id = @request.auth.id)) || (@request.auth.perfil = 'compras_grandes_clientes' && cliente_id.grande_cliente = true))",
         "view": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && (@request.auth.perfil = 'ceo_financeiro' || (@request.auth.perfil = 'coordenador_vendas' && (vendedor.perfil = 'vendedor_1' || vendedor.perfil = 'vendedor_2' || vendedor = @request.auth.id || responsavel_id.perfil = 'vendedor_1' || responsavel_id.perfil = 'vendedor_2' || responsavel_id = @request.auth.id || (vendedor = null && responsavel_id = null))) || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && (vendedor = @request.auth.id || responsavel_id = @request.auth.id)) || (@request.auth.perfil = 'compras_grandes_clientes' && cliente_id.grande_cliente = true))",
-        "create": "@request.auth.id != '' && @request.auth.perfil != 'estoque' && @request.auth.perfil != 'compras_grandes_clientes' && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || ((@request.auth.perfil = 'vendedor_1' || @request.auth.perfil = 'vendedor_2') && (vendedor = @request.auth.id || responsavel_id = @request.auth.id || @request.body.vendedor = @request.auth.id || @request.body.responsavel_id = @request.auth.id)))",
-        "update": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro' && (origem = '' || origem = 'crm')",
-        "delete": "@request.auth.id != '' && @request.auth.perfil = 'ceo_financeiro' && (origem = '' || origem = 'crm')"
+        "create": "@request.auth.id != '' && @request.auth.perfil != 'estoque'",
+        "update": "@request.auth.id != '' && ((origem = '' || origem = 'crm') && tipo_origem != 'bling_pedido' && tipo_origem != 'bling_proposta') && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || responsavel_id = @request.auth.id || vendedor = @request.auth.id)",
+        "delete": "@request.auth.id != '' && ((origem = '' || origem = 'crm') && tipo_origem != 'bling_pedido' && tipo_origem != 'bling_proposta') && (@request.auth.perfil = 'ceo_financeiro' || @request.auth.perfil = 'coordenador_vendas' || responsavel_id = @request.auth.id || vendedor = @request.auth.id)"
       },
       "fields": [
         {

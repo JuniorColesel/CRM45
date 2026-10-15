@@ -2570,7 +2570,7 @@ routerAdd(
               responsavel_id = CASE
                 WHEN (SELECT bp.responsavel_id FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id) != ''
                 THEN (SELECT bp.responsavel_id FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id)
-                ELSE NULL
+                ELSE ''
               END,
               data_origem = CASE
                 WHEN (SELECT bp.data_proposta FROM bling_propostas bp WHERE bp.bling_proposta_id = oportunidades.bling_proposta_id) != ''
@@ -2672,7 +2672,7 @@ routerAdd(
                 WHEN (bp.situacao_bling_nome = 'Cancelado' OR bp.situacao_bling_id = '12') AND {:motivoCancelado} != '' THEN {:motivoCancelado}
                 ELSE ''
               END as motivo_perda_id,
-              CASE WHEN bp.responsavel_id IS NOT NULL AND bp.responsavel_id != '' THEN bp.responsavel_id ELSE NULL END as responsavel_id,
+              CASE WHEN bp.responsavel_id IS NOT NULL AND bp.responsavel_id != '' THEN bp.responsavel_id ELSE '' END as responsavel_id,
               CASE WHEN bp.data_pedido != '' THEN substr(bp.data_pedido, 1, 10) ELSE '' END as data_origem,
               CASE WHEN bp.data_pedido != '' THEN substr(bp.data_pedido, 1, 10) ELSE '' END as data_prevista_fechamento,
               CASE
@@ -2737,7 +2737,7 @@ routerAdd(
               responsavel_id = CASE
                 WHEN (SELECT bp.responsavel_id FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) != ''
                 THEN (SELECT bp.responsavel_id FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id)
-                ELSE NULL
+                ELSE ''
               END,
               data_origem = CASE
                 WHEN (SELECT bp.data_pedido FROM bling_pedidos bp WHERE bp.bling_pedido_id = oportunidades.bling_pedido_id) != ''
@@ -3325,7 +3325,7 @@ cronAdd('bling_sync_automatica', '*/15 * * * *', () => {
             WHEN (bp.situacao_bling_nome = 'Cancelado' OR bp.situacao_bling_id = '12') AND {:motivoCancelado} != '' THEN {:motivoCancelado}
             ELSE ''
           END as motivo_perda_id,
-          CASE WHEN bp.responsavel_id IS NOT NULL AND bp.responsavel_id != '' THEN bp.responsavel_id ELSE NULL END as responsavel_id,
+          CASE WHEN bp.responsavel_id IS NOT NULL AND bp.responsavel_id != '' THEN bp.responsavel_id ELSE '' END as responsavel_id,
           CASE WHEN bp.data_pedido != '' THEN substr(bp.data_pedido, 1, 10) ELSE '' END as data_origem,
           CASE WHEN bp.data_pedido != '' THEN substr(bp.data_pedido, 1, 10) ELSE '' END as data_prevista_fechamento,
           CASE

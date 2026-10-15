@@ -72,6 +72,7 @@ export default function OportunidadeModal({
   const [clienteId, setClienteId] = useState('')
   const [valor, setValor] = useState('')
   const [etapaId, setEtapaId] = useState('')
+  const [vendedorId, setVendedorId] = useState('')
   const [responsavelId, setResponsavelId] = useState('')
   const [status, setStatus] = useState<StatusOportunidade>('aberto')
   const [motivoPerdaId, setMotivoPerdaId] = useState('')
@@ -85,10 +86,10 @@ export default function OportunidadeModal({
   const [saving, setSaving] = useState(false)
   const [erros, setErros] = useState<Record<string, string>>({})
 
-  // Regra de permissão para escolha do responsável:
-  // - Vendedores (vendedor_1, vendedor_2): preenchido automaticamente com o usuário logado e travado para eles
-  // - ceo_financeiro e coordenador_vendas: podem escolher qualquer usuário livremente
-  const podeEscolherResponsavel =
+  // Regra Parte D e E: VENDEDOR ≠ RESPONSÁVEL
+  // - ceo_financeiro e coordenador_vendas: podem escolher/transferir o Vendedor livremente (ou deixar sem vendedor)
+  // - vendedor comum (vendedor_1, vendedor_2): vendedor inicial = próprio usuário; NÃO pode transferir a carteira para outro vendedor
+  const podeTransferirVendedor =
     user?.perfil === 'ceo_financeiro' || user?.perfil === 'coordenador_vendas'
 
   useEffect(() => {
@@ -97,6 +98,7 @@ export default function OportunidadeModal({
         setClienteId(oportunidade.cliente_id || '')
         setValor(oportunidade.valor !== undefined ? String(oportunidade.valor) : '')
         setEtapaId(oportunidade.etapa_id || etapas[0]?.id || '')
+        setVendedorId(oportunidade.vendedor || user?.id || '')
         setResponsavelId(oportunidade.responsavel_id || user?.id || '')
         setStatus(oportunidade.status || 'aberto')
         setMotivoPerdaId(oportunidade.motivo_perda_id || '')
@@ -110,7 +112,8 @@ export default function OportunidadeModal({
         setClienteId('')
         setValor('')
         setEtapaId(initialEtapaId || etapas[0]?.id || '')
-        // Para vendedor, fixa no logado; para admin/coord, inicia com o logado se disponível
+        // Vendedor inicial: para vendedor comum = ele mesmo; para CEO/coord = logado se disponível
+        setVendedorId(user?.id || usuarios[0]?.id || '')
         setResponsavelId(user?.id || usuarios[0]?.id || '')
         setStatus('aberto')
         setMotivoPerdaId('')
@@ -150,10 +153,8 @@ export default function OportunidadeModal({
     if (!etapaId) {
       novos.etapa_id = 'Selecione uma etapa do funil.'
     }
-    if (!podeEscolherResponsavel && !user?.id) {
-      novos.responsavel_id = 'Usuário não identificado.'
-    } else if (podeEscolherResponsavel && !responsavelId) {
-      novos.responsavel_id = 'Selecione um responsável.'
+    if (!podeTransferirVendedor && !user?.id) {
+      novos.vendedor_id = 'Usuário vendedor não identificado.'
     }
     if (status === 'perdido' && !motivoPerdaId) {
       novos.motivo_perda_id = 'Informe o motivo da perda da oportunidade.'
@@ -187,7 +188,15 @@ export default function OportunidadeModal({
     setSaving(true)
     try {
       const valorNum = parseFloat(valor.replace(',', '.'))
-      const respFinal = podeEscolherResponsavel ? responsavelId : user?.id || ''
+      // Regra Parte D e E: Vendedor x Responsável
+      // Vendedor é o responsável comercial da oportunidade.
+      // Responsável permanece para tarefa/atividade ou interno.
+      const vendFinal = podeTransferirVendedor
+        ? vendedorId === 'sem_vendedor'
+          ? ''
+          : vendedorId
+        : user?.id || ''
+      const respFinal = responsavelId || vendFinal || user?.id || ''
 
       // Regra de Fechamento Automático:
       // Ao salvar uma oportunidade com status "ganho" ou "perdido",
@@ -203,6 +212,7 @@ export default function OportunidadeModal({
         cliente_id: clienteId,
         valor: valorNum,
         etapa_id: etapaId,
+        vendedor: vendFinal,
         responsavel_id: respFinal,
         status,
         motivo_perda_id: status === 'perdido' ? motivoPerdaId || null : null,
@@ -406,18 +416,24 @@ export default function OportunidadeModal({
             </div>
           </div>
 
-          {/* Responsável e Status */}
+          {/* Vendedor Comercial e Status */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label htmlFor="op_responsavel" className="text-xs font-semibold text-[#0F172A]">
-                Responsável <span className="text-[#DC2626]">*</span>
+              <Label htmlFor="op_vendedor" className="text-xs font-semibold text-[#0F172A]">
+                Vendedor Comercial <span className="text-[#DC2626]">*</span>
               </Label>
-              {podeEscolherResponsavel ? (
-                <Select value={responsavelId} onValueChange={setResponsavelId}>
-                  <SelectTrigger id="op_responsavel">
-                    <SelectValue placeholder="Selecione o responsável" />
+              {podeTransferirVendedor ? (
+                <Select
+                  value={vendedorId || 'sem_vendedor'}
+                  onValueChange={(val) => setVendedorId(val === 'sem_vendedor' ? '' : val)}
+                >
+                  <SelectTrigger id="op_vendedor">
+                    <SelectValue placeholder="Selecione o vendedor" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="sem_vendedor">
+                      <span className="text-[#64748B] italic">Sem vendedor</span>
+                    </SelectItem>
                     {usuarios.map((u) => (
                       <SelectItem key={u.id} value={u.id}>
                         {u.nome} ({u.perfil})
@@ -427,20 +443,22 @@ export default function OportunidadeModal({
                 </Select>
               ) : (
                 <Input
-                  id="op_responsavel"
+                  id="op_vendedor"
                   value={user?.nome ? `${user.nome} (Você)` : 'Você'}
                   disabled
                   className="bg-slate-100 text-[#64748B] cursor-not-allowed"
                 />
               )}
-              {!podeEscolherResponsavel && (
+              {!podeTransferirVendedor ? (
                 <p className="text-[11px] text-[#64748B]">
-                  Preenchido automaticamente com seu usuário (vendedor).
+                  Preenchido automaticamente com seu usuário vendedor.
+                </p>
+              ) : (
+                <p className="text-[11px] text-[#64748B]">
+                  Coordenação/CEO podem atribuir ou transferir carteira comercial.
                 </p>
               )}
-              {erros.responsavel_id && (
-                <p className="text-xs text-[#DC2626]">{erros.responsavel_id}</p>
-              )}
+              {erros.vendedor_id && <p className="text-xs text-[#DC2626]">{erros.vendedor_id}</p>}
             </div>
 
             <div className="space-y-1.5">
