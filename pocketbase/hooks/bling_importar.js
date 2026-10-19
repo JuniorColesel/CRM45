@@ -832,435 +832,701 @@ routerAdd(
       })
     }
   },
+      let totalPedidosSemCliente = 0
+      let paginasPedidosLidas = 0
+=======
   $apis.requireAuth(),
 )
 
+// ============================================================================
+// WORKER AD-HOC DE SEGUNDO PLANO (CRON RUNNER IDIOMÁTICO)
+// ============================================================================
+cronAdd('bling_sync_manual_runner', '* * * * *', () => {
+  let logIdParaExecutar = ''
+  try {
+    const limiteLockIso = new Date(Date.now() - 10 * 60 * 1000).toISOString()
+    const logsProcessando = $app.findRecordsByFilter(
+      'bling_sync_logs',
+      `status = 'processando' && iniciado_em >= '${limiteLockIso}'`,
+      '-created',
+      1,
+      0,
+    )
+    if (logsProcessando && logsProcessando.length > 0) {
+      logIdParaExecutar = logsProcessando[0].id
+    }
+  } catch (_) {}
 
-      if (typeof sitRaw === 'object' && sitRaw !== null) {
-        sitNome = String(sitRaw.nome || sitRaw.descricao || sitRaw.valor || '').trim()
-      } else if (typeof sitRaw === 'string') {
-        sitNome = sitRaw.trim()
+  if (!logIdParaExecutar) {
+    return
+  }
+
+  // --- MOTOR DE SINCRONIZAÇÃO TOTALMENTE INLINE DENTRO DO CALLBACK DO RUNNER ---
+  // (O JSVM do PocketBase roda cada callback em VM isolada; funções auxiliares devem ser locais)
+  try {
+    console.log('[BLING-RUNNER] Disparando motor para o registro de log:', logIdParaExecutar)
+
+    function encodeBase64(str) {
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+      let output = ''
+      for (
+        let block = 0, charCode, idx = 0, map = chars;
+        str.charAt(idx | 0) || ((map = '='), idx % 1);
+        output += map.charAt(63 & (block >> (8 - (idx % 1) * 8)))
+      ) {
+        charCode = str.charCodeAt((idx += 3 / 4))
+        if (charCode > 0xff) throw new Error('Caractere inválido para base64')
+        block = (block << 8) | charCode
       }
-
-      if (!sitNome && sId && mapSituacoesModulos[sId]) {
-        sitNome = mapSituacoesModulos[sId]
-      }
-
-      const chaveNormalizada = normalizarTextoSemAcentos(sitNome)
-      let statusNormalizado = 'outro'
-      let visivelFunil = false
-
-      if (MAPA_SITUACOES_PROPOSTAS_DETERMINISTICO[chaveNormalizada]) {
-        const cfg = MAPA_SITUACOES_PROPOSTAS_DETERMINISTICO[chaveNormalizada]
-        statusNormalizado = cfg.status
-        visivelFunil = cfg.visivel
-        // Se conhecido, NÃO incrementa statusNaoMapeados nem gera aviso
-      } else {
-        statusNormalizado = 'outro'
-        visivelFunil = false
-        statusNaoMapeados++
-        avisosGerais.push(
-          'Situação de proposta não mapeada: "' +
-            (sitNome || sId || 'desconhecida') +
-            '" classificada como "outro" (visivel_funil=false).',
-        )
-      }
-
-      if (!sitNome) {
-        sitNome = sId ? 'Situação #' + sId : 'Desconhecida'
-      }
-
-      return {
-        id: sId,
-        nome: sitNome,
-        status_normalizado: statusNormalizado,
-        visivel_funil: visivelFunil,
-      }
+      return output
     }
 
-    let paginaPropostas = 1
-    const limitePropostas = 100
-    let temMaisPropostas = true
-    const maxPaginasPropostas = 300
-    let blingPropostasCol = null
-    try {
-      blingPropostasCol = $app.findCollectionByNameOrId('bling_propostas')
-    } catch (_) {}
-
-    // Execução independente e protegida da leitura de propostas
-    let escopoPropostasAtivo = true
-    while (temMaisPropostas && paginaPropostas <= maxPaginasPropostas && blingPropostasCol) {
-      const urlPropostas =
-        'https://api.bling.com.br/Api/v3/propostas-comerciais?pagina=' +
-        paginaPropostas +
-        '&limite=' +
-        limitePropostas
-
-      const tInicioPaginaProp = Date.now()
-      let resPropostas = null
+    function executarRefreshOAuth(conn) {
       try {
-        resPropostas = getBlingGet(urlPropostas, 3)
-      } catch (errPropReq) {
-        const duracaoPaginaProp = Date.now() - tInicioPaginaProp
-        const msgErroPropReq =
-          'Página ' +
-          paginaPropostas +
-          ' de propostas falhou após ' +
-          duracaoPaginaProp +
-          'ms: ' +
-          String(errPropReq.message || errPropReq)
-        avisosGerais.push(msgErroPropReq)
-        errosPropostas.push({
-          pagina: paginaPropostas,
-          status_http: 0,
-          duracao_ms: duracaoPaginaProp,
-          erro: msgErroPropReq,
+        const refreshToken = conn.getString('refresh_token')
+        if (!refreshToken) return null
+
+        let cId = ''
+        let cSec = ''
+        try {
+          cId = $os.getenv('BLING_CLIENT_ID') || $secrets.get('BLING_CLIENT_ID') || ''
+          cSec = $os.getenv('BLING_CLIENT_SECRET') || $secrets.get('BLING_CLIENT_SECRET') || ''
+        } catch (_) {}
+
+        if (!cId || !cSec) return null
+
+        const b64 = encodeBase64(cId + ':' + cSec)
+        const refreshBody = 'grant_type=refresh_token&refresh_token=' + encodeURIComponent(refreshToken)
+
+        const refreshRes = $http.send({
+          url: 'https://www.bling.com.br/Api/v3/oauth/token',
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            Authorization: 'Basic ' + b64,
+            'enable-jwt': '1',
+          },
+          body: refreshBody,
+          timeout: 15,
         })
-        break
-      }
 
-      const duracaoPaginaProp = Date.now() - tInicioPaginaProp
-      paginasPropostasLidas++
+        if (refreshRes && refreshRes.statusCode === 200) {
+          const rData = refreshRes.json || {}
+          const novoAccess = rData.access_token || ''
+          const novoRefresh = rData.refresh_token || refreshToken
+          const novoExpiresIn = Number(rData.expires_in) || 21600
+          const novoExpiresAt = new Date(Date.now() + novoExpiresIn * 1000)
 
-      // Verificação de escopo OAuth não concedido / 403 Forbidden
-      if (resPropostas.statusCode === 403) {
-        escopoPropostasAtivo = false
-        const msg403 =
-          'Escopo OAuth "propostas-comerciais:read" não concedido pelo Bling (HTTP 403). Conexão requer reautorização manual pelo usuário em /bling.'
-        avisosGerais.push(msg403)
-        errosPropostas.push({
-          pagina: paginaPropostas,
-          status_http: 403,
-          duracao_ms: duracaoPaginaProp,
-          erro: msg403,
-        })
-        break
-      }
-
-      if (resPropostas.statusCode === 401) {
-        const msg401Prop =
-          'Token do Bling não autorizado ou expirado ao ler propostas comerciais (HTTP 401).'
-        avisosGerais.push(msg401Prop)
-        errosPropostas.push({
-          pagina: paginaPropostas,
-          status_http: 401,
-          duracao_ms: duracaoPaginaProp,
-          erro: msg401Prop,
-        })
-        break
-      }
-
-      if (resPropostas.statusCode !== 200) {
-        const msgHttpProp =
-          'Bling retornou HTTP ' +
-          resPropostas.statusCode +
-          ' ao buscar propostas comerciais na página ' +
-          paginaPropostas +
-          ' (' +
-          duracaoPaginaProp +
-          'ms)'
-        avisosGerais.push(msgHttpProp)
-        errosPropostas.push({
-          pagina: paginaPropostas,
-          status_http: resPropostas.statusCode,
-          duracao_ms: duracaoPaginaProp,
-          erro: msgHttpProp,
-        })
-        break
-      }
-
-      const dataPropostasJson = resPropostas.json || {}
-      const listaPropostas = dataPropostasJson.data || []
-
-      if (!listaPropostas || listaPropostas.length === 0) {
-        temMaisPropostas = false
-        break
-      }
-
-      totalPropostasLidas += listaPropostas.length
-
-      for (let pr = 0; pr < listaPropostas.length; pr++) {
-        const propItem = listaPropostas[pr]
-        const propostaIdRaw = propItem.id ? String(propItem.id) : ''
-        const numeroProposta = propItem.numero ? String(propItem.numero) : ''
-        const contatoProp = propItem.contato || {}
-        const propContatoBlingId = contatoProp.id ? String(contatoProp.id) : ''
-        const propDocOriginal = (contatoProp.numeroDocumento || '').trim()
-        const propDoc = normalizarDoc(propDocOriginal)
-        // Captura resiliente de dados ausentes (contato_nome, documento, vendedor_bling, situacao_bling_id)
-        // Se a listagem do Bling não trouxe contato.nome ou documento na proposta,
-        // enriquecer a partir do cliente vinculado ou mapeado por bling_contato_id
-        const propNomeBruto = (contatoProp.nome || propItem.aosCuidadosDe || '').trim()
-        const dataPropostaStr = (propItem.data || '').trim()
-        const dataValidadeStr = (propItem.dataValidade || propItem.dataProximoContato || '').trim()
-        const totalProposta = Number(
-          propItem.total !== undefined
-            ? propItem.total
-            : propItem.valor !== undefined
-              ? propItem.valor
-              : propItem.totalProdutos !== undefined
-                ? propItem.totalProdutos
-                : 0,
-        )
-
-        // Resolução de Situação
-        const sitObjProp = propItem.situacao || {}
-        let sitIdProp = ''
-        if (typeof sitObjProp === 'object' && sitObjProp !== null) {
-          sitIdProp = sitObjProp.id ? String(sitObjProp.id) : ''
-        }
-        const resolucaoSitProp = resolverSituacaoProposta(sitObjProp, sitIdProp)
-
-        // Vendedor da proposta: enriquecer seletivamente via GET /Api/v3/propostas-comerciais/{id} se necessário
-        let vendedorBlingNome = ''
-        if (propItem.vendedor && propItem.vendedor.nome) {
-          vendedorBlingNome = propItem.vendedor.nome
-        }
-
-        if (!vendedorBlingNome && propostaIdRaw) {
-          const propJaSalva = mapBlingPropostasExistentes[propostaIdRaw]
-          const precisaEnriquecerProp = !propJaSalva || !propJaSalva.getString('vendedor_crm')
-          if (precisaEnriquecerProp) {
-            try {
-              const resDetProp = getBlingGet(
-                'https://api.bling.com.br/Api/v3/propostas-comerciais/' + propostaIdRaw,
-                2,
-              )
-              if (
-                resDetProp &&
-                resDetProp.statusCode === 200 &&
-                resDetProp.json &&
-                resDetProp.json.data
-              ) {
-                const detProp = resDetProp.json.data
-                if (detProp.vendedor && detProp.vendedor.nome) {
-                  vendedorBlingNome = detProp.vendedor.nome
-                }
-              }
-            } catch (_) {}
-          } else if (propJaSalva) {
-            vendedorBlingNome = propJaSalva.getString('vendedor_bling') || ''
+          if (novoAccess) {
+            conn.set('access_token', novoAccess)
+            conn.set('refresh_token', novoRefresh)
+            conn.set('expires_at', novoExpiresAt.toISOString())
+            conn.set('last_refresh_at', new Date().toISOString())
+            conn.set('status', 'conectado')
+            conn.set('ultimo_erro', '')
+            $app.save(conn)
+            return novoAccess
           }
-        }
-
-        const vendedorCrm = mapearVendedor(vendedorBlingNome)
-        const responsavelUsuarioId = resolverUsuarioIdPorVendedorCrm(vendedorCrm)
-
-        // Matching de Cliente
-        // Prioridade: 1. bling_id; 2. CNPJ/CPF; 3. Consumidor Final; 4. Razão Social/Nome
-        let clienteAlvoProp = null
-        if (propContatoBlingId && mapPorBlingId[propContatoBlingId]) {
-          clienteAlvoProp = mapPorBlingId[propContatoBlingId]
-        } else if (propDoc && mapPorDoc[propDoc]) {
-          clienteAlvoProp = mapPorDoc[propDoc]
-        } else if (isConsumidorFinalNome(propNomeBruto) && recConsumidorFinal) {
-          clienteAlvoProp = recConsumidorFinal
-        } else if (propNomeBruto && mapPorNomeEmpresa[propNomeBruto.toLowerCase()]) {
-          clienteAlvoProp = mapPorNomeEmpresa[propNomeBruto.toLowerCase()]
-        }
-
-        // Se nome ou documento vierem vazios na proposta, aproveitar os dados do cliente correspondente
-        const propNomeFinal =
-          propNomeBruto ||
-          (clienteAlvoProp
-            ? clienteAlvoProp.getString('nome_contato') || clienteAlvoProp.getString('nome_empresa')
-            : '')
-        const propDocFinal =
-          propDocOriginal || (clienteAlvoProp ? clienteAlvoProp.getString('cnpj_cpf') : '')
-
-        // Se cliente não encontrado: NÃO descartar proposta.
-        // Salvar cliente_id = null, status_vinculo = pendente, bling_contato_id = valor real.
-        let statusVinculoProp = 'vinculado'
-        let clienteIdParaSalvarProp = null
-        if (clienteAlvoProp) {
-          clienteIdParaSalvarProp = clienteAlvoProp.id
-          statusVinculoProp = 'vinculado'
         } else {
-          statusVinculoProp = 'pendente'
-          totalPropostasSemCliente++
+          const errDet = refreshRes && refreshRes.json ? JSON.stringify(refreshRes.json) : ''
+          conn.set('status', 'erro_renovacao')
+          conn.set('ultimo_erro', 'Falha no refresh automático: ' + errDet)
+          $app.save(conn)
         }
+      } catch (errRef) {
+        try {
+          conn.set('status', 'erro_renovacao')
+          conn.set('ultimo_erro', 'Exceção no refresh: ' + String(errRef.message || errRef))
+          $app.save(conn)
+        } catch (_) {}
+      }
+      return null
+    }
 
-        // Persistência Idempotente em bling_propostas (UPSERT por bling_proposta_id)
-        if (blingPropostasCol && propostaIdRaw) {
-          let recProposta = mapBlingPropostasExistentes[propostaIdRaw]
-          let isNovaProposta = false
+    function getValidBlingAccessToken() {
+      try {
+        const conns = $app.findRecordsByFilter('bling_connections', '', '-created', 1, 0)
+        if (conns && conns.length > 0) {
+          const conn = conns[0]
+          const status = conn.getString('status')
+          const accessToken = conn.getString('access_token')
+          const expiresAtStr = conn.getString('expires_at')
 
-          if (!recProposta) {
-            recProposta = new Record(blingPropostasCol)
-            recProposta.set('bling_proposta_id', propostaIdRaw)
-            isNovaProposta = true
+          if (status === 'conectado' && accessToken) {
+            const expiraEm = expiresAtStr ? new Date(expiresAtStr).getTime() : 0
+            const agora = Date.now()
+            const margem = 5 * 60 * 1000 // 5 minutos de margem de segurança
+
+            if (expiraEm > agora + margem) {
+              return { token: accessToken, conn: conn, renovado: false }
+            }
+
+            const tokenRenovado = executarRefreshOAuth(conn)
+            if (tokenRenovado) {
+              return { token: tokenRenovado, conn: conn, renovado: true }
+            }
           }
+        }
+      } catch (_) {}
 
-          recProposta.set('numero', numeroProposta)
-          recProposta.set('cliente_id', clienteIdParaSalvarProp)
-          recProposta.set('bling_contato_id', propContatoBlingId)
-          recProposta.set('contato_nome', propNomeFinal)
-          recProposta.set('documento', propDocFinal)
-          recProposta.set('vendedor_bling', vendedorBlingNome)
-          recProposta.set('vendedor_crm', vendedorCrm)
-          recProposta.set('responsavel_id', responsavelUsuarioId)
+      return { token: '', conn: null, renovado: false }
+    }
 
-          if (dataPropostaStr) {
-            recProposta.set('data_proposta', dataPropostaStr.slice(0, 10))
+    function executarMotorSincronizacaoBlingInline(logRecordId) {
+      const t0 = Date.now()
+      let logRecord = null
+      try {
+        if (logRecordId) {
+          logRecord = $app.findRecordById('bling_sync_logs', logRecordId)
+        }
+      } catch (_) {}
+
+      if (!logRecord) {
+        try {
+          const limiteLockIso = new Date(Date.now() - 10 * 60 * 1000).toISOString()
+          const logsProc = $app.findRecordsByFilter(
+            'bling_sync_logs',
+            `status = 'processando' && iniciado_em >= '${limiteLockIso}'`,
+            '-created',
+            1,
+            0,
+          )
+          if (logsProc && logsProc.length > 0) {
+            logRecord = logsProc[0]
           }
-          if (dataValidadeStr) {
-            recProposta.set('data_validade', dataValidadeStr.slice(0, 10))
+        } catch (_) {}
+      }
+
+      const tokenInfo = getValidBlingAccessToken()
+      let currentAccessToken = tokenInfo.token
+      const connectionRecord = tokenInfo.conn
+
+      if (!currentAccessToken) {
+        if (logRecord) {
+          try {
+            logRecord.set('status', 'erro')
+            logRecord.set('finalizado_em', new Date().toISOString())
+            logRecord.set('mensagem_resumo', 'Token OAuth do Bling inválido ou desconectado.')
+            logRecord.set('erros', ['Conecte o CRM ao Bling via OAuth em /bling antes de sincronizar.'])
+            $app.save(logRecord)
+          } catch (_) {}
+        }
+        return { success: false, status: 'erro', erro: 'Token inválido' }
+      }
+
+      const iniciadoEm =
+        logRecord && logRecord.getString('iniciado_em')
+          ? new Date(logRecord.getString('iniciado_em'))
+          : new Date()
+
+      function normalizarDoc(doc) {
+        if (!doc) return ''
+        return String(doc).replace(/[^\w]/g, '').trim().toLowerCase()
+      }
+
+      function normalizarEm(em) {
+        if (!em) return ''
+        return String(em).trim().toLowerCase()
+      }
+
+      function isConsumidorFinalNome(nome) {
+        if (!nome) return false
+        const n = String(nome).trim().toLowerCase()
+        return n === 'consumidor final' || n === 'consumidor final.'
+      }
+
+      function mapearVendedor(vendedorBling) {
+        if (!vendedorBling) return null
+        const v = String(vendedorBling)
+          .trim()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toUpperCase()
+
+        if (v === 'ALICE PAITRA COLESEL' || v === 'ALICE' || v.indexOf('ALICE PAITRA') === 0) {
+          return 'Alice'
+        }
+        if (v === 'RENAN SOUZA' || v === 'RENAN') {
+          return 'Renan'
+        }
+        if (
+          v === 'KAROLINE' ||
+          v === 'VENDAS 1' ||
+          v === 'MARIA CAROLINE' ||
+          v === 'MARIA CAROLINE SANTOS' ||
+          v === 'CONSUMIDOR FINAL' ||
+          v === 'CONSUMIDOR FINAL.' ||
+          v.indexOf('KAROLINE ') === 0 ||
+          v.indexOf('MARIA CAROLINE') === 0
+        ) {
+          return 'Karoline (Vendas 1)'
+        }
+        if (v === 'VENDAS 2') {
+          return 'Vendas 2'
+        }
+        console.warn(
+          '[BLING-SYNC] Vendedor Bling desconhecido não mapeado: "' +
+            vendedorBling +
+            '" -> tratado como sem vendedor.',
+        )
+        return null
+      }
+
+      const mapVendedorParaUsuarioId = {}
+      try {
+        const usuariosCadastrados = $app.findRecordsByFilter('usuarios', 'ativo = true', 'nome', 50, 0)
+        for (let u = 0; u < usuariosCadastrados.length; u++) {
+          const uRec = usuariosCadastrados[u]
+          const uId = uRec.id
+          const uPerfil = uRec.getString('perfil')
+          const uNome = uRec.getString('nome') || ''
+          const uEmail = uRec.getString('email') || ''
+
+          if (uNome.indexOf('Alice') !== -1 || uEmail.indexOf('alice') !== -1) {
+            mapVendedorParaUsuarioId['Alice'] = uId
+          } else if (uNome.indexOf('Renan') !== -1 || uEmail.indexOf('renan') !== -1) {
+            mapVendedorParaUsuarioId['Renan'] = uId
+          } else if (
+            uPerfil === 'vendedor_1' ||
+            uNome.indexOf('Vendas 1') !== -1 ||
+            uNome.indexOf('Karoline') !== -1
+          ) {
+            mapVendedorParaUsuarioId['Karoline (Vendas 1)'] = uId
+          } else if (uPerfil === 'vendedor_2' || uNome.indexOf('Vendas 2') !== -1) {
+            mapVendedorParaUsuarioId['Vendas 2'] = uId
           }
-          recProposta.set('valor_total', totalProposta)
-          recProposta.set('situacao_bling_id', resolucaoSitProp.id)
-          recProposta.set('situacao_bling_nome', resolucaoSitProp.nome)
-          recProposta.set('status_normalizado', resolucaoSitProp.status_normalizado)
-          recProposta.set('status_vinculo', statusVinculoProp)
-          recProposta.set('visivel_funil', resolucaoSitProp.visivel_funil)
-          recProposta.set('sincronizado_em', new Date().toISOString())
+        }
+      } catch (_) {}
+
+      function resolverUsuarioIdPorVendedorCrm(vendedorCrm) {
+        if (!vendedorCrm) return null
+        if (mapVendedorParaUsuarioId[vendedorCrm]) {
+          return mapVendedorParaUsuarioId[vendedorCrm]
+        }
+        return null
+      }
+
+      function pausarMs(ms) {
+        if (!ms || ms <= 0) return
+        const tAlvo = Date.now() + ms
+        while (Date.now() < tAlvo) {
+          /* pausa controlada na VM */
+        }
+      }
+
+      let ultimoMomentoChamada = 0
+      function throttleChamadaBling(intervaloMinMs) {
+        const minIntervalo = intervaloMinMs || 380
+        const agora = Date.now()
+        const decorrido = agora - ultimoMomentoChamada
+        if (decorrido < minIntervalo) {
+          pausarMs(minIntervalo - decorrido)
+        }
+        ultimoMomentoChamada = Date.now()
+      }
+
+      let refreshExecutadoPor401 = false
+      function getBlingGet(url, maxTentativas) {
+        let tentativas = 0
+        const limite = maxTentativas || 4
+        let ultimoResultado = null
+        let ultimoErro = null
+
+        while (tentativas < limite) {
+          tentativas++
+          throttleChamadaBling(380)
 
           try {
-            $app.save(recProposta)
-            mapBlingPropostasExistentes[propostaIdRaw] = recProposta
-            if (isNovaProposta) {
-              totalPropostasPersistidas++
-            } else {
-              totalPropostasAtualizadas++
-              totalPropostasDuplicadas++
-            }
-          } catch (errPropSave) {
-            const errPropStr = String(errPropSave.message || errPropSave)
-            if (
-              errPropStr.indexOf('bling_proposta_id: Value must be unique') !== -1 ||
-              errPropStr.indexOf('UNIQUE constraint failed: bling_propostas.bling_proposta_id') !==
-                -1
-            ) {
-              try {
-                const recExistenteBancoProp = $app.findFirstRecordByData(
-                  'bling_propostas',
-                  'bling_proposta_id',
-                  propostaIdRaw,
-                )
-                if (recExistenteBancoProp) {
-                  recExistenteBancoProp.set('numero', numeroProposta)
-                  recExistenteBancoProp.set('cliente_id', clienteIdParaSalvarProp)
-                  recExistenteBancoProp.set('bling_contato_id', propContatoBlingId)
-                  recExistenteBancoProp.set('contato_nome', propNomeFinal)
-                  recExistenteBancoProp.set('documento', propDocFinal)
-                  recExistenteBancoProp.set('vendedor_bling', vendedorBlingNome)
-                  recExistenteBancoProp.set('vendedor_crm', vendedorCrm)
-                  recExistenteBancoProp.set('responsavel_id', responsavelUsuarioId)
-                  if (dataPropostaStr) {
-                    recExistenteBancoProp.set('data_proposta', dataPropostaStr.slice(0, 10))
-                  }
-                  if (dataValidadeStr) {
-                    recExistenteBancoProp.set('data_validade', dataValidadeStr.slice(0, 10))
-                  }
-                  recExistenteBancoProp.set('valor_total', totalProposta)
-                  recExistenteBancoProp.set('situacao_bling_id', resolucaoSitProp.id)
-                  recExistenteBancoProp.set('situacao_bling_nome', resolucaoSitProp.nome)
-                  recExistenteBancoProp.set(
-                    'status_normalizado',
-                    resolucaoSitProp.status_normalizado,
-                  )
-                  recExistenteBancoProp.set('status_vinculo', statusVinculoProp)
-                  recExistenteBancoProp.set('visivel_funil', resolucaoSitProp.visivel_funil)
-                  recExistenteBancoProp.set('sincronizado_em', new Date().toISOString())
-                  $app.save(recExistenteBancoProp)
-                  mapBlingPropostasExistentes[propostaIdRaw] = recExistenteBancoProp
-                  totalPropostasAtualizadas++
-                  totalPropostasDuplicadas++
-                  avisosGerais.push(
-                    'Aviso: proposta bling_id ' +
-                      propostaIdRaw +
-                      ' já existia (mapa desatualizado) e foi atualizada diretamente pelo índice único.',
-                  )
-                }
-              } catch (errRetryProp) {
-                avisosGerais.push(
-                  'Erro ao atualizar proposta pré-existente bling_id ' +
-                    propostaIdRaw +
-                    ': ' +
-                    String(errRetryProp.message || errRetryProp),
-                )
+            const res = $http.send({
+              url: url,
+              method: 'GET',
+              headers: {
+                Accept: 'application/json',
+                Authorization: 'Bearer ' + currentAccessToken,
+              },
+              timeout: 20,
+            })
+            ultimoResultado = res
+
+            if (res.statusCode === 401 && !refreshExecutadoPor401 && connectionRecord) {
+              refreshExecutadoPor401 = true
+              const novoToken = executarRefreshOAuth(connectionRecord)
+              if (novoToken) {
+                currentAccessToken = novoToken
+                throttleChamadaBling(380)
+                const retryRes = $http.send({
+                  url: url,
+                  method: 'GET',
+                  headers: {
+                    Accept: 'application/json',
+                    Authorization: 'Bearer ' + currentAccessToken,
+                  },
+                  timeout: 20,
+                })
+                ultimoResultado = retryRes
+                return retryRes
               }
-            } else {
-              avisosGerais.push(
-                'Erro ao salvar proposta bling_id ' +
-                  propostaIdRaw +
-                  ' (número ' +
-                  numeroProposta +
-                  '): ' +
-                  errPropStr,
-              )
+            }
+
+            if (res.statusCode === 429 && tentativas < limite) {
+              const esperaMs = 1200 * tentativas
+              pausarMs(esperaMs)
+              continue
+            }
+
+            if (res.statusCode >= 500 && tentativas < limite) {
+              const esperaMs = 1000 * tentativas
+              pausarMs(esperaMs)
+              continue
+            }
+
+            return res
+          } catch (httpErr) {
+            ultimoErro = httpErr
+            if (tentativas < limite) {
+              const esperaMs = 800 * tentativas
+              pausarMs(esperaMs)
+              continue
             }
           }
         }
-      }
 
-      if (listaPropostas.length < limitePropostas) {
-        temMaisPropostas = false
-      } else {
-        paginaPropostas++
-      }
-    }
-
-    // ==============================================================
-    // 4.5 MOTOR DE MATERIALIZAÇÃO DEFINITIVA DO FUNIL BLING (IDEMPOTENTE)
-    // Executa SQL direto para máxima performance e integridade atômica
-    // ==============================================================
-    let estatisticasFunil = {
-      propostas_criadas: 0,
-      pedidos_criados: 0,
-      propostas_atualizadas: 0,
-      pedidos_atualizados: 0,
-      propostas_inativadas: 0,
-      erros: 0,
-    }
-
-    try {
-      // Resolver IDs reais das etapas em etapas_funil
-      const etapasList = $app.findRecordsByFilter('etapas_funil', '', 'ordem', 20, 0)
-      let etapaPropostaId = ''
-      let etapaNegociacaoId = ''
-      let etapaEmAbertoBlingId = ''
-      let etapaFechadoId = ''
-      let etapaPerdidoId = ''
-
-      for (let ep = 0; ep < etapasList.length; ep++) {
-        const epRec = etapasList[ep]
-        const epNome = epRec.getString('nome').toLowerCase()
-        if (epNome.indexOf('propost') !== -1) etapaPropostaId = epRec.id
-        if (epNome.indexOf('negoc') !== -1) etapaNegociacaoId = epRec.id
-        if (epNome.indexOf('em aberto') !== -1) etapaEmAbertoBlingId = epRec.id
-        if (epNome === 'fechado') etapaFechadoId = epRec.id
-        if (epNome === 'perdido') etapaPerdidoId = epRec.id
-      }
-
-      // Resolver motivos de perda Bling
-      let motivoNaoAprovadaId = ''
-      let motivoCanceladoId = ''
-      try {
-        const motNaoAprov = $app.findFirstRecordByData(
-          'motivos_perda',
-          'descricao',
-          'Não aprovada no Bling',
+        if (ultimoResultado) {
+          return ultimoResultado
+        }
+        throw new Error(
+          'Falha definitiva de rede após ' +
+            limite +
+            ' tentativas: ' +
+            String((ultimoErro && ultimoErro.message) || ultimoErro || 'Erro desconhecido'),
         )
-        if (motNaoAprov) motivoNaoAprovadaId = motNaoAprov.id
-      } catch (_) {}
-      try {
-        const motCanc = $app.findFirstRecordByData(
-          'motivos_perda',
-          'descricao',
-          'Cancelado no Bling',
-        )
-        if (motCanc) motivoCanceladoId = motCanc.id
-      } catch (_) {}
+      }
 
-      if (
-        etapaPropostaId &&
-        etapaNegociacaoId &&
-        etapaFechadoId &&
-        etapaEmAbertoBlingId &&
-        etapaPerdidoId
-      ) {
-        // 1. INSERIR PROPOSTAS ELEGÍVEIS COMO OPORTUNIDADES
-        // Regras v0.0.89:
+      const errosGerais = []
+      const avisosGerais = []
+      const errosPedidos = []
+      const errosPropostas = []
+      let statusNaoMapeados = 0
+      let totalClientesLidos = 0
+      let totalClientesCriados = 0
+      let totalClientesAtualizados = 0
+      let totalClientesIgnorados = 0
+
+      let totalPedidosLidos = 0
+      let totalPedidosPersistidos = 0
+      let totalPedidosAtualizados = 0
+      let totalPedidosDuplicados = 0
+=======
+  $apis.requireAuth(),
+)
+
+// ============================================================================
+// WORKER AD-HOC DE SEGUNDO PLANO (CRON RUNNER IDIOMÁTICO)
+// ============================================================================
+        // - rascunho -> etapa Proposta, status 'aberto', data_origem=data_proposta
+        // - aguardando -> etapa Negociação, status 'aberto', data_origem=data_proposta
+        // - nao_aprovada -> etapa Perdido, status 'perdido', motivo=motivoNaoAprovadaId, data_fechamento=data_proposta
+        const sqlInsertPropostas = `
+=======
+      let totalPropostasDuplicadas = 0
+      let totalPropostasSemCliente = 0
+      let paginasPropostasLidas = 0
+
+      let clientesComComprasAtualizadas = 0
+=======
+  $apis.requireAuth(),
+)
+
+// ============================================================================
+// WORKER AD-HOC DE SEGUNDO PLANO (CRON RUNNER IDIOMÁTICO)
+// ============================================================================
+        // - rascunho -> etapa Proposta, status 'aberto', data_origem=data_proposta
+        // - aguardando -> etapa Negociação, status 'aberto', data_origem=data_proposta
+        // - nao_aprovada -> etapa Perdido, status 'perdido', motivo=motivoNaoAprovadaId, data_fechamento=data_proposta
+=======
+=======
+      let clientesComComprasAtualizadas = 0
+=======
+  $apis.requireAuth(),
+)
+
+// ============================================================================
+// WORKER AD-HOC DE SEGUNDO PLANO (CRON RUNNER IDIOMÁTICO)
+// ============================================================================
+        // - rascunho -> etapa Proposta, status 'aberto', data_origem=data_proposta
+        // - aguardando -> etapa Negociação, status 'aberto', data_origem=data_proposta
+        // - nao_aprovada -> etapa Perdido, status 'perdido', motivo=motivoNaoAprovadaId, data_fechamento=data_proposta
+        const sqlInsertPropostas = `
+            INSERT INTO oportunidades (
+=======
+      let totalPropostasPersistidas = 0
+      let totalPropostasAtualizadas = 0
+      let totalPropostasDuplicadas = 0
+      let totalPropostasSemCliente = 0
+      let paginasPropostasLidas = 0
+
+      let clientesComComprasAtualizadas = 0
+
+      // Inicia materialização do funil
+      let estatisticasFunil = {
+        propostas_criadas: 0,
+        pedidos_criados: 0,
+        propostas_atualizadas: 0,
+        pedidos_atualizados: 0,
+        propostas_inativadas: 0,
+        erros: 0,
+      }
+
+      try {
+        // Resolver IDs reais das etapas em etapas_funil
+        const etapasList = $app.findRecordsByFilter('etapas_funil', '', 'ordem', 20, 0)
+        let etapaPropostaId = ''
+        let etapaNegociacaoId = ''
+        let etapaEmAbertoBlingId = ''
+        let etapaFechadoId = ''
+        let etapaPerdidoId = ''
+
+        for (let ep = 0; ep < etapasList.length; ep++) {
+          const epRec = etapasList[ep]
+          const epNome = epRec.getString('nome').toLowerCase()
+          if (epNome.indexOf('propost') !== -1) etapaPropostaId = epRec.id
+          if (epNome.indexOf('negoc') !== -1) etapaNegociacaoId = epRec.id
+          if (epNome.indexOf('em aberto') !== -1) etapaEmAbertoBlingId = epRec.id
+          if (epNome === 'fechado') etapaFechadoId = epRec.id
+          if (epNome === 'perdido') etapaPerdidoId = epRec.id
+        }
+
+        // Resolver motivos de perda Bling
+        let motivoNaoAprovadaId = ''
+        let motivoCanceladoId = ''
+        try {
+          const motNaoAprov = $app.findFirstRecordByData(
+            'motivos_perda',
+            'descricao',
+            'Não aprovada no Bling',
+          )
+          if (motNaoAprov) motivoNaoAprovadaId = motNaoAprov.id
+        } catch (_) {}
+        try {
+          const motCanc = $app.findFirstRecordByData(
+            'motivos_perda',
+            'descricao',
+            'Cancelado no Bling',
+          )
+          if (motCanc) motivoCanceladoId = motCanc.id
+        } catch (_) {}
+
+        if (
+          etapaPropostaId &&
+          etapaNegociacaoId &&
+          etapaFechadoId &&
+          etapaEmAbertoBlingId &&
+          etapaPerdidoId
+        ) {
+          // 1. INSERIR PROPOSTAS ELEGÍVEIS COMO OPORTUNIDADES
+          const sqlInsertPropostas = `
+            INSERT INTO oportunidades (
+=======
+=======
+      let clientesComComprasAtualizadas = 0
+=======
+  $apis.requireAuth(),
+)
+
+// ============================================================================
+// WORKER AD-HOC DE SEGUNDO PLANO (CRON RUNNER IDIOMÁTICO)
+// ============================================================================
+        // - rascunho -> etapa Proposta, status 'aberto', data_origem=data_proposta
+        // - aguardando -> etapa Negociação, status 'aberto', data_origem=data_proposta
+        // - nao_aprovada -> etapa Perdido, status 'perdido', motivo=motivoNaoAprovadaId, data_fechamento=data_proposta
+        const sqlInsertPropostas = `
+=======
+      let totalPropostasDuplicadas = 0
+      let totalPropostasSemCliente = 0
+      let paginasPropostasLidas = 0
+
+      let clientesComComprasAtualizadas = 0
+=======
+  $apis.requireAuth(),
+)
+
+// ============================================================================
+// WORKER AD-HOC DE SEGUNDO PLANO (CRON RUNNER IDIOMÁTICO)
+// ============================================================================
+        // - rascunho -> etapa Proposta, status 'aberto', data_origem=data_proposta
+        // - aguardando -> etapa Negociação, status 'aberto', data_origem=data_proposta
+        // - nao_aprovada -> etapa Perdido, status 'perdido', motivo=motivoNaoAprovadaId, data_fechamento=data_proposta
+=======
+=======
+      let clientesComComprasAtualizadas = 0
+=======
+  $apis.requireAuth(),
+)
+
+// ============================================================================
+// WORKER AD-HOC DE SEGUNDO PLANO (CRON RUNNER IDIOMÁTICO)
+// ============================================================================
+        // - rascunho -> etapa Proposta, status 'aberto', data_origem=data_proposta
+        // - aguardando -> etapa Negociação, status 'aberto', data_origem=data_proposta
+        // - nao_aprovada -> etapa Perdido, status 'perdido', motivo=motivoNaoAprovadaId, data_fechamento=data_proposta
+        const sqlInsertPropostas = `
+            INSERT INTO oportunidades (
+=======
+      let totalPedidosSemCliente = 0
+      let paginasPedidosLidas = 0
+=======
+      let clientesComComprasAtualizadas = 0
+=======
+  $apis.requireAuth(),
+)
+
+// ============================================================================
+// WORKER AD-HOC DE SEGUNDO PLANO (CRON RUNNER IDIOMÁTICO)
+// ============================================================================
+        // - rascunho -> etapa Proposta, status 'aberto', data_origem=data_proposta
+        // - aguardando -> etapa Negociação, status 'aberto', data_origem=data_proposta
+        // - nao_aprovada -> etapa Perdido, status 'perdido', motivo=motivoNaoAprovadaId, data_fechamento=data_proposta
+        const sqlInsertPropostas = `
+=======
+      let totalPropostasDuplicadas = 0
+      let totalPropostasSemCliente = 0
+      let paginasPropostasLidas = 0
+
+      let clientesComComprasAtualizadas = 0
+=======
+  $apis.requireAuth(),
+)
+
+// ============================================================================
+// WORKER AD-HOC DE SEGUNDO PLANO (CRON RUNNER IDIOMÁTICO)
+// ============================================================================
+        // - rascunho -> etapa Proposta, status 'aberto', data_origem=data_proposta
+        // - aguardando -> etapa Negociação, status 'aberto', data_origem=data_proposta
+        // - nao_aprovada -> etapa Perdido, status 'perdido', motivo=motivoNaoAprovadaId, data_fechamento=data_proposta
+=======
+=======
+      let clientesComComprasAtualizadas = 0
+=======
+  $apis.requireAuth(),
+)
+
+// ============================================================================
+// WORKER AD-HOC DE SEGUNDO PLANO (CRON RUNNER IDIOMÁTICO)
+// ============================================================================
+        // - rascunho -> etapa Proposta, status 'aberto', data_origem=data_proposta
+        // - aguardando -> etapa Negociação, status 'aberto', data_origem=data_proposta
+        // - nao_aprovada -> etapa Perdido, status 'perdido', motivo=motivoNaoAprovadaId, data_fechamento=data_proposta
+        const sqlInsertPropostas = `
+            INSERT INTO oportunidades (
+=======
+      let totalPropostasPersistidas = 0
+      let totalPropostasAtualizadas = 0
+      let totalPropostasDuplicadas = 0
+      let totalPropostasSemCliente = 0
+      let paginasPropostasLidas = 0
+
+      let clientesComComprasAtualizadas = 0
+
+      // Inicia materialização do funil
+      let estatisticasFunil = {
+        propostas_criadas: 0,
+        pedidos_criados: 0,
+        propostas_atualizadas: 0,
+        pedidos_atualizados: 0,
+        propostas_inativadas: 0,
+        erros: 0,
+      }
+
+      try {
+        // Resolver IDs reais das etapas em etapas_funil
+        const etapasList = $app.findRecordsByFilter('etapas_funil', '', 'ordem', 20, 0)
+        let etapaPropostaId = ''
+        let etapaNegociacaoId = ''
+        let etapaEmAbertoBlingId = ''
+        let etapaFechadoId = ''
+        let etapaPerdidoId = ''
+
+        for (let ep = 0; ep < etapasList.length; ep++) {
+          const epRec = etapasList[ep]
+          const epNome = epRec.getString('nome').toLowerCase()
+          if (epNome.indexOf('propost') !== -1) etapaPropostaId = epRec.id
+          if (epNome.indexOf('negoc') !== -1) etapaNegociacaoId = epRec.id
+          if (epNome.indexOf('em aberto') !== -1) etapaEmAbertoBlingId = epRec.id
+          if (epNome === 'fechado') etapaFechadoId = epRec.id
+          if (epNome === 'perdido') etapaPerdidoId = epRec.id
+        }
+
+        // Resolver motivos de perda Bling
+        let motivoNaoAprovadaId = ''
+        let motivoCanceladoId = ''
+        try {
+          const motNaoAprov = $app.findFirstRecordByData(
+            'motivos_perda',
+            'descricao',
+            'Não aprovada no Bling',
+          )
+          if (motNaoAprov) motivoNaoAprovadaId = motNaoAprov.id
+        } catch (_) {}
+        try {
+          const motCanc = $app.findFirstRecordByData(
+            'motivos_perda',
+            'descricao',
+            'Cancelado no Bling',
+          )
+          if (motCanc) motivoCanceladoId = motCanc.id
+        } catch (_) {}
+
+        if (
+          etapaPropostaId &&
+          etapaNegociacaoId &&
+          etapaFechadoId &&
+          etapaEmAbertoBlingId &&
+          etapaPerdidoId
+        ) {
+          // 1. INSERIR PROPOSTAS ELEGÍVEIS COMO OPORTUNIDADES
+          const sqlInsertPropostas = `
+            INSERT INTO oportunidades (
+=======
+=======
+      let clientesComComprasAtualizadas = 0
+=======
+  $apis.requireAuth(),
+)
+
+// ============================================================================
+// WORKER AD-HOC DE SEGUNDO PLANO (CRON RUNNER IDIOMÁTICO)
+// ============================================================================
+        // - rascunho -> etapa Proposta, status 'aberto', data_origem=data_proposta
+        // - aguardando -> etapa Negociação, status 'aberto', data_origem=data_proposta
+        // - nao_aprovada -> etapa Perdido, status 'perdido', motivo=motivoNaoAprovadaId, data_fechamento=data_proposta
+        const sqlInsertPropostas = `
+=======
+      let totalPropostasDuplicadas = 0
+      let totalPropostasSemCliente = 0
+      let paginasPropostasLidas = 0
+
+      let clientesComComprasAtualizadas = 0
+=======
+  $apis.requireAuth(),
+)
+
+// ============================================================================
+// WORKER AD-HOC DE SEGUNDO PLANO (CRON RUNNER IDIOMÁTICO)
+// ============================================================================
+        // - rascunho -> etapa Proposta, status 'aberto', data_origem=data_proposta
+        // - aguardando -> etapa Negociação, status 'aberto', data_origem=data_proposta
+        // - nao_aprovada -> etapa Perdido, status 'perdido', motivo=motivoNaoAprovadaId, data_fechamento=data_proposta
+=======
+=======
+      let clientesComComprasAtualizadas = 0
+=======
+  $apis.requireAuth(),
+)
+
+// ============================================================================
+// WORKER AD-HOC DE SEGUNDO PLANO (CRON RUNNER IDIOMÁTICO)
+// ============================================================================
         // - rascunho -> etapa Proposta, status 'aberto', data_origem=data_proposta
         // - aguardando -> etapa Negociação, status 'aberto', data_origem=data_proposta
         // - nao_aprovada -> etapa Perdido, status 'perdido', motivo=motivoNaoAprovadaId, data_fechamento=data_proposta
@@ -1876,97 +2142,6 @@ routerAdd(
     if (avisosGerais.length > 0) {
       msgResumo += ' Avisos: ' + avisosGerais.length + '.'
     }
-
-    if (logRecord) {
-      try {
-        logRecord.set('finalizado_em', new Date().toISOString())
-        logRecord.set('status', statusFinal)
-        logRecord.set('clientes_lidos', totalClientesLidos)
-        logRecord.set('clientes_criados', totalClientesCriados)
-        logRecord.set('clientes_atualizados', totalClientesAtualizados)
-        logRecord.set('clientes_ignorados', totalClientesIgnorados)
-        logRecord.set('pedidos_lidos', totalPedidosLidos)
-        logRecord.set('pedidos_persistidos', totalPedidosPersistidos)
-        logRecord.set('pedidos_atualizados', totalPedidosAtualizados)
-        logRecord.set('pedidos_duplicados', totalPedidosDuplicados)
-        logRecord.set('pedidos_sem_cliente', totalPedidosSemCliente)
-        logRecord.set('paginas_pedidos_lidas', paginasPedidosLidas)
-        logRecord.set('erros_pedidos', errosPedidos.slice(0, 30))
-
-        logRecord.set('propostas_lidas', totalPropostasLidas)
-        logRecord.set('propostas_persistidas', totalPropostasPersistidas)
-        logRecord.set('propostas_atualizadas', totalPropostasAtualizadas)
-        logRecord.set('propostas_duplicadas', totalPropostasDuplicadas)
-        logRecord.set('propostas_sem_cliente', totalPropostasSemCliente)
-        logRecord.set('paginas_propostas_lidas', paginasPropostasLidas)
-        logRecord.set('erros_propostas', errosPropostas.slice(0, 30))
-
-        logRecord.set('erros', errosGerais.slice(0, 50))
-        logRecord.set('avisos', avisosGerais.slice(0, 50))
-        logRecord.set('status_nao_mapeados', statusNaoMapeados)
-        logRecord.set('duracao_ms', duracaoMs)
-        logRecord.set('mensagem_resumo', msgResumo)
-        $app.save(logRecord)
-      } catch (_) {}
-    }
-
-    return {
-      success: statusFinal !== 'erro',
-      status: statusFinal,
-      iniciado_em: iniciadoEm.toISOString(),
-      finalizado_em: new Date().toISOString(),
-      duracao_ms: duracaoMs,
-      clientes_consultados: totalClientesLidos,
-      clientes_criados: totalClientesCriados,
-      clientes_atualizados: totalClientesAtualizados,
-      clientes_ignorados: totalClientesIgnorados,
-      pedidos_consultados: totalPedidosLidos,
-      pedidos_persistidos: totalPedidosPersistidos,
-      pedidos_atualizados: totalPedidosAtualizados,
-      pedidos_duplicados: totalPedidosDuplicados,
-      pedidos_sem_cliente: totalPedidosSemCliente,
-      paginas_pedidos_lidas: paginasPedidosLidas,
-      propostas_consultadas: totalPropostasLidas,
-      propostas_persistidas: totalPropostasPersistidas,
-      propostas_atualizadas: totalPropostasAtualizadas,
-      propostas_duplicadas: totalPropostasDuplicadas,
-      propostas_sem_cliente: totalPropostasSemCliente,
-      paginas_propostas_lidas: paginasPropostasLidas,
-      clientes_com_compras_atualizadas: clientesComComprasAtualizadas,
-      status_nao_mapeados: statusNaoMapeados,
-      estatisticas_funil: estatisticasFunil,
-      erros: errosGerais,
-      avisos: avisosGerais,
-      erros_pedidos: errosPedidos,
-      erros_propostas: errosPropostas,
-      mensagem: msgResumo,
-    }
-  } catch (errFatal) {
-    const duracaoMs = Date.now() - t0
-    const msgErro = String(errFatal.message || errFatal)
-    errosGerais.push('Erro crítico: ' + msgErro)
-
-    if (logRecord) {
-      try {
-        logRecord.set('finalizado_em', new Date().toISOString())
-        logRecord.set('status', 'erro')
-        logRecord.set('erros', errosGerais)
-        logRecord.set('duracao_ms', duracaoMs)
-        logRecord.set('mensagem_resumo', 'Falha na sincronização: ' + msgErro)
-        $app.save(logRecord)
-      } catch (_) {}
-    }
-
-    console.error('[BLING-SYNC] Erro crítico na execução:', msgErro)
-    return {
-      success: false,
-      status: 'erro',
-      duracao_ms: duracaoMs,
-      mensagem: 'Erro ao executar sincronização do Bling ERP: ' + msgErro,
-      erros: errosGerais,
-    }
-  }
-}
 
 // ============================================================================
 // WORKER AD-HOC DE SEGUNDO PLANO (CRON RUNNER IDIOMÁTICO)
