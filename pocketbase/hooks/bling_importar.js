@@ -836,215 +836,178 @@ routerAdd(
 )
 
 // ============================================================================
-// 6. ROTA MANUAL: POST /backend/v1/bling/sincronizar
+// 6. MOTOR COMPARTILHADO & DISPARO ASSÍNCRONO DA SINCRONIZAÇÃO BLING
 // ============================================================================
-routerAdd(
-  'POST',
-  '/backend/v1/bling/sincronizar',
-  (e) => {
-    const authRecord = e.auth
-    if (!authRecord) {
-      return e.json(401, { message: 'Usuário não autenticado.' })
-    }
 
-    const perfil = authRecord.getString('perfil')
-    if (perfil !== 'ceo_financeiro') {
-      return e.json(403, {
-        message:
-          'Apenas administradores (CEO / Financeiro) podem executar a sincronização do Bling.',
-      })
-    }
+// Função interna de codificação Base64
+function encodeBase64(str) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+  let output = ''
+  for (
+    let block = 0, charCode, idx = 0, map = chars;
+    str.charAt(idx | 0) || ((map = '='), idx % 1);
+    output += map.charAt(63 & (block >> (8 - (idx % 1) * 8)))
+  ) {
+    charCode = str.charCodeAt((idx += 3 / 4))
+    if (charCode > 0xff) throw new Error('Caractere inválido para base64')
+    block = (block << 8) | charCode
+  }
+  return output
+}
 
-    const usuarioIdOuSistema = authRecord.id
-    const agoraMs = Date.now()
-    const limiteLockIso = new Date(agoraMs - 10 * 60 * 1000).toISOString()
+// Função inline para renovação de token OAuth
+function executarRefreshOAuth(conn) {
+  try {
+    const refreshToken = conn.getString('refresh_token')
+    if (!refreshToken) return null
 
-    // Limpar logs 'processando' pendentes/expirados para destravar o motor
+    let cId = ''
+    let cSec = ''
     try {
-      const logsExpirados = $app.findRecordsByFilter(
+      cId = $os.getenv('BLING_CLIENT_ID') || $secrets.get('BLING_CLIENT_ID') || ''
+      cSec = $os.getenv('BLING_CLIENT_SECRET') || $secrets.get('BLING_CLIENT_SECRET') || ''
+    } catch (_) {}
+
+    if (!cId || !cSec) return null
+
+    const b64 = encodeBase64(cId + ':' + cSec)
+    const refreshBody =
+      'grant_type=refresh_token&refresh_token=' + encodeURIComponent(refreshToken)
+
+    const refreshRes = $http.send({
+      url: 'https://www.bling.com.br/Api/v3/oauth/token',
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Authorization: 'Basic ' + b64,
+        'enable-jwt': '1',
+      },
+      body: refreshBody,
+      timeout: 15,
+    })
+
+    if (refreshRes && refreshRes.statusCode === 200) {
+      const rData = refreshRes.json || {}
+      const novoAccess = rData.access_token || ''
+      const novoRefresh = rData.refresh_token || refreshToken
+      const novoExpiresIn = Number(rData.expires_in) || 21600
+      const novoExpiresAt = new Date(Date.now() + novoExpiresIn * 1000)
+
+      if (novoAccess) {
+        conn.set('access_token', novoAccess)
+        conn.set('refresh_token', novoRefresh)
+        conn.set('expires_at', novoExpiresAt.toISOString())
+        conn.set('last_refresh_at', new Date().toISOString())
+        conn.set('status', 'conectado')
+        conn.set('ultimo_erro', '')
+        $app.save(conn)
+        return novoAccess
+      }
+    } else {
+      const errDet = refreshRes && refreshRes.json ? JSON.stringify(refreshRes.json) : ''
+      conn.set('status', 'erro_renovacao')
+      conn.set('ultimo_erro', 'Falha no refresh automático: ' + errDet)
+      $app.save(conn)
+    }
+  } catch (errRef) {
+    try {
+      conn.set('status', 'erro_renovacao')
+      conn.set('ultimo_erro', 'Exceção no refresh: ' + String(errRef.message || errRef))
+      $app.save(conn)
+    } catch (_) {}
+  }
+  return null
+}
+
+// Função centralizada getValidBlingAccessToken()
+// 1) busca conexão ativa;
+// 2) verifica expires_at;
+// 3) se válido -> retorna token;
+// 4) se expirado/próximo -> renova via refresh_token;
+// 5/6/7) atualiza tokens e timestamps
+function getValidBlingAccessToken() {
+  try {
+    const conns = $app.findRecordsByFilter('bling_connections', '', '-created', 1, 0)
+    if (conns && conns.length > 0) {
+      const conn = conns[0]
+      const status = conn.getString('status')
+      const accessToken = conn.getString('access_token')
+      const expiresAtStr = conn.getString('expires_at')
+
+      if (status === 'conectado' && accessToken) {
+        const expiraEm = expiresAtStr ? new Date(expiresAtStr).getTime() : 0
+        const agora = Date.now()
+        const margem = 5 * 60 * 1000 // 5 minutos de margem de segurança
+
+        if (expiraEm > agora + margem) {
+          return { token: accessToken, conn: conn, renovado: false }
+        }
+
+        // Expirado ou próximo: executar refresh
+        const tokenRenovado = executarRefreshOAuth(conn)
+        if (tokenRenovado) {
+          return { token: tokenRenovado, conn: conn, renovado: true }
+        }
+      }
+    }
+  } catch (_) {}
+
+  return { token: '', conn: null, renovado: false }
+}
+
+// ============================================================================
+// MOTOR CENTRAL DE PROCESSAMENTO DA SINCRONIZAÇÃO (EXECUTADO EM BACKGROUND)
+// ============================================================================
+function executarMotorSincronizacaoBling(logRecordId, usuarioIdParam) {
+  const t0 = Date.now()
+  let logRecord = null
+  try {
+    if (logRecordId) {
+      logRecord = $app.findRecordById('bling_sync_logs', logRecordId)
+    }
+  } catch (_) {}
+
+  if (!logRecord) {
+    try {
+      const limiteLockIso = new Date(Date.now() - 10 * 60 * 1000).toISOString()
+      const logsProc = $app.findRecordsByFilter(
         'bling_sync_logs',
-        `status = 'processando' && iniciado_em < '${limiteLockIso}'`,
+        `status = 'processando' && iniciado_em >= '${limiteLockIso}'`,
         '-created',
-        50,
+        1,
         0,
       )
-      for (let le = 0; le < logsExpirados.length; le++) {
-        const lExp = logsExpirados[le]
-        lExp.set('status', 'erro')
-        lExp.set('mensagem_resumo', 'Sincronização anterior interrompida ou expirou sem finalizar.')
-        lExp.set('finalizado_em', new Date().toISOString())
-        $app.save(lExp)
+      if (logsProc && logsProc.length > 0) {
+        logRecord = logsProc[0]
       }
     } catch (_) {}
+  }
 
-    const syncsEmAndamento = $app.findRecordsByFilter(
-      'bling_sync_logs',
-      `status = 'processando' && iniciado_em >= '${limiteLockIso}'`,
-      '-created',
-      1,
-      0,
-    )
+  const tokenInfo = getValidBlingAccessToken()
+  let currentAccessToken = tokenInfo.token
+  const connectionRecord = tokenInfo.conn
 
-    if (syncsEmAndamento && syncsEmAndamento.length > 0) {
-      return e.json(409, {
-        success: false,
-        message:
-          'Já existe uma sincronização em processamento no momento. Aguarde o término antes de disparar outra.',
-      })
-    }
-
-    const iniciadoEm = new Date()
-    const t0 = Date.now()
-
-    // Função interna de codificação Base64
-    function encodeBase64(str) {
-      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-      let output = ''
-      for (
-        let block = 0, charCode, idx = 0, map = chars;
-        str.charAt(idx | 0) || ((map = '='), idx % 1);
-        output += map.charAt(63 & (block >> (8 - (idx % 1) * 8)))
-      ) {
-        charCode = str.charCodeAt((idx += 3 / 4))
-        if (charCode > 0xff) throw new Error('Caractere inválido para base64')
-        block = (block << 8) | charCode
-      }
-      return output
-    }
-
-    // Função inline para renovação de token OAuth
-    function executarRefreshOAuth(conn) {
+  if (!currentAccessToken) {
+    if (logRecord) {
       try {
-        const refreshToken = conn.getString('refresh_token')
-        if (!refreshToken) return null
-
-        let cId = ''
-        let cSec = ''
-        try {
-          cId = $os.getenv('BLING_CLIENT_ID') || $secrets.get('BLING_CLIENT_ID') || ''
-          cSec = $os.getenv('BLING_CLIENT_SECRET') || $secrets.get('BLING_CLIENT_SECRET') || ''
-        } catch (_) {}
-
-        if (!cId || !cSec) return null
-
-        const b64 = encodeBase64(cId + ':' + cSec)
-        const refreshBody =
-          'grant_type=refresh_token&refresh_token=' + encodeURIComponent(refreshToken)
-
-        const refreshRes = $http.send({
-          url: 'https://www.bling.com.br/Api/v3/oauth/token',
-          method: 'POST',
-          headers: {
-            Accept: 'application/json',
-            'Content-Type': 'application/x-www-form-urlencoded',
-            Authorization: 'Basic ' + b64,
-            'enable-jwt': '1',
-          },
-          body: refreshBody,
-          timeout: 15,
-        })
-
-        if (refreshRes && refreshRes.statusCode === 200) {
-          const rData = refreshRes.json || {}
-          const novoAccess = rData.access_token || ''
-          const novoRefresh = rData.refresh_token || refreshToken
-          const novoExpiresIn = Number(rData.expires_in) || 21600
-          const novoExpiresAt = new Date(Date.now() + novoExpiresIn * 1000)
-
-          if (novoAccess) {
-            conn.set('access_token', novoAccess)
-            conn.set('refresh_token', novoRefresh)
-            conn.set('expires_at', novoExpiresAt.toISOString())
-            conn.set('last_refresh_at', new Date().toISOString())
-            conn.set('status', 'conectado')
-            conn.set('ultimo_erro', '')
-            $app.save(conn)
-            return novoAccess
-          }
-        } else {
-          const errDet = refreshRes && refreshRes.json ? JSON.stringify(refreshRes.json) : ''
-          conn.set('status', 'erro_renovacao')
-          conn.set('ultimo_erro', 'Falha no refresh automático: ' + errDet)
-          $app.save(conn)
-        }
-      } catch (errRef) {
-        try {
-          conn.set('status', 'erro_renovacao')
-          conn.set('ultimo_erro', 'Exceção no refresh: ' + String(errRef.message || errRef))
-          $app.save(conn)
-        } catch (_) {}
-      }
-      return null
-    }
-
-    // Função centralizada getValidBlingAccessToken()
-    // 1) busca conexão ativa;
-    // 2) verifica expires_at;
-    // 3) se válido -> retorna token;
-    // 4) se expirado/próximo -> renova via refresh_token;
-    // 5/6/7) atualiza tokens e timestamps
-    function getValidBlingAccessToken() {
-      try {
-        const conns = $app.findRecordsByFilter('bling_connections', '', '-created', 1, 0)
-        if (conns && conns.length > 0) {
-          const conn = conns[0]
-          const status = conn.getString('status')
-          const accessToken = conn.getString('access_token')
-          const expiresAtStr = conn.getString('expires_at')
-
-          if (status === 'conectado' && accessToken) {
-            const expiraEm = expiresAtStr ? new Date(expiresAtStr).getTime() : 0
-            const agora = Date.now()
-            const margem = 5 * 60 * 1000 // 5 minutos de margem de segurança
-
-            if (expiraEm > agora + margem) {
-              return { token: accessToken, conn: conn, renovado: false }
-            }
-
-            // Expirado ou próximo: executar refresh
-            const tokenRenovado = executarRefreshOAuth(conn)
-            if (tokenRenovado) {
-              return { token: tokenRenovado, conn: conn, renovado: true }
-            }
-          }
-        }
+        logRecord.set('status', 'erro')
+        logRecord.set('finalizado_em', new Date().toISOString())
+        logRecord.set('mensagem_resumo', 'Token OAuth do Bling inválido ou desconectado.')
+        logRecord.set('erros', ['Conecte o CRM ao Bling via OAuth em /bling antes de sincronizar.'])
+        $app.save(logRecord)
       } catch (_) {}
-
-      return { token: '', conn: null, renovado: false }
     }
+    return { success: false, status: 'erro', erro: 'Token inválido' }
+  }
 
-    const tokenInfo = getValidBlingAccessToken()
-    let currentAccessToken = tokenInfo.token
-    const connectionRecord = tokenInfo.conn
+  const usuarioIdOuSistema = usuarioIdParam || (logRecord ? logRecord.getString('usuario') : '')
+  const iniciadoEm =
+    logRecord && logRecord.getString('iniciado_em')
+      ? new Date(logRecord.getString('iniciado_em'))
+      : new Date()
 
-    if (!currentAccessToken) {
-      return e.json(400, {
-        success: false,
-        message: 'Conecte o CRM ao Bling via OAuth em /bling antes de sincronizar.',
-      })
-    }
-
-    // Criar registro de log com status 'processando'
-    let logRecord = null
-    try {
-      const syncLogCol = $app.findCollectionByNameOrId('bling_sync_logs')
-      logRecord = new Record(syncLogCol)
-      logRecord.set('iniciado_em', iniciadoEm.toISOString())
-      if (usuarioIdOuSistema && usuarioIdOuSistema !== 'sistema_cron') {
-        logRecord.set('usuario', usuarioIdOuSistema)
-      }
-      logRecord.set('status', 'processando')
-      logRecord.set('clientes_lidos', 0)
-      logRecord.set('clientes_criados', 0)
-      logRecord.set('clientes_atualizados', 0)
-      logRecord.set('clientes_ignorados', 0)
-      logRecord.set('pedidos_lidos', 0)
-      logRecord.set('erros', [])
-      logRecord.set('mensagem_resumo', 'Sincronização iniciada via OAuth seguro...')
-      $app.save(logRecord)
-    } catch (_) {}
-
-    // Funções auxiliares inline para tratamento dos dados
+  // Funções auxiliares inline para tratamento dos dados
     function normalizarDoc(doc) {
       if (!doc) return ''
       return String(doc).replace(/[^\w]/g, '').trim().toLowerCase()
@@ -3180,7 +3143,7 @@ routerAdd(
         erros_pedidos: errosPedidos,
         erros_propostas: errosPropostas,
         mensagem: msgResumo,
-      })
+      }
     } catch (errFatal) {
       const duracaoMs = Date.now() - t0
       const msgErro = String(errFatal.message || errFatal)
@@ -3197,14 +3160,194 @@ routerAdd(
         } catch (_) {}
       }
 
-      return e.json(500, {
+      console.error('[BLING-SYNC] Erro crítico na execução:', msgErro)
+      return {
         success: false,
         status: 'erro',
         duracao_ms: duracaoMs,
         mensagem: 'Erro ao executar sincronização do Bling ERP: ' + msgErro,
         erros: errosGerais,
+      }
+    }
+}
+
+// ============================================================================
+// WORKER AD-HOC DE SEGUNDO PLANO (CRON RUNNER IDIOMÁTICO)
+// ============================================================================
+let logPendenteSyncId = ''
+let isBlingSyncExecuting = false
+
+cronAdd('bling_sync_manual_runner', '* * * * *', () => {
+  if (isBlingSyncExecuting) {
+    return
+  }
+
+  let logIdParaExecutar = logPendenteSyncId
+  logPendenteSyncId = ''
+
+  if (!logIdParaExecutar) {
+    try {
+      const limiteLockIso = new Date(Date.now() - 10 * 60 * 1000).toISOString()
+      const logsProcessando = $app.findRecordsByFilter(
+        'bling_sync_logs',
+        `status = 'processando' && iniciado_em >= '${limiteLockIso}'`,
+        '-created',
+        1,
+        0,
+      )
+      if (logsProcessando && logsProcessando.length > 0) {
+        logIdParaExecutar = logsProcessando[0].id
+      }
+    } catch (_) {}
+  }
+
+  if (!logIdParaExecutar) {
+    return
+  }
+
+  isBlingSyncExecuting = true
+  try {
+    console.log('[BLING-RUNNER] Disparando motor para o registro de log:', logIdParaExecutar)
+    executarMotorSincronizacaoBling(logIdParaExecutar)
+    console.log('[BLING-RUNNER] Execução finalizada para o registro de log:', logIdParaExecutar)
+  } catch (errWorker) {
+    console.error('[BLING-RUNNER] Falha durante execução do worker:', errWorker)
+  } finally {
+    isBlingSyncExecuting = false
+  }
+})
+
+// ============================================================================
+// ROTA MANUAL: POST /backend/v1/bling/sincronizar (RESPOSTA IMEDIATA EM ~2s)
+// ============================================================================
+routerAdd(
+  'POST',
+  '/backend/v1/bling/sincronizar',
+  (e) => {
+    const authRecord = e.auth
+    if (!authRecord) {
+      return e.json(401, { message: 'Usuário não autenticado.' })
+    }
+
+    const perfil = authRecord.getString('perfil')
+    if (perfil !== 'ceo_financeiro') {
+      return e.json(403, {
+        message:
+          'Apenas administradores (CEO / Financeiro) podem executar a sincronização do Bling.',
       })
     }
+
+    const usuarioIdOuSistema = authRecord.id
+    const agoraMs = Date.now()
+    const limiteLockIso = new Date(agoraMs - 10 * 60 * 1000).toISOString()
+
+    // 1. Limpar logs 'processando' pendentes/expirados (> 10 min) para destravar o motor
+    try {
+      const logsExpirados = $app.findRecordsByFilter(
+        'bling_sync_logs',
+        `status = 'processando' && iniciado_em < '${limiteLockIso}'`,
+        '-created',
+        50,
+        0,
+      )
+      for (let le = 0; le < logsExpirados.length; le++) {
+        const lExp = logsExpirados[le]
+        lExp.set('status', 'erro')
+        lExp.set('mensagem_resumo', 'Sincronização anterior interrompida ou expirou sem finalizar.')
+        lExp.set('finalizado_em', new Date().toISOString())
+        $app.save(lExp)
+      }
+    } catch (_) {}
+
+    // 2. Lock anti-concorrência ativo: se já houver sync processando nos últimos 10 min, responder 409
+    const syncsEmAndamento = $app.findRecordsByFilter(
+      'bling_sync_logs',
+      `status = 'processando' && iniciado_em >= '${limiteLockIso}'`,
+      '-created',
+      1,
+      0,
+    )
+
+    if (syncsEmAndamento && syncsEmAndamento.length > 0) {
+      return e.json(409, {
+        success: false,
+        status: 'processando',
+        log_id: syncsEmAndamento[0].id,
+        message:
+          'Já existe uma sincronização em processamento no momento. Aguarde o término antes de disparar outra.',
+      })
+    }
+
+    // 3. Validar se o Bling está conectado com token válido
+    const tokenInfo = getValidBlingAccessToken()
+    if (!tokenInfo || !tokenInfo.token) {
+      return e.json(400, {
+        success: false,
+        message: 'Conecte o CRM ao Bling via OAuth em /bling antes de sincronizar.',
+      })
+    }
+
+    // 4. Criar registro de log na coleção com status 'processando'
+    const iniciadoEm = new Date()
+    let logRecord = null
+    try {
+      const syncLogCol = $app.findCollectionByNameOrId('bling_sync_logs')
+      logRecord = new Record(syncLogCol)
+      logRecord.set('iniciado_em', iniciadoEm.toISOString())
+      if (usuarioIdOuSistema && usuarioIdOuSistema !== 'sistema_cron') {
+        logRecord.set('usuario', usuarioIdOuSistema)
+      }
+      logRecord.set('status', 'processando')
+      logRecord.set('clientes_lidos', 0)
+      logRecord.set('clientes_criados', 0)
+      logRecord.set('clientes_atualizados', 0)
+      logRecord.set('clientes_ignorados', 0)
+      logRecord.set('pedidos_lidos', 0)
+      logRecord.set('pedidos_persistidos', 0)
+      logRecord.set('pedidos_atualizados', 0)
+      logRecord.set('pedidos_duplicados', 0)
+      logRecord.set('pedidos_sem_cliente', 0)
+      logRecord.set('paginas_pedidos_lidas', 0)
+      logRecord.set('propostas_lidas', 0)
+      logRecord.set('propostas_persistidas', 0)
+      logRecord.set('propostas_atualizadas', 0)
+      logRecord.set('propostas_duplicadas', 0)
+      logRecord.set('propostas_sem_cliente', 0)
+      logRecord.set('paginas_propostas_lidas', 0)
+      logRecord.set('erros', [])
+      logRecord.set('avisos', [])
+      logRecord.set('duracao_ms', 0)
+      logRecord.set('mensagem_resumo', 'Sincronização iniciada em segundo plano via OAuth seguro...')
+      $app.save(logRecord)
+    } catch (errSaveLog) {
+      console.error('[BLING-SYNC] Falha ao criar registro de log inicial:', errSaveLog)
+      return e.json(500, {
+        success: false,
+        message: 'Erro ao registrar histórico de sincronização: ' + String(errSaveLog.message || errSaveLog),
+      })
+    }
+
+    // 5. Agendar execução em background via runner interno do PocketBase
+    logPendenteSyncId = logRecord.id
+    try {
+      if ($app.cron() && typeof $app.cron().run === 'function') {
+        $app.cron().run('bling_sync_manual_runner')
+      } else if ($app.cron() && typeof $app.cron().Run === 'function') {
+        $app.cron().Run('bling_sync_manual_runner')
+      }
+    } catch (errTrigger) {
+      console.warn('[BLING-SYNC] Aviso ao disparar runner ad-hoc imediatamente:', errTrigger)
+    }
+
+    // 6. Resposta HTTP imediata (~10ms) sem aguardar o término da sincronização
+    return e.json(200, {
+      success: true,
+      status: 'processando',
+      log_id: logRecord.id,
+      iniciado_em: iniciadoEm.toISOString(),
+      mensagem:
+        'Sincronização iniciada com sucesso em segundo plano. Acompanhe o processamento em tempo real.',
+    })
   },
   $apis.requireAuth(),
 )
