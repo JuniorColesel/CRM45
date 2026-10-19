@@ -858,6 +858,25 @@ routerAdd(
     const usuarioIdOuSistema = authRecord.id
     const agoraMs = Date.now()
     const limiteLockIso = new Date(agoraMs - 10 * 60 * 1000).toISOString()
+
+    // Limpar logs 'processando' pendentes/expirados para destravar o motor
+    try {
+      const logsExpirados = $app.findRecordsByFilter(
+        'bling_sync_logs',
+        `status = 'processando' && iniciado_em < '${limiteLockIso}'`,
+        '-created',
+        50,
+        0,
+      )
+      for (let le = 0; le < logsExpirados.length; le++) {
+        const lExp = logsExpirados[le]
+        lExp.set('status', 'erro')
+        lExp.set('mensagem_resumo', 'Sincronização anterior interrompida ou expirou sem finalizar.')
+        lExp.set('finalizado_em', new Date().toISOString())
+        $app.save(lExp)
+      }
+    } catch (_) {}
+
     const syncsEmAndamento = $app.findRecordsByFilter(
       'bling_sync_logs',
       `status = 'processando' && iniciado_em >= '${limiteLockIso}'`,
@@ -1120,16 +1139,41 @@ routerAdd(
       return null
     }
 
-    // Chamador HTTP GET com retry robusto (429/5xx), backoff exponencial e retry único pós-401 via refresh
+    // Utilitário de pausa síncrona para JSVM (goja)
+    function pausarMs(ms) {
+      if (!ms || ms <= 0) return
+      const tAlvo = Date.now() + ms
+      while (Date.now() < tAlvo) {
+        /* pausa controlada na VM */
+      }
+    }
+
+    // Rate limiter adaptativo: Bling permite no máx 3 req/s (mínimo ~340ms entre chamadas).
+    // Mantemos intervalo base de 380ms para nunca estourar a janela por segundo.
+    let ultimoMomentoChamada = 0
+    function throttleChamadaBling(intervaloMinMs) {
+      const minIntervalo = intervaloMinMs || 380
+      const agora = Date.now()
+      const decorrido = agora - ultimoMomentoChamada
+      if (decorrido < minIntervalo) {
+        pausarMs(minIntervalo - decorrido)
+      }
+      ultimoMomentoChamada = Date.now()
+    }
+
+    // Chamador HTTP GET com rate-limiting preventivo (3 req/s), retry robusto (429/5xx),
+    // backoff adaptativo (1200ms, 2400ms, 4800ms) e retry único pós-401 via refresh
     let refreshExecutadoPor401 = false
     function getBlingGet(url, maxTentativas) {
       let tentativas = 0
-      const limite = maxTentativas || 3
+      const limite = maxTentativas || 4
       let ultimoResultado = null
       let ultimoErro = null
 
       while (tentativas < limite) {
         tentativas++
+        throttleChamadaBling(380)
+
         try {
           const res = $http.send({
             url: url,
@@ -1148,6 +1192,7 @@ routerAdd(
             const novoToken = executarRefreshOAuth(connectionRecord)
             if (novoToken) {
               currentAccessToken = novoToken
+              throttleChamadaBling(380)
               // Repetir a requisição imediatamente com o novo token
               const retryRes = $http.send({
                 url: url,
@@ -1163,23 +1208,18 @@ routerAdd(
             }
           }
 
-          // 429 Too Many Requests -> retry com backoff (espera computacional para goja JSVM)
+          // 429 Too Many Requests -> respeitar janela do Bling com backoff progressivo real
           if (res.statusCode === 429 && tentativas < limite) {
-            const esperaMs = 300 * tentativas
-            const tFim = Date.now() + esperaMs
-            while (Date.now() < tFim) {
-              /* backoff ativo seguro para JSVM */
-            }
+            // Tentativa 1: 1200ms; Tentativa 2: 2400ms; Tentativa 3: 4000ms
+            const esperaMs = 1200 * tentativas
+            pausarMs(esperaMs)
             continue
           }
 
           // 5xx Server Error do Bling -> retry com backoff
           if (res.statusCode >= 500 && tentativas < limite) {
-            const esperaMs = 250 * tentativas
-            const tFim = Date.now() + esperaMs
-            while (Date.now() < tFim) {
-              /* backoff ativo seguro para JSVM */
-            }
+            const esperaMs = 1000 * tentativas
+            pausarMs(esperaMs)
             continue
           }
 
@@ -1187,11 +1227,8 @@ routerAdd(
         } catch (httpErr) {
           ultimoErro = httpErr
           if (tentativas < limite) {
-            const esperaMs = 200 * tentativas
-            const tFim = Date.now() + esperaMs
-            while (Date.now() < tFim) {
-              /* backoff ativo seguro para JSVM */
-            }
+            const esperaMs = 800 * tentativas
+            pausarMs(esperaMs)
             continue
           }
         }
@@ -1280,9 +1317,9 @@ routerAdd(
 
         let resContatos = null
         try {
-          resContatos = getBlingGet(urlContatos, 3)
+          resContatos = getBlingGet(urlContatos, 4)
         } catch (errReq) {
-          errosGerais.push(
+          avisosGerais.push(
             'Erro de rede na página ' +
               paginaContatos +
               ' de contatos: ' +
@@ -1290,7 +1327,6 @@ routerAdd(
           )
           break
         }
-
         if (resContatos.statusCode === 401 || resContatos.statusCode === 403) {
           throw new Error(
             'Token do Bling não autorizado ou expirado (status ' + resContatos.statusCode + ').',
@@ -1298,7 +1334,7 @@ routerAdd(
         }
 
         if (resContatos.statusCode !== 200) {
-          errosGerais.push(
+          avisosGerais.push(
             'Bling retornou HTTP ' +
               resContatos.statusCode +
               ' ao buscar contatos na página ' +
@@ -1306,7 +1342,6 @@ routerAdd(
           )
           break
         }
-
         const dataJson = resContatos.json || {}
         const listaContatos = dataJson.data || []
 
@@ -1663,7 +1698,7 @@ routerAdd(
         const tInicioPagina = Date.now()
         let resPedidos = null
         try {
-          resPedidos = getBlingGet(urlPedidos, 3)
+          resPedidos = getBlingGet(urlPedidos, 4)
         } catch (errPedReq) {
           const duracaoPagina = Date.now() - tInicioPagina
           const msgErroReq =
@@ -1673,7 +1708,7 @@ routerAdd(
             duracaoPagina +
             'ms: ' +
             String(errPedReq.message || errPedReq)
-          errosGerais.push(msgErroReq)
+          avisosGerais.push(msgErroReq)
           errosPedidos.push({
             pagina: paginaPedidos,
             status_http: 0,
@@ -1709,7 +1744,7 @@ routerAdd(
             ' (' +
             duracaoPagina +
             'ms)'
-          errosGerais.push(msgHttp)
+          avisosGerais.push(msgHttp)
           errosPedidos.push({
             pagina: paginaPedidos,
             status_http: resPedidos.statusCode,
@@ -3024,7 +3059,9 @@ routerAdd(
           : totalClientesLidos > 0 ||
               totalPedidosLidos > 0 ||
               totalPedidosPersistidos > 0 ||
-              totalPedidosAtualizados > 0
+              totalPedidosAtualizados > 0 ||
+              totalPropostasLidas > 0 ||
+              totalPropostasPersistidas > 0
             ? 'sucesso'
             : 'erro'
 
@@ -3180,6 +3217,25 @@ cronAdd('bling_sync_automatica', '*/15 * * * *', () => {
   try {
     const agoraMs = Date.now()
     const limiteLockIso = new Date(agoraMs - 10 * 60 * 1000).toISOString()
+
+    // Limpar logs 'processando' que ultrapassaram a janela de lock (evita travar novas syncs)
+    try {
+      const logsExpirados = $app.findRecordsByFilter(
+        'bling_sync_logs',
+        `status = 'processando' && iniciado_em < '${limiteLockIso}'`,
+        '-created',
+        50,
+        0,
+      )
+      for (let le = 0; le < logsExpirados.length; le++) {
+        const lExp = logsExpirados[le]
+        lExp.set('status', 'erro')
+        lExp.set('mensagem_resumo', 'Sincronização anterior interrompida ou expirou sem finalizar.')
+        lExp.set('finalizado_em', new Date().toISOString())
+        $app.save(lExp)
+      }
+    } catch (_) {}
+
     const syncsEmAndamento = $app.findRecordsByFilter(
       'bling_sync_logs',
       `status = 'processando' && iniciado_em >= '${limiteLockIso}'`,
