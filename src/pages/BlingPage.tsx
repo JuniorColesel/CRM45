@@ -1473,7 +1473,7 @@ export default function BlingPage() {
                     </TableHead>
                     <TableHead className="text-xs font-bold text-[#0F172A] text-right">
                       Duração
-                    </TableHead>{' '}
+                    </TableHead>
                     <TableHead className="text-xs font-bold text-[#0F172A] text-center">
                       Detalhes
                     </TableHead>
@@ -1716,10 +1716,10 @@ export default function BlingPage() {
 
               {/* Linha de Diagnóstico: Redirect URI em uso */}
               {(() => {
-                const redirectEsperada =
-                  typeof window !== 'undefined'
-                    ? `${window.location.origin}/backend/v1/bling/callback`
-                    : '/backend/v1/bling/callback'
+                const backendBase = import.meta.env.VITE_POCKETBASE_URL || ''
+                const redirectEsperada = backendBase
+                  ? `${backendBase}/backend/v1/bling/callback`
+                  : '/backend/v1/bling/callback'
                 const redirectEfetiva = statusData.redirect_uri_efetiva || ''
                 const origem = statusData.redirect_uri_origem || 'nao_configurada'
                 const isNaoConfigurada = !redirectEfetiva || origem === 'nao_configurada'
