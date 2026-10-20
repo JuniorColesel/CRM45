@@ -818,6 +818,19 @@ routerAdd(
         })
       }
 
+    } catch (httpErr) {
+      return e.json(502, {
+        success: false,
+        message: 'Falha ao conectar com o servidor do Bling ERP.',
+      })
+    }
+  },
+  $apis.requireAuth(),
+)
+=======
+  $apis.requireAuth(),
+)
+=======
       return e.json(res.statusCode || 502, {
         success: false,
         message: 'A API do Bling retornou status ' + res.statusCode + '.',
@@ -832,8 +845,18 @@ routerAdd(
       })
     }
   },
-      let totalPedidosSemCliente = 0
-      let paginasPedidosLidas = 0
+  $apis.requireAuth(),
+)
+=======
+    } catch (httpErr) {
+      return e.json(502, {
+        success: false,
+        message: 'Falha ao conectar com o servidor do Bling ERP.',
+      })
+    }
+  },
+  $apis.requireAuth(),
+)
 =======
   $apis.requireAuth(),
 )
