@@ -2166,12 +2166,12 @@ routerAdd(
 // 7. CRON AUTOMÁTICO DE 15 MINUTOS COM MOTOR INTEGRADO DE MATERIALIZAÇÃO
 // ============================================================================
 cronAdd('bling_sync_automatica', '*/15 * * * *', () => {
-  // Lock em banco: checar se há alguma sincronização iniciada há menos de 10 minutos com status 'processando'
   try {
     const agoraMs = Date.now()
+    const agoraIso = new Date(agoraMs).toISOString()
     const limiteLockIso = new Date(agoraMs - 10 * 60 * 1000).toISOString()
 
-    // Limpar logs 'processando' que ultrapassaram a janela de lock (evita travar novas syncs)
+    // 1. Destravar APENAS logs "processando" realmente antigos/abandonados (iniciados há > 10 min)
     try {
       const logsExpirados = $app.findRecordsByFilter(
         'bling_sync_logs',
@@ -2189,19 +2189,77 @@ cronAdd('bling_sync_automatica', '*/15 * * * *', () => {
       }
     } catch (_) {}
 
-    const syncsEmAndamento = $app.findRecordsByFilter(
-      'bling_sync_logs',
-      `status = 'processando' && iniciado_em >= '${limiteLockIso}'`,
-      '-created',
-      1,
-      0,
-    )
-
-    if (syncsEmAndamento && syncsEmAndamento.length > 0) {
-      console.warn(
-        '[BLING-CRON] Sincronização anterior em andamento (lock ativo). Ignorando rodada.',
+    // 2. Verificar sincronização automática ou manual recente em processamento (iniciada há < 10 min)
+    let syncAtiva = null
+    try {
+      const syncsEmAndamento = $app.findRecordsByFilter(
+        'bling_sync_logs',
+        `status = 'processando' && iniciado_em >= '${limiteLockIso}'`,
+        '-created',
+        1,
+        0,
       )
+      if (syncsEmAndamento && syncsEmAndamento.length > 0) {
+        syncAtiva = syncsEmAndamento[0]
+      }
+    } catch (_) {}
+
+    if (syncAtiva) {
+      // NÃO marcar como erro: recuperar estado para continuidade em rodadas futuras
+      const etapaAtual = syncAtiva.getString('etapa_atual') || 'contatos'
+      const paginaAtual = syncAtiva.getInt('pagina_atual') || 1
+      console.log(
+        '[BLING-CRON] Sincronização em andamento encontrada. Etapa atual: ' +
+          etapaAtual +
+          ', Página atual: ' +
+          paginaAtual +
+          ' (log ID: ' +
+          syncAtiva.id +
+          '). Retomável.',
+      )
+      // Preservar estado e não iniciar uma segunda sincronização concorrente
       return
+    }
+
+    // 3. Nenhuma sincronização recente ativa: iniciar NOVA sincronização automática com estado retomável inicial
+    try {
+      const syncLogCol = $app.findCollectionByNameOrId('bling_sync_logs')
+      const novoLog = new Record(syncLogCol)
+      novoLog.set('iniciado_em', agoraIso)
+      novoLog.set('atualizado_em', agoraIso)
+      novoLog.set('status', 'processando')
+      novoLog.set('etapa_atual', 'contatos')
+      novoLog.set('pagina_atual', 1)
+      novoLog.set('clientes_lidos', 0)
+      novoLog.set('clientes_criados', 0)
+      novoLog.set('clientes_atualizados', 0)
+      novoLog.set('clientes_ignorados', 0)
+      novoLog.set('pedidos_lidos', 0)
+      novoLog.set('pedidos_persistidos', 0)
+      novoLog.set('pedidos_atualizados', 0)
+      novoLog.set('pedidos_duplicados', 0)
+      novoLog.set('pedidos_sem_cliente', 0)
+      novoLog.set('paginas_pedidos_lidas', 0)
+      novoLog.set('propostas_lidas', 0)
+      novoLog.set('propostas_persistidas', 0)
+      novoLog.set('propostas_atualizadas', 0)
+      novoLog.set('propostas_duplicadas', 0)
+      novoLog.set('propostas_sem_cliente', 0)
+      novoLog.set('paginas_propostas_lidas', 0)
+      novoLog.set('erros', [])
+      novoLog.set('avisos', [])
+      novoLog.set('duracao_ms', 0)
+      novoLog.set(
+        'mensagem_resumo',
+        'Sincronização automática iniciada com estado retomável (contatos, página 1)...',
+      )
+      $app.save(novoLog)
+      console.log(
+        '[BLING-CRON] Nova sincronização automática iniciada com sucesso. ID:',
+        novoLog.id,
+      )
+    } catch (errNovoLog) {
+      console.warn('[BLING-CRON] Aviso ao criar log de nova sincronização automática:', errNovoLog)
     }
 
     // Motor de materialização de oportunidades executado também a cada rodada de 15 minutos
