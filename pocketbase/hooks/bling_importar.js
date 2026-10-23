@@ -2171,11 +2171,12 @@ cronAdd('bling_sync_automatica', '*/15 * * * *', () => {
     const agoraIso = new Date(agoraMs).toISOString()
     const limiteLockIso = new Date(agoraMs - 10 * 60 * 1000).toISOString()
 
-    // 1. Destravar APENAS logs "processando" realmente antigos/abandonados (iniciados há > 10 min)
+    // 1. Destravar APENAS logs "processando" realmente antigos/abandonados (inativos há > 15 min)
+    // Logs concluídos com status 'sucesso' NUNCA são tocados aqui.
     try {
       const logsExpirados = $app.findRecordsByFilter(
         'bling_sync_logs',
-        `status = 'processando' && atualizado_em != '' && atualizado_em < '${limiteLockIso}'`,
+        `status = 'processando' && ((atualizado_em != '' && atualizado_em < '${limiteLockIso}') || (atualizado_em = '' && iniciado_em < '${limiteLockIso}'))`,
         '-created',
         50,
         0,
@@ -2189,65 +2190,78 @@ cronAdd('bling_sync_automatica', '*/15 * * * *', () => {
       }
     } catch (_) {}
 
-    // 2. Localizar sync em andamento recente OU criar uma nova
-    let syncAlvo = null
+    // 2. Localizar estado retomável anterior para dar continuidade à cadeia
+    let estadoAnterior = null
     try {
-      const syncsEmAndamento = $app.findRecordsByFilter(
+      const logsAnteriores = $app.findRecordsByFilter(
         'bling_sync_logs',
-        `status = 'processando' && (atualizado_em >= '${limiteLockIso}' || (atualizado_em = '' && iniciado_em >= '${limiteLockIso}'))`,
+        "status = 'sucesso' && etapa_atual != ''",
         '-created',
         1,
         0,
       )
-      if (syncsEmAndamento && syncsEmAndamento.length > 0) {
-        syncAlvo = syncsEmAndamento[0]
+      if (logsAnteriores && logsAnteriores.length > 0) {
+        estadoAnterior = logsAnteriores[0]
       }
     } catch (_) {}
 
-    if (!syncAlvo) {
-      try {
-        const syncLogCol = $app.findCollectionByNameOrId('bling_sync_logs')
-        const novoLog = new Record(syncLogCol)
-        novoLog.set('iniciado_em', agoraIso)
-        novoLog.set('atualizado_em', agoraIso)
-        novoLog.set('status', 'processando')
-        novoLog.set('etapa_atual', 'contatos')
-        novoLog.set('pagina_atual', 1)
-        novoLog.set('clientes_lidos', 0)
-        novoLog.set('clientes_criados', 0)
-        novoLog.set('clientes_atualizados', 0)
-        novoLog.set('clientes_ignorados', 0)
-        novoLog.set('pedidos_lidos', 0)
-        novoLog.set('pedidos_persistidos', 0)
-        novoLog.set('pedidos_atualizados', 0)
-        novoLog.set('pedidos_duplicados', 0)
-        novoLog.set('pedidos_sem_cliente', 0)
-        novoLog.set('paginas_pedidos_lidas', 0)
-        novoLog.set('propostas_lidas', 0)
-        novoLog.set('propostas_persistidas', 0)
-        novoLog.set('propostas_atualizadas', 0)
-        novoLog.set('propostas_duplicadas', 0)
-        novoLog.set('propostas_sem_cliente', 0)
-        novoLog.set('paginas_propostas_lidas', 0)
-        novoLog.set('erros', [])
-        novoLog.set('avisos', [])
-        novoLog.set('duracao_ms', 0)
-        novoLog.set(
-          'mensagem_resumo',
-          'Sincronização automática iniciada com estado retomável (contatos, página 1)...',
-        )
-        $app.save(novoLog)
-        syncAlvo = novoLog
-        console.log(
-          '[BLING-CRON] Nova sincronização automática iniciada com sucesso. ID:',
-          novoLog.id,
-        )
-      } catch (errNovoLog) {
-        console.warn('[BLING-CRON] Erro ao criar log de nova sincronização automática:', errNovoLog)
-      }
+    // Determinar etapa e página que a rodada atual deve executar
+    let etapaParaExecutar = 'contatos'
+    let paginaParaExecutar = 1
+
+    if (estadoAnterior) {
+      etapaParaExecutar = estadoAnterior.getString('etapa_atual') || 'contatos'
+      paginaParaExecutar = estadoAnterior.getInt('pagina_atual') || 1
     }
 
-    // 3. Processar exatamente UMA página de contatos se a etapa for 'contatos' (Tarefa 2A)
+    // Criar o log desta execução específica com status 'processando'
+    let syncAlvo = null
+    try {
+      const syncLogCol = $app.findCollectionByNameOrId('bling_sync_logs')
+      const novoLog = new Record(syncLogCol)
+      novoLog.set('iniciado_em', agoraIso)
+      novoLog.set('atualizado_em', agoraIso)
+      novoLog.set('status', 'processando')
+      novoLog.set('etapa_atual', etapaParaExecutar)
+      novoLog.set('pagina_atual', paginaParaExecutar)
+      novoLog.set('clientes_lidos', 0)
+      novoLog.set('clientes_criados', 0)
+      novoLog.set('clientes_atualizados', 0)
+      novoLog.set('clientes_ignorados', 0)
+      novoLog.set('pedidos_lidos', 0)
+      novoLog.set('pedidos_persistidos', 0)
+      novoLog.set('pedidos_atualizados', 0)
+      novoLog.set('pedidos_duplicados', 0)
+      novoLog.set('pedidos_sem_cliente', 0)
+      novoLog.set('paginas_pedidos_lidas', 0)
+      novoLog.set('propostas_lidas', 0)
+      novoLog.set('propostas_persistidas', 0)
+      novoLog.set('propostas_atualizadas', 0)
+      novoLog.set('propostas_duplicadas', 0)
+      novoLog.set('propostas_sem_cliente', 0)
+      novoLog.set('paginas_propostas_lidas', 0)
+      novoLog.set('erros', [])
+      novoLog.set('avisos', [])
+      novoLog.set('duracao_ms', 0)
+      novoLog.set(
+        'mensagem_resumo',
+        'Executando ' + etapaParaExecutar + ' (página ' + paginaParaExecutar + ')...',
+      )
+      $app.save(novoLog)
+      syncAlvo = novoLog
+      console.log(
+        '[BLING-CRON] Nova execução curta iniciada. ID:',
+        novoLog.id,
+        'Etapa:',
+        etapaParaExecutar,
+        'Página:',
+        paginaParaExecutar,
+      )
+    } catch (errNovoLog) {
+      console.warn('[BLING-CRON] Erro ao criar log de nova sincronização automática:', errNovoLog)
+    }
+
+    // 3. Processar exatamente UMA página de contatos se a etapa for 'contatos' (Tarefa 2B)
     if (syncAlvo && syncAlvo.getString('status') === 'processando') {
       const etapaAtual = syncAlvo.getString('etapa_atual') || 'contatos'
       const paginaAtual = syncAlvo.getInt('pagina_atual') || 1
@@ -2479,6 +2493,7 @@ cronAdd('bling_sync_automatica', '*/15 * * * *', () => {
 
         if (!currentAccessToken) {
           syncAlvo.set('status', 'erro')
+          syncAlvo.set('finalizado_em', new Date().toISOString())
           syncAlvo.set('atualizado_em', new Date().toISOString())
           syncAlvo.set('mensagem_resumo', 'Token OAuth do Bling inválido ou desconectado.')
           let errosList = []
@@ -2582,16 +2597,17 @@ cronAdd('bling_sync_automatica', '*/15 * * * *', () => {
           falhaChamada = errChamada
         }
 
+        // Se a API retornar 404 ou 204 quando não houver mais registros, tratar como fim de contatos
+        const statusCodeContatos = resContatos ? resContatos.statusCode : 0
+        const isFimContatosHttp = statusCodeContatos === 404 || statusCodeContatos === 204
+
         if (
-          falhaChamada ||
-          !resContatos ||
-          resContatos.statusCode < 200 ||
-          resContatos.statusCode >= 300
+          !isFimContatosHttp &&
+          (falhaChamada || !resContatos || statusCodeContatos < 200 || statusCodeContatos >= 300)
         ) {
-          const statusRetornado = resContatos ? resContatos.statusCode : 0
           const msgErro = falhaChamada
             ? String(falhaChamada.message || falhaChamada)
-            : 'HTTP ' + statusRetornado + ' na página ' + paginaAtual + ' de contatos.'
+            : 'HTTP ' + statusCodeContatos + ' na página ' + paginaAtual + ' de contatos.'
 
           console.error('[BLING-CRON] Falha na página ' + paginaAtual + ' de contatos:', msgErro)
 
@@ -2604,6 +2620,7 @@ cronAdd('bling_sync_automatica', '*/15 * * * *', () => {
           errosList.push(msgErro)
           syncAlvo.set('erros', errosList)
           syncAlvo.set('status', 'erro')
+          syncAlvo.set('finalizado_em', new Date().toISOString())
           syncAlvo.set('atualizado_em', new Date().toISOString())
           syncAlvo.set(
             'mensagem_resumo',
@@ -2614,8 +2631,32 @@ cronAdd('bling_sync_automatica', '*/15 * * * *', () => {
         }
 
         // Processar contatos retornados
-        const cJson = resContatos.json || {}
-        const contatosArr = cJson.data || []
+        const cJson = (resContatos && resContatos.json) || {}
+        const contatosArr = isFimContatosHttp ? [] : cJson.data || []
+
+        // 1. DETECÇÃO DE FIM DOS CONTATOS: página vazia
+        if (isFimContatosHttp || contatosArr.length === 0) {
+          const agoraFinal = new Date().toISOString()
+          syncAlvo.set('etapa_atual', 'pedidos')
+          syncAlvo.set('pagina_atual', 1)
+          syncAlvo.set('status', 'sucesso')
+          syncAlvo.set('atualizado_em', agoraFinal)
+          syncAlvo.set('finalizado_em', agoraFinal)
+          syncAlvo.set('duracao_ms', Date.now() - agoraMs)
+          syncAlvo.set(
+            'mensagem_resumo',
+            'Etapa contatos finalizada com sucesso. Próxima etapa: pedidos (página 1).',
+          )
+          $app.save(syncAlvo)
+
+          console.log(
+            '[BLING-CRON] Fim dos contatos detectado na página ' +
+              paginaAtual +
+              '. Transição para pedidos página 1 concluída com sucesso.',
+          )
+          // ENCERRAR A EXECUÇÃO — NÃO processar pedidos nesta rodada
+          return
+        }
 
         // Mapear clientes já existentes para deduplicação / upsert rápido
         const clientesExistentes = $app.findRecordsByFilter('clientes', '', '-created', 5000, 0)
@@ -2724,47 +2765,57 @@ cronAdd('bling_sync_automatica', '*/15 * * * *', () => {
           }
         }
 
-        // Atualizar estado e contadores no log
-        const lidosTotal = (syncAlvo.getInt('clientes_lidos') || 0) + lidosNaPagina
-        const criadosTotal = (syncAlvo.getInt('clientes_criados') || 0) + criadosNaPagina
-        const atualizadosTotal =
-          (syncAlvo.getInt('clientes_atualizados') || 0) + atualizadosNaPagina
-        const ignoradosTotal = (syncAlvo.getInt('clientes_ignorados') || 0) + ignoradosNaPagina
+        // Atualizar estado e contadores no log desta rodada
+        // Se a página retornou menos itens que o limite (ex: 74 < 100), esta foi a última página com dados.
+        // A próxima execução já receberá etapa_atual = 'pedidos' e pagina_atual = 1.
+        const temProximaPagina = contatosArr.length >= 100
+        const proximaEtapa = temProximaPagina ? 'contatos' : 'pedidos'
+        const proximaPagina = temProximaPagina ? paginaAtual + 1 : 1
 
-        syncAlvo.set('clientes_lidos', lidosTotal)
-        syncAlvo.set('clientes_criados', criadosTotal)
-        syncAlvo.set('clientes_atualizados', atualizadosTotal)
-        syncAlvo.set('clientes_ignorados', ignoradosTotal)
-        syncAlvo.set('pagina_atual', paginaAtual + 1)
-        syncAlvo.set('atualizado_em', new Date().toISOString())
-        syncAlvo.set(
-          'mensagem_resumo',
+        const agoraConclusao = new Date().toISOString()
+        syncAlvo.set('clientes_lidos', lidosNaPagina)
+        syncAlvo.set('clientes_criados', criadosNaPagina)
+        syncAlvo.set('clientes_atualizados', atualizadosNaPagina)
+        syncAlvo.set('clientes_ignorados', ignoradosNaPagina)
+        syncAlvo.set('etapa_atual', proximaEtapa)
+        syncAlvo.set('pagina_atual', proximaPagina)
+        syncAlvo.set('status', 'sucesso')
+        syncAlvo.set('atualizado_em', agoraConclusao)
+        syncAlvo.set('finalizado_em', agoraConclusao)
+        syncAlvo.set('duracao_ms', Date.now() - agoraMs)
+
+        let msgResumo =
           'Página ' +
-            paginaAtual +
-            ' de contatos processada com sucesso (' +
-            lidosNaPagina +
-            ' lidos, ' +
-            criadosNaPagina +
-            ' criados, ' +
-            atualizadosNaPagina +
-            ' atualizados). Próxima página: ' +
-            (paginaAtual + 1) +
-            '.',
-        )
+          paginaAtual +
+          ' de contatos processada com sucesso (' +
+          lidosNaPagina +
+          ' lidos, ' +
+          criadosNaPagina +
+          ' criados, ' +
+          atualizadosNaPagina +
+          ' atualizados).'
+        if (temProximaPagina) {
+          msgResumo += ' Próxima página: ' + proximaPagina + '.'
+        } else {
+          msgResumo += ' Última página de contatos atingida. Próxima etapa: pedidos (página 1).'
+        }
+        syncAlvo.set('mensagem_resumo', msgResumo)
         $app.save(syncAlvo)
 
         console.log(
           '[BLING-CRON] Página ' +
             paginaAtual +
-            ' de contatos concluída. Próxima: ' +
-            (paginaAtual + 1) +
-            ' (Total lidos: ' +
-            lidosTotal +
-            ', Criados: ' +
-            criadosTotal +
-            ', Atualizados: ' +
-            atualizadosTotal +
-            ').',
+            ' de contatos concluída com sucesso. Próxima etapa: ' +
+            proximaEtapa +
+            ' (página ' +
+            proximaPagina +
+            '). Total na rodada: ' +
+            lidosNaPagina +
+            ' lidos, ' +
+            criadosNaPagina +
+            ' criados, ' +
+            atualizadosNaPagina +
+            ' atualizados.',
         )
       }
     }
