@@ -2220,6 +2220,54 @@ cronAdd('bling_sync_automatica', '*/5 * * * *', () => {
       }
     }
 
+    // // DIAG-7A: Instrumentação de diagnóstico temporário de propostas Bling
+    // Executa UMA chamada ao detalhe da proposta 16756135016 e grava em avisos e no resumo do log
+    let diag7aAvisos = []
+    let diag7aResumoPrefixo = ''
+    try {
+      const diagConns = $app.findRecordsByFilter(
+        'bling_connections',
+        "status = 'conectado'",
+        '-created',
+        1,
+        0,
+      )
+      if (diagConns && diagConns.length > 0) {
+        const diagConn = diagConns[0]
+        const diagToken = diagConn.getString('access_token')
+        if (diagToken) {
+          const diagUrlDetalhe = 'https://api.bling.com.br/Api/v3/propostas-comerciais/16756135016'
+          const diagResDetalhe = $http.send({
+            url: diagUrlDetalhe,
+            method: 'GET',
+            headers: {
+              Accept: 'application/json',
+              Authorization: 'Bearer ' + diagToken,
+            },
+            timeout: 20,
+          })
+          const diagDetJson = (diagResDetalhe && diagResDetalhe.json) || {}
+          const diagDetData = diagDetJson.data || diagDetJson
+          const infoDiag = {
+            http: diagResDetalhe ? diagResDetalhe.statusCode : 0,
+            situacao: diagDetData.situacao !== undefined ? diagDetData.situacao : null,
+            situacao_tipo: typeof diagDetData.situacao,
+            status: diagDetData.status !== undefined ? diagDetData.status : null,
+            situacaoValor:
+              diagDetData.situacaoValor !== undefined ? diagDetData.situacaoValor : null,
+            keys: typeof diagDetData === 'object' && diagDetData ? Object.keys(diagDetData) : [],
+          }
+          const diagStr = JSON.stringify(infoDiag)
+          diag7aAvisos.push('DIAG-7A DETALHE: ' + diagStr)
+          diag7aResumoPrefixo = '[DIAG-7A: sit=' + JSON.stringify(diagDetData.situacao) + '] '
+          console.log('[DIAG-7A] DETALHE 16756135016:', diagStr)
+        }
+      }
+    } catch (errDiagDet) {
+      diag7aAvisos.push('DIAG-7A DETALHE ERRO: ' + String(errDiagDet.message || errDiagDet))
+      diag7aResumoPrefixo = '[DIAG-7A ERRO: ' + String(errDiagDet.message || errDiagDet) + '] '
+    }
+
     // Criar o log desta execução específica com status 'processando'
     let syncAlvo = null
     try {
@@ -2247,11 +2295,16 @@ cronAdd('bling_sync_automatica', '*/5 * * * *', () => {
       novoLog.set('propostas_sem_cliente', 0)
       novoLog.set('paginas_propostas_lidas', 0)
       novoLog.set('erros', [])
-      novoLog.set('avisos', [])
+      novoLog.set('avisos', diag7aAvisos)
       novoLog.set('duracao_ms', 0)
       novoLog.set(
         'mensagem_resumo',
-        'Executando ' + etapaParaExecutar + ' (página ' + paginaParaExecutar + ')...',
+        diag7aResumoPrefixo +
+          'Executando ' +
+          etapaParaExecutar +
+          ' (página ' +
+          paginaParaExecutar +
+          ')...',
       )
       $app.save(novoLog)
       syncAlvo = novoLog
@@ -3414,6 +3467,7 @@ cronAdd('bling_sync_automatica', '*/5 * * * *', () => {
         let msgResumo = ''
         if (temMaisPaginasPedidos) {
           msgResumo =
+            diag7aResumoPrefixo +
             'Página ' +
             paginaAtual +
             ' de pedidos processada com sucesso (' +
@@ -3427,6 +3481,7 @@ cronAdd('bling_sync_automatica', '*/5 * * * *', () => {
             '.'
         } else {
           msgResumo =
+            diag7aResumoPrefixo +
             'Etapa pedidos concluída (' +
             totalPedidosLidos +
             ' lidos na última página). Próxima etapa: propostas, página 1.'
@@ -3847,6 +3902,7 @@ cronAdd('bling_sync_automatica', '*/5 * * * *', () => {
         let totalPropostasSemCliente = 0
         let statusNaoMapeados = 0
         const errosPropostas = []
+        let diag7aListagemCapturada = false
 
         for (let pri = 0; pri < propostasArr.length; pri++) {
           totalPropostasLidas++
@@ -3883,6 +3939,43 @@ cronAdd('bling_sync_automatica', '*/5 * * * *', () => {
                 ? itemPr.situacao.nome
                 : 'Situacao #' + sitPropId
             statusNaoMapeados++
+          }
+
+          // // DIAG-7A: Captura da listagem para a proposta 16756135016 ou primeiro item da página
+          if (blingPropId === '16756135016' || (!diag7aListagemCapturada && pri === 0)) {
+            try {
+              let avisosAtuais = []
+              try {
+                avisosAtuais = JSON.parse(syncAlvo.getString('avisos')) || []
+              } catch (_) {
+                avisosAtuais = []
+              }
+              avisosAtuais.push(
+                'DIAG-7A LISTAGEM [prop_id=' +
+                  blingPropId +
+                  ', num=' +
+                  numProp +
+                  ']: ' +
+                  JSON.stringify({
+                    id: itemPr.id,
+                    numero: itemPr.numero,
+                    situacao: itemPr.situacao || null,
+                    situacao_id: itemPr.situacao ? itemPr.situacao.id : null,
+                    situacao_nome: itemPr.situacao
+                      ? itemPr.situacao.nome || itemPr.situacao.descricao || null
+                      : null,
+                    item_keys: typeof itemPr === 'object' && itemPr ? Object.keys(itemPr) : [],
+                  }),
+              )
+              syncAlvo.set('avisos', avisosAtuais)
+              console.log(
+                '[DIAG-7A] LISTAGEM prop ' + blingPropId + ' situacao:',
+                JSON.stringify(itemPr.situacao || itemPr),
+              )
+              diag7aListagemCapturada = true
+            } catch (errDiagList) {
+              console.warn('[DIAG-7A] Erro ao gravar aviso de listagem:', errDiagList)
+            }
           }
 
           let clienteRecordProp = null
