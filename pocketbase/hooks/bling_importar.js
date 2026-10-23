@@ -3170,11 +3170,11 @@ cronAdd('bling_sync_automatica', '* * * * *', () => {
         const pedJson = (resPedidos && resPedidos.json) || {}
         const pedidosArr = isVazioHttp ? [] : pedJson.data || []
 
-        // 5. Página vazia (0 registros): NÃO avançar indefinidamente, NÃO transicionar (Tarefa 3B)
+        // 5. Página vazia (0 registros): Fim da etapa pedidos detectado -> transicionar para propostas página 1 (Tarefa 3B)
         if (isVazioHttp || pedidosArr.length === 0) {
           const agoraFinal = new Date().toISOString()
-          syncAlvo.set('etapa_atual', 'pedidos')
-          syncAlvo.set('pagina_atual', paginaAtual)
+          syncAlvo.set('etapa_atual', 'propostas')
+          syncAlvo.set('pagina_atual', 1)
           syncAlvo.set('pedidos_lidos', 0)
           syncAlvo.set('pedidos_persistidos', 0)
           syncAlvo.set('pedidos_atualizados', 0)
@@ -3185,15 +3185,16 @@ cronAdd('bling_sync_automatica', '* * * * *', () => {
           syncAlvo.set('duracao_ms', Date.now() - agoraMs)
           syncAlvo.set(
             'mensagem_resumo',
-            'Página ' + paginaAtual + ' de pedidos sem registros no Bling.',
+            'Etapa pedidos concluída. Próxima etapa: propostas, página 1.',
           )
           $app.save(syncAlvo)
 
           console.log(
-            '[BLING-CRON] Página ' +
+            '[BLING-CRON] Fim dos pedidos detectado na página ' +
               paginaAtual +
-              ' de pedidos sem registros. Execução concluída mantendo página atual.',
+              '. Transição para propostas página 1 concluída com sucesso.',
           )
+          // NÃO processar propostas nesta mesma execução
           return
         }
 
@@ -3383,7 +3384,10 @@ cronAdd('bling_sync_automatica', '* * * * *', () => {
           } catch (_) {}
         }
 
-        const proximaPaginaPedidos = paginaAtual + 1
+        // Se a página retornou menos de 100 itens (ex: última página com pedidos), ou se é página normal cheia (100 itens)
+        const temMaisPaginasPedidos = pedidosArr.length >= 100
+        const proximaEtapaPedidos = temMaisPaginasPedidos ? 'pedidos' : 'propostas'
+        const proximaPaginaPedidos = temMaisPaginasPedidos ? paginaAtual + 1 : 1
         const agoraConclusao = new Date().toISOString()
 
         syncAlvo.set('pedidos_lidos', totalPedidosLidos)
@@ -3391,7 +3395,7 @@ cronAdd('bling_sync_automatica', '* * * * *', () => {
         syncAlvo.set('pedidos_atualizados', totalPedidosAtualizados)
         syncAlvo.set('pedidos_sem_cliente', totalPedidosSemCliente)
         syncAlvo.set('paginas_pedidos_lidas', 1)
-        syncAlvo.set('etapa_atual', 'pedidos')
+        syncAlvo.set('etapa_atual', proximaEtapaPedidos)
         syncAlvo.set('pagina_atual', proximaPaginaPedidos)
         syncAlvo.set('status', 'sucesso')
         syncAlvo.set('atualizado_em', agoraConclusao)
@@ -3401,18 +3405,26 @@ cronAdd('bling_sync_automatica', '* * * * *', () => {
           syncAlvo.set('erros_pedidos', errosPedidos)
         }
 
-        const msgResumo =
-          'Página ' +
-          paginaAtual +
-          ' de pedidos processada com sucesso (' +
-          totalPedidosLidos +
-          ' lidos, ' +
-          totalPedidosPersistidos +
-          ' criados, ' +
-          totalPedidosAtualizados +
-          ' atualizados). Próxima página: ' +
-          proximaPaginaPedidos +
-          '.'
+        let msgResumo = ''
+        if (temMaisPaginasPedidos) {
+          msgResumo =
+            'Página ' +
+            paginaAtual +
+            ' de pedidos processada com sucesso (' +
+            totalPedidosLidos +
+            ' lidos, ' +
+            totalPedidosPersistidos +
+            ' criados, ' +
+            totalPedidosAtualizados +
+            ' atualizados). Próxima página: ' +
+            proximaPaginaPedidos +
+            '.'
+        } else {
+          msgResumo =
+            'Etapa pedidos concluída (' +
+            totalPedidosLidos +
+            ' lidos na última página). Próxima etapa: propostas, página 1.'
+        }
         syncAlvo.set('mensagem_resumo', msgResumo)
         $app.save(syncAlvo)
 
