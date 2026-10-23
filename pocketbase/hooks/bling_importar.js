@@ -3441,6 +3441,592 @@ cronAdd('bling_sync_automatica', '* * * * *', () => {
             totalPedidosAtualizados +
             ' atualizados.',
         )
+      } else if (etapaAtual === 'propostas') {
+        console.log(
+          '[BLING-CRON] Executando página ' +
+            paginaAtual +
+            ' de propostas (log ID: ' +
+            syncAlvo.id +
+            ').',
+        )
+
+        // Helper local para base64
+        function cronEncodeBase64(str) {
+          const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+          let output = ''
+          for (
+            let block = 0, charCode, idx = 0, map = chars;
+            str.charAt(idx | 0) || ((map = '='), idx % 1);
+            output += map.charAt(63 & (block >> (8 - (idx % 1) * 8)))
+          ) {
+            charCode = str.charCodeAt((idx += 3 / 4))
+            if (charCode > 0xff) throw new Error('Caractere inválido para base64')
+            block = (block << 8) | charCode
+          }
+          return output
+        }
+
+        // Helper local para refresh OAuth
+        function cronExecutarRefreshOAuth(conn) {
+          try {
+            const refreshToken = conn.getString('refresh_token')
+            if (!refreshToken) return null
+
+            let cId = ''
+            let cSec = ''
+            try {
+              cId = $os.getenv('BLING_CLIENT_ID') || $secrets.get('BLING_CLIENT_ID') || ''
+              cSec = $os.getenv('BLING_CLIENT_SECRET') || $secrets.get('BLING_CLIENT_SECRET') || ''
+            } catch (_) {}
+
+            if (!cId || !cSec) return null
+
+            const b64 = cronEncodeBase64(cId + ':' + cSec)
+            const refreshBody =
+              'grant_type=refresh_token&refresh_token=' + encodeURIComponent(refreshToken)
+
+            const refreshRes = $http.send({
+              url: 'https://www.bling.com.br/Api/v3/oauth/token',
+              method: 'POST',
+              headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                Authorization: 'Basic ' + b64,
+                'enable-jwt': '1',
+              },
+              body: refreshBody,
+              timeout: 15,
+            })
+
+            if (refreshRes && refreshRes.statusCode === 200) {
+              const rData = refreshRes.json || {}
+              const novoAccess = rData.access_token || ''
+              const novoRefresh = rData.refresh_token || refreshToken
+              const novoExpiresIn = Number(rData.expires_in) || 21600
+              const novoExpiresAt = new Date(Date.now() + novoExpiresIn * 1000)
+
+              if (novoAccess) {
+                conn.set('access_token', novoAccess)
+                conn.set('refresh_token', novoRefresh)
+                conn.set('expires_at', novoExpiresAt.toISOString())
+                conn.set('last_refresh_at', new Date().toISOString())
+                conn.set('status', 'conectado')
+                conn.set('ultimo_erro', '')
+                $app.save(conn)
+                return novoAccess
+              }
+            } else {
+              const errDet = refreshRes && refreshRes.json ? JSON.stringify(refreshRes.json) : ''
+              conn.set('status', 'erro_renovacao')
+              conn.set('ultimo_erro', 'Falha no refresh automático: ' + errDet)
+              $app.save(conn)
+            }
+          } catch (errRef) {
+            try {
+              conn.set('status', 'erro_renovacao')
+              conn.set('ultimo_erro', 'Exceção no refresh: ' + String(errRef.message || errRef))
+              $app.save(conn)
+            } catch (_) {}
+          }
+          return null
+        }
+
+        // Helper local para obter token de acesso válido
+        function cronGetValidBlingAccessToken() {
+          try {
+            const conns = $app.findRecordsByFilter('bling_connections', '', '-created', 1, 0)
+            if (conns && conns.length > 0) {
+              const conn = conns[0]
+              const status = conn.getString('status')
+              const accessToken = conn.getString('access_token')
+              const expiresAtStr = conn.getString('expires_at')
+
+              if (status === 'conectado' && accessToken) {
+                const expiraEm = expiresAtStr ? new Date(expiresAtStr).getTime() : 0
+                const agora = Date.now()
+                const margem = 5 * 60 * 1000
+
+                if (expiraEm > agora + margem) {
+                  return { token: accessToken, conn: conn }
+                }
+
+                const tokenRenovado = cronExecutarRefreshOAuth(conn)
+                if (tokenRenovado) {
+                  return { token: tokenRenovado, conn: conn }
+                }
+              }
+            }
+          } catch (_) {}
+          return { token: '', conn: null }
+        }
+
+        function cronPausarMs(ms) {
+          if (!ms || ms <= 0) return
+          const tAlvo = Date.now() + ms
+          while (Date.now() < tAlvo) {}
+        }
+
+        let cronUltimoMomentoChamada = 0
+        function cronThrottleChamadaBling(intervaloMinMs) {
+          const minIntervalo = intervaloMinMs || 380
+          const agora = Date.now()
+          const decorrido = agora - cronUltimoMomentoChamada
+          if (decorrido < minIntervalo) {
+            cronPausarMs(minIntervalo - decorrido)
+          }
+          cronUltimoMomentoChamada = Date.now()
+        }
+
+        function cronNormalizarDoc(doc) {
+          if (!doc) return ''
+          return String(doc).replace(/[^\w]/g, '').trim().toLowerCase()
+        }
+
+        function cronMapearVendedor(vendedorBling) {
+          if (!vendedorBling) return null
+          const v = String(vendedorBling)
+            .trim()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toUpperCase()
+
+          if (v === 'ALICE PAITRA COLESEL' || v === 'ALICE' || v.indexOf('ALICE PAITRA') === 0) {
+            return 'Alice'
+          }
+          if (v === 'RENAN SOUZA' || v === 'RENAN') {
+            return 'Renan'
+          }
+          if (
+            v === 'KAROLINE' ||
+            v === 'VENDAS 1' ||
+            v === 'MARIA CAROLINE' ||
+            v === 'MARIA CAROLINE SANTOS' ||
+            v === 'CONSUMIDOR FINAL' ||
+            v === 'CONSUMIDOR FINAL.' ||
+            v.indexOf('KAROLINE ') === 0 ||
+            v.indexOf('MARIA CAROLINE') === 0
+          ) {
+            return 'Karoline (Vendas 1)'
+          }
+          if (v === 'VENDAS 2') {
+            return 'Vendas 2'
+          }
+          return null
+        }
+
+        const cronMapVendedorParaUsuarioId = {}
+        try {
+          const usuariosCadastrados = $app.findRecordsByFilter(
+            'usuarios',
+            'ativo = true',
+            'nome',
+            50,
+            0,
+          )
+          for (let u = 0; u < usuariosCadastrados.length; u++) {
+            const uRec = usuariosCadastrados[u]
+            const uId = uRec.id
+            const uPerfil = uRec.getString('perfil')
+            const uNome = uRec.getString('nome') || ''
+            const uEmail = uRec.getString('email') || ''
+
+            if (uNome.indexOf('Alice') !== -1 || uEmail.indexOf('alice') !== -1) {
+              cronMapVendedorParaUsuarioId['Alice'] = uId
+            } else if (uNome.indexOf('Renan') !== -1 || uEmail.indexOf('renan') !== -1) {
+              cronMapVendedorParaUsuarioId['Renan'] = uId
+            } else if (
+              uPerfil === 'vendedor_1' ||
+              uNome.indexOf('Vendas 1') !== -1 ||
+              uNome.indexOf('Karoline') !== -1
+            ) {
+              cronMapVendedorParaUsuarioId['Karoline (Vendas 1)'] = uId
+            } else if (uPerfil === 'vendedor_2' || uNome.indexOf('Vendas 2') !== -1) {
+              cronMapVendedorParaUsuarioId['Vendas 2'] = uId
+            }
+          }
+        } catch (_) {}
+
+        function cronResolverUsuarioIdPorVendedorCrm(vendedorCrm) {
+          if (!vendedorCrm) return null
+          return cronMapVendedorParaUsuarioId[vendedorCrm] || null
+        }
+
+        const tokenInfo = cronGetValidBlingAccessToken()
+        let currentAccessToken = tokenInfo.token
+        const connectionRecord = tokenInfo.conn
+
+        if (!currentAccessToken) {
+          syncAlvo.set('status', 'erro')
+          syncAlvo.set('finalizado_em', new Date().toISOString())
+          syncAlvo.set('atualizado_em', new Date().toISOString())
+          syncAlvo.set('mensagem_resumo', 'Token OAuth do Bling inválido ou desconectado.')
+          let errosList = []
+          try {
+            errosList = JSON.parse(syncAlvo.getString('erros')) || []
+          } catch (_) {
+            errosList = []
+          }
+          errosList.push('Conecte o CRM ao Bling via OAuth em /bling antes de sincronizar.')
+          syncAlvo.set('erros', errosList)
+          $app.save(syncAlvo)
+          return
+        }
+
+        // Executar chamada GET com throttle, backoff e refresh em 401
+        let refreshFeito401 = false
+        function cronGetBling(url, maxTentativas) {
+          let tentativas = 0
+          const limite = maxTentativas || 4
+          let ultimoResultado = null
+          let ultimoErro = null
+
+          while (tentativas < limite) {
+            tentativas++
+            cronThrottleChamadaBling(380)
+
+            try {
+              const res = $http.send({
+                url: url,
+                method: 'GET',
+                headers: {
+                  Accept: 'application/json',
+                  Authorization: 'Bearer ' + currentAccessToken,
+                },
+                timeout: 20,
+              })
+              ultimoResultado = res
+
+              if (res.statusCode === 401 && !refreshFeito401 && connectionRecord) {
+                refreshFeito401 = true
+                const novoToken = cronExecutarRefreshOAuth(connectionRecord)
+                if (novoToken) {
+                  currentAccessToken = novoToken
+                  cronThrottleChamadaBling(380)
+                  const retryRes = $http.send({
+                    url: url,
+                    method: 'GET',
+                    headers: {
+                      Accept: 'application/json',
+                      Authorization: 'Bearer ' + currentAccessToken,
+                    },
+                    timeout: 20,
+                  })
+                  ultimoResultado = retryRes
+                  return retryRes
+                }
+              }
+
+              if (res.statusCode === 429 && tentativas < limite) {
+                const esperaMs = 1200 * tentativas
+                cronPausarMs(esperaMs)
+                continue
+              }
+
+              if (res.statusCode >= 500 && tentativas < limite) {
+                const esperaMs = 1000 * tentativas
+                cronPausarMs(esperaMs)
+                continue
+              }
+
+              return res
+            } catch (httpErr) {
+              ultimoErro = httpErr
+              if (tentativas < limite) {
+                const esperaMs = 800 * tentativas
+                cronPausarMs(esperaMs)
+                continue
+              }
+            }
+          }
+
+          if (ultimoResultado) return ultimoResultado
+          throw new Error(
+            'Falha definitiva de rede após ' +
+              limite +
+              ' tentativas: ' +
+              String((ultimoErro && ultimoErro.message) || ultimoErro || 'Erro desconhecido'),
+          )
+        }
+
+        const urlPropostas =
+          'https://api.bling.com.br/Api/v3/propostas-comerciais?pagina=' +
+          paginaAtual +
+          '&limite=100'
+
+        let resPropostas = null
+        let falhaChamada = null
+        try {
+          resPropostas = cronGetBling(urlPropostas, 4)
+        } catch (errChamada) {
+          falhaChamada = errChamada
+        }
+
+        const statusCodePropostas = resPropostas ? resPropostas.statusCode : 0
+        const isVazioHttp = statusCodePropostas === 404 || statusCodePropostas === 204
+
+        if (
+          !isVazioHttp &&
+          (falhaChamada || !resPropostas || statusCodePropostas < 200 || statusCodePropostas >= 300)
+        ) {
+          const msgErro = falhaChamada
+            ? String(falhaChamada.message || falhaChamada)
+            : 'HTTP ' + statusCodePropostas + ' na página ' + paginaAtual + ' de propostas.'
+
+          console.error('[BLING-CRON] Falha na página ' + paginaAtual + ' de propostas:', msgErro)
+
+          let errosList = []
+          try {
+            errosList = JSON.parse(syncAlvo.getString('erros')) || []
+          } catch (_) {
+            errosList = []
+          }
+          errosList.push(msgErro)
+          syncAlvo.set('erros', errosList)
+          syncAlvo.set('status', 'erro')
+          syncAlvo.set('finalizado_em', new Date().toISOString())
+          syncAlvo.set('atualizado_em', new Date().toISOString())
+          syncAlvo.set(
+            'mensagem_resumo',
+            'Erro ao processar página ' + paginaAtual + ' de propostas: ' + msgErro,
+          )
+          $app.save(syncAlvo)
+          return
+        }
+
+        const propJson = (resPropostas && resPropostas.json) || {}
+        const propostasArr = isVazioHttp ? [] : propJson.data || []
+
+        // Requisito 6: Se chegar página vazia, registrar que não existem mais registros e encerrar como sucesso, mas NÃO criar transição para funil
+        if (isVazioHttp || propostasArr.length === 0) {
+          const agoraFinal = new Date().toISOString()
+          syncAlvo.set('etapa_atual', 'propostas')
+          syncAlvo.set('pagina_atual', paginaAtual)
+          syncAlvo.set('propostas_lidas', 0)
+          syncAlvo.set('propostas_persistidas', 0)
+          syncAlvo.set('propostas_atualizadas', 0)
+          syncAlvo.set('propostas_sem_cliente', 0)
+          syncAlvo.set('paginas_propostas_lidas', 1)
+          syncAlvo.set('status', 'sucesso')
+          syncAlvo.set('atualizado_em', agoraFinal)
+          syncAlvo.set('finalizado_em', agoraFinal)
+          syncAlvo.set('duracao_ms', Date.now() - agoraMs)
+          syncAlvo.set(
+            'mensagem_resumo',
+            'Página ' +
+              paginaAtual +
+              ' de propostas vazia. Não existem mais registros de propostas no Bling ERP.',
+          )
+          $app.save(syncAlvo)
+
+          console.log(
+            '[BLING-CRON] Fim dos registros de propostas detectado na página ' +
+              paginaAtual +
+              '. Encerrado com sucesso sem transição de etapa.',
+          )
+          return
+        }
+
+        // Mapear clientes já existentes para vincular propostas
+        const clientesExistentes = $app.findRecordsByFilter('clientes', '', '-created', 5000, 0)
+        const mapPorBlingId = {}
+        const mapPorDoc = {}
+
+        for (let i = 0; i < clientesExistentes.length; i++) {
+          const c = clientesExistentes[i]
+          const bId = c.getString('bling_id')
+          const doc = cronNormalizarDoc(c.getString('cnpj_cpf'))
+
+          if (bId) mapPorBlingId[bId] = c
+          if (doc) mapPorDoc[doc] = c
+        }
+
+        let totalPropostasLidas = 0
+        let totalPropostasPersistidas = 0
+        let totalPropostasAtualizadas = 0
+        let totalPropostasSemCliente = 0
+        let statusNaoMapeados = 0
+        const errosPropostas = []
+
+        for (let pri = 0; pri < propostasArr.length; pri++) {
+          totalPropostasLidas++
+          const itemPr = propostasArr[pri]
+          const blingPropId = String(itemPr.id || '')
+          const numProp = String(itemPr.numero || '')
+          const sitPropId = itemPr.situacao ? String(itemPr.situacao.id || '') : ''
+          const valorTotalProp = Number(itemPr.total || itemPr.valor || 0)
+          const dataProp = itemPr.data || ''
+
+          let sitPropNome = ''
+          let statusNormalizado = 'outro'
+          let visivelFunil = 0
+
+          if (sitPropId === '0' || sitPropId === 'rascunho') {
+            sitPropNome = 'Rascunho'
+            statusNormalizado = 'rascunho'
+            visivelFunil = 1
+          } else if (sitPropId === '1' || sitPropId === 'aguardando') {
+            sitPropNome = 'Aguardando aprovação'
+            statusNormalizado = 'aguardando'
+            visivelFunil = 1
+          } else if (sitPropId === '2' || sitPropId === 'aprovada') {
+            sitPropNome = 'Aprovada'
+            statusNormalizado = 'convertida'
+            visivelFunil = 0
+          } else if (sitPropId === '3' || sitPropId === 'nao_aprovada') {
+            sitPropNome = 'Não aprovada'
+            statusNormalizado = 'nao_aprovada'
+            visivelFunil = 1
+          } else {
+            sitPropNome =
+              itemPr.situacao && itemPr.situacao.nome
+                ? itemPr.situacao.nome
+                : 'Situacao #' + sitPropId
+            statusNaoMapeados++
+          }
+
+          let clienteRecordProp = null
+          let cBlingId = ''
+          let cDoc = ''
+          let cNome = ''
+          if (itemPr.contato) {
+            cBlingId = String(itemPr.contato.id || '')
+            cDoc = String(itemPr.contato.numeroDocumento || '')
+            cNome = String(itemPr.contato.nome || '')
+            const docNorm = cronNormalizarDoc(cDoc)
+            if (cBlingId && mapPorBlingId[cBlingId]) {
+              clienteRecordProp = mapPorBlingId[cBlingId]
+            } else if (docNorm && mapPorDoc[docNorm]) {
+              clienteRecordProp = mapPorDoc[docNorm]
+            }
+          }
+
+          let statusVinculoProp = 'pendente'
+          let clienteCrmIdProp = ''
+          if (clienteRecordProp) {
+            statusVinculoProp = 'vinculado'
+            clienteCrmIdProp = clienteRecordProp.id
+          } else {
+            totalPropostasSemCliente++
+          }
+
+          const vendProp = itemPr.vendedor ? itemPr.vendedor.nome : ''
+          const vendCrmProp = cronMapearVendedor(vendProp)
+          const respIdProp = cronResolverUsuarioIdPorVendedorCrm(vendCrmProp)
+
+          let propExistente = null
+          try {
+            propExistente = $app.findFirstRecordByData(
+              'bling_propostas',
+              'bling_proposta_id',
+              blingPropId,
+            )
+          } catch (_) {}
+
+          if (propExistente) {
+            try {
+              propExistente.set('numero', numProp)
+              propExistente.set('situacao_bling_id', sitPropId)
+              propExistente.set('situacao_bling_nome', sitPropNome)
+              propExistente.set('status_normalizado', statusNormalizado)
+              propExistente.set('visivel_funil', visivelFunil === 1)
+              propExistente.set('valor_total', valorTotalProp)
+              propExistente.set('data_proposta', dataProp)
+              if (cBlingId) propExistente.set('bling_contato_id', cBlingId)
+              if (cNome) propExistente.set('contato_nome', cNome)
+              if (cDoc) propExistente.set('documento', cDoc)
+              propExistente.set('cliente_id', clienteCrmIdProp)
+              propExistente.set('status_vinculo', statusVinculoProp)
+              if (vendProp) propExistente.set('vendedor_bling', vendProp)
+              if (vendCrmProp) propExistente.set('vendedor_crm', vendCrmProp)
+              if (respIdProp) propExistente.set('responsavel_id', respIdProp)
+              propExistente.set('sincronizado_em', new Date().toISOString())
+
+              $app.save(propExistente)
+              totalPropostasAtualizadas++
+            } catch (eUpProp) {
+              errosPropostas.push(
+                'Erro ao atualizar proposta ' + numProp + ': ' + String(eUpProp.message || eUpProp),
+              )
+            }
+          } else {
+            try {
+              const propCol = $app.findCollectionByNameOrId('bling_propostas')
+              const novaProp = new Record(propCol)
+              novaProp.set('bling_proposta_id', blingPropId)
+              novaProp.set('numero', numProp)
+              novaProp.set('situacao_bling_id', sitPropId)
+              novaProp.set('situacao_bling_nome', sitPropNome)
+              novaProp.set('status_normalizado', statusNormalizado)
+              novaProp.set('visivel_funil', visivelFunil === 1)
+              novaProp.set('valor_total', valorTotalProp)
+              novaProp.set('data_proposta', dataProp)
+              if (cBlingId) novaProp.set('bling_contato_id', cBlingId)
+              if (cNome) novaProp.set('contato_nome', cNome)
+              if (cDoc) novaProp.set('documento', cDoc)
+              novaProp.set('cliente_id', clienteCrmIdProp)
+              novaProp.set('status_vinculo', statusVinculoProp)
+              if (vendProp) novaProp.set('vendedor_bling', vendProp)
+              if (vendCrmProp) novaProp.set('vendedor_crm', vendCrmProp)
+              if (respIdProp) novaProp.set('responsavel_id', respIdProp)
+              novaProp.set('sincronizado_em', new Date().toISOString())
+
+              $app.save(novaProp)
+              totalPropostasPersistidas++
+            } catch (eAddProp) {
+              errosPropostas.push(
+                'Erro ao criar proposta ' + numProp + ': ' + String(eAddProp.message || eAddProp),
+              )
+            }
+          }
+        }
+
+        const proximaPaginaPropostas = paginaAtual + 1
+        const agoraConclusao = new Date().toISOString()
+
+        syncAlvo.set('propostas_lidas', totalPropostasLidas)
+        syncAlvo.set('propostas_persistidas', totalPropostasPersistidas)
+        syncAlvo.set('propostas_atualizadas', totalPropostasAtualizadas)
+        syncAlvo.set('propostas_sem_cliente', totalPropostasSemCliente)
+        syncAlvo.set('status_nao_mapeados', statusNaoMapeados)
+        syncAlvo.set('paginas_propostas_lidas', 1)
+        syncAlvo.set('etapa_atual', 'propostas')
+        syncAlvo.set('pagina_atual', proximaPaginaPropostas)
+        syncAlvo.set('status', 'sucesso')
+        syncAlvo.set('atualizado_em', agoraConclusao)
+        syncAlvo.set('finalizado_em', agoraConclusao)
+        syncAlvo.set('duracao_ms', Date.now() - agoraMs)
+        if (errosPropostas.length > 0) {
+          syncAlvo.set('erros_propostas', errosPropostas)
+        }
+
+        const msgResumo =
+          'Página ' +
+          paginaAtual +
+          ' de propostas processada com sucesso (' +
+          totalPropostasLidas +
+          ' lidas, ' +
+          totalPropostasPersistidas +
+          ' criadas, ' +
+          totalPropostasAtualizadas +
+          ' atualizadas). Próxima página: ' +
+          proximaPaginaPropostas +
+          '.'
+        syncAlvo.set('mensagem_resumo', msgResumo)
+        $app.save(syncAlvo)
+
+        console.log(
+          '[BLING-CRON] Página ' +
+            paginaAtual +
+            ' de propostas concluída com sucesso. Próxima página: ' +
+            proximaPaginaPropostas +
+            '. Total na rodada: ' +
+            totalPropostasLidas +
+            ' lidas, ' +
+            totalPropostasPersistidas +
+            ' criadas, ' +
+            totalPropostasAtualizadas +
+            ' atualizadas.',
+        )
       }
     }
 
