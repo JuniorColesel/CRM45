@@ -3796,11 +3796,11 @@ cronAdd('bling_sync_automatica', '* * * * *', () => {
         const propJson = (resPropostas && resPropostas.json) || {}
         const propostasArr = isVazioHttp ? [] : propJson.data || []
 
-        // Requisito 6: Se chegar página vazia, registrar que não existem mais registros e encerrar como sucesso, mas NÃO criar transição para funil
+        // Fim das propostas quando página vazia imediata
         if (isVazioHttp || propostasArr.length === 0) {
           const agoraFinal = new Date().toISOString()
-          syncAlvo.set('etapa_atual', 'propostas')
-          syncAlvo.set('pagina_atual', paginaAtual)
+          syncAlvo.set('etapa_atual', 'funil')
+          syncAlvo.set('pagina_atual', 1)
           syncAlvo.set('propostas_lidas', 0)
           syncAlvo.set('propostas_persistidas', 0)
           syncAlvo.set('propostas_atualizadas', 0)
@@ -3810,18 +3810,13 @@ cronAdd('bling_sync_automatica', '* * * * *', () => {
           syncAlvo.set('atualizado_em', agoraFinal)
           syncAlvo.set('finalizado_em', agoraFinal)
           syncAlvo.set('duracao_ms', Date.now() - agoraMs)
-          syncAlvo.set(
-            'mensagem_resumo',
-            'Página ' +
-              paginaAtual +
-              ' de propostas vazia. Não existem mais registros de propostas no Bling ERP.',
-          )
+          syncAlvo.set('mensagem_resumo', 'Etapa propostas concluída. Próxima etapa: funil.')
           $app.save(syncAlvo)
 
           console.log(
             '[BLING-CRON] Fim dos registros de propostas detectado na página ' +
               paginaAtual +
-              '. Encerrado com sucesso sem transição de etapa.',
+              '. Etapa propostas concluída. Próxima etapa: funil.',
           )
           return
         }
@@ -3980,7 +3975,10 @@ cronAdd('bling_sync_automatica', '* * * * *', () => {
           }
         }
 
-        const proximaPaginaPropostas = paginaAtual + 1
+        // Se a página retornou menos de 100 itens (ex: 28 < 100), esta foi a última página com propostas
+        const temMaisPaginasPropostas = propostasArr.length >= 100
+        const proximaEtapaPropostas = temMaisPaginasPropostas ? 'propostas' : 'funil'
+        const proximaPaginaPropostas = temMaisPaginasPropostas ? paginaAtual + 1 : 1
         const agoraConclusao = new Date().toISOString()
 
         syncAlvo.set('propostas_lidas', totalPropostasLidas)
@@ -3989,7 +3987,7 @@ cronAdd('bling_sync_automatica', '* * * * *', () => {
         syncAlvo.set('propostas_sem_cliente', totalPropostasSemCliente)
         syncAlvo.set('status_nao_mapeados', statusNaoMapeados)
         syncAlvo.set('paginas_propostas_lidas', 1)
-        syncAlvo.set('etapa_atual', 'propostas')
+        syncAlvo.set('etapa_atual', proximaEtapaPropostas)
         syncAlvo.set('pagina_atual', proximaPaginaPropostas)
         syncAlvo.set('status', 'sucesso')
         syncAlvo.set('atualizado_em', agoraConclusao)
@@ -3999,27 +3997,34 @@ cronAdd('bling_sync_automatica', '* * * * *', () => {
           syncAlvo.set('erros_propostas', errosPropostas)
         }
 
-        const msgResumo =
-          'Página ' +
-          paginaAtual +
-          ' de propostas processada com sucesso (' +
-          totalPropostasLidas +
-          ' lidas, ' +
-          totalPropostasPersistidas +
-          ' criadas, ' +
-          totalPropostasAtualizadas +
-          ' atualizadas). Próxima página: ' +
-          proximaPaginaPropostas +
-          '.'
+        let msgResumo = ''
+        if (temMaisPaginasPropostas) {
+          msgResumo =
+            'Página ' +
+            paginaAtual +
+            ' de propostas processada com sucesso (' +
+            totalPropostasLidas +
+            ' lidas, ' +
+            totalPropostasPersistidas +
+            ' criadas, ' +
+            totalPropostasAtualizadas +
+            ' atualizadas). Próxima página: ' +
+            proximaPaginaPropostas +
+            '.'
+        } else {
+          msgResumo = 'Etapa propostas concluída. Próxima etapa: funil.'
+        }
         syncAlvo.set('mensagem_resumo', msgResumo)
         $app.save(syncAlvo)
 
         console.log(
           '[BLING-CRON] Página ' +
             paginaAtual +
-            ' de propostas concluída com sucesso. Próxima página: ' +
+            ' de propostas concluída com sucesso. Próxima etapa: ' +
+            proximaEtapaPropostas +
+            ' (página ' +
             proximaPaginaPropostas +
-            '. Total na rodada: ' +
+            '). Total na rodada: ' +
             totalPropostasLidas +
             ' lidas, ' +
             totalPropostasPersistidas +
@@ -4030,51 +4035,56 @@ cronAdd('bling_sync_automatica', '* * * * *', () => {
       }
     }
 
-    // Motor de materialização de oportunidades executado também a cada rodada de 15 minutos
-    // Garante sincronismo idempotente contínuo mesmo sem clique manual em /bling
-    const etapasList = $app.findRecordsByFilter('etapas_funil', '', 'ordem', 20, 0)
-    let etapaPropostaId = ''
-    let etapaNegociacaoId = ''
-    let etapaEmAbertoBlingId = ''
-    let etapaFechadoId = ''
-    let etapaPerdidoId = ''
+    // A materialização do Funil será a próxima tarefa — NENHUMA oportunidade materializada nesta rodada
+    // quando a etapa for transicionada ou enquanto o motor estiver na arquitetura retomável da Tarefa 4B.
+    if (false) {
+      const etapasList = $app.findRecordsByFilter('etapas_funil', '', 'ordem', 20, 0)
+      let etapaPropostaId = ''
+      let etapaNegociacaoId = ''
+      let etapaEmAbertoBlingId = ''
+      let etapaFechadoId = ''
+      let etapaPerdidoId = ''
 
-    for (let ep = 0; ep < etapasList.length; ep++) {
-      const epRec = etapasList[ep]
-      const epNome = epRec.getString('nome').toLowerCase()
-      if (epNome.indexOf('propost') !== -1) etapaPropostaId = epRec.id
-      if (epNome.indexOf('negoc') !== -1) etapaNegociacaoId = epRec.id
-      if (epNome.indexOf('em aberto') !== -1) etapaEmAbertoBlingId = epRec.id
-      if (epNome === 'fechado') etapaFechadoId = epRec.id
-      if (epNome === 'perdido') etapaPerdidoId = epRec.id
-    }
+      for (let ep = 0; ep < etapasList.length; ep++) {
+        const epRec = etapasList[ep]
+        const epNome = epRec.getString('nome').toLowerCase()
+        if (epNome.indexOf('propost') !== -1) etapaPropostaId = epRec.id
+        if (epNome.indexOf('negoc') !== -1) etapaNegociacaoId = epRec.id
+        if (epNome.indexOf('em aberto') !== -1) etapaEmAbertoBlingId = epRec.id
+        if (epNome === 'fechado') etapaFechadoId = epRec.id
+        if (epNome === 'perdido') etapaPerdidoId = epRec.id
+      }
 
-    let motivoNaoAprovadaId = ''
-    let motivoCanceladoId = ''
-    try {
-      const motNaoAprov = $app.findFirstRecordByData(
-        'motivos_perda',
-        'descricao',
-        'Não aprovada no Bling',
-      )
-      if (motNaoAprov) motivoNaoAprovadaId = motNaoAprov.id
-    } catch (_) {}
-    try {
-      const motCanc = $app.findFirstRecordByData('motivos_perda', 'descricao', 'Cancelado no Bling')
-      if (motCanc) motivoCanceladoId = motCanc.id
-    } catch (_) {}
+      let motivoNaoAprovadaId = ''
+      let motivoCanceladoId = ''
+      try {
+        const motNaoAprov = $app.findFirstRecordByData(
+          'motivos_perda',
+          'descricao',
+          'Não aprovada no Bling',
+        )
+        if (motNaoAprov) motivoNaoAprovadaId = motNaoAprov.id
+      } catch (_) {}
+      try {
+        const motCanc = $app.findFirstRecordByData(
+          'motivos_perda',
+          'descricao',
+          'Cancelado no Bling',
+        )
+        if (motCanc) motivoCanceladoId = motCanc.id
+      } catch (_) {}
 
-    if (
-      etapaPropostaId &&
-      etapaNegociacaoId &&
-      etapaFechadoId &&
-      etapaEmAbertoBlingId &&
-      etapaPerdidoId
-    ) {
-      // 1. Inserir propostas elegíveis faltantes
-      $app
-        .db()
-        .newQuery(`
+      if (
+        etapaPropostaId &&
+        etapaNegociacaoId &&
+        etapaFechadoId &&
+        etapaEmAbertoBlingId &&
+        etapaPerdidoId
+      ) {
+        // 1. Inserir propostas elegíveis faltantes
+        $app
+          .db()
+          .newQuery(`
         INSERT INTO oportunidades (
           id, origem, tipo_origem, bling_proposta_id, bling_pedido_id, cliente_id, valor,
           etapa_id, status, motivo_perda_id, responsavel_id, data_origem, data_prevista_fechamento,
@@ -4122,18 +4132,18 @@ cronAdd('bling_sync_automatica', '* * * * *', () => {
             SELECT o.bling_proposta_id FROM oportunidades o WHERE o.bling_proposta_id IS NOT NULL AND o.bling_proposta_id != ''
           )
       `)
-        .bind({
-          etapaProposta: etapaPropostaId,
-          etapaNegociacao: etapaNegociacaoId,
-          etapaPerdido: etapaPerdidoId,
-          motivoNaoAprovada: motivoNaoAprovadaId || '',
-        })
-        .execute()
+          .bind({
+            etapaProposta: etapaPropostaId,
+            etapaNegociacao: etapaNegociacaoId,
+            etapaPerdido: etapaPerdidoId,
+            motivoNaoAprovada: motivoNaoAprovadaId || '',
+          })
+          .execute()
 
-      // 2. Inserir pedidos elegíveis faltantes
-      $app
-        .db()
-        .newQuery(`
+        // 2. Inserir pedidos elegíveis faltantes
+        $app
+          .db()
+          .newQuery(`
         INSERT INTO oportunidades (
           id, origem, tipo_origem, bling_proposta_id, bling_pedido_id, cliente_id, valor,
           etapa_id, status, motivo_perda_id, responsavel_id, data_origem, data_prevista_fechamento,
@@ -4184,18 +4194,18 @@ cronAdd('bling_sync_automatica', '* * * * *', () => {
             SELECT o.bling_pedido_id FROM oportunidades o WHERE o.bling_pedido_id IS NOT NULL AND o.bling_pedido_id != ''
           )
       `)
-        .bind({
-          etapaEmAberto: etapaEmAbertoBlingId,
-          etapaFechado: etapaFechadoId,
-          etapaPerdido: etapaPerdidoId,
-          motivoCancelado: motivoCanceladoId || '',
-        })
-        .execute()
+          .bind({
+            etapaEmAberto: etapaEmAbertoBlingId,
+            etapaFechado: etapaFechadoId,
+            etapaPerdido: etapaPerdidoId,
+            motivoCancelado: motivoCanceladoId || '',
+          })
+          .execute()
 
-      // 3. Inativar propostas que passaram para convertida ou concluído
-      $app
-        .db()
-        .newQuery(`
+        // 3. Inativar propostas que passaram para convertida ou concluído
+        $app
+          .db()
+          .newQuery(`
         DELETE FROM oportunidades
         WHERE tipo_origem = 'bling_proposta'
           AND bling_proposta_id IN (
@@ -4203,7 +4213,8 @@ cronAdd('bling_sync_automatica', '* * * * *', () => {
             WHERE bp.status_normalizado = 'convertida' OR bp.status_normalizado = 'outro' OR bp.visivel_funil = 0
           )
       `)
-        .execute()
+          .execute()
+      }
     }
   } catch (errCron) {
     console.error(
