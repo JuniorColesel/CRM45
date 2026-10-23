@@ -1042,27 +1042,33 @@ cronAdd('bling_sync_manual_runner', '* * * * *', () => {
           .trim()
           .normalize('NFD')
           .replace(/[\u0300-\u036f]/g, '')
-          .toUpperCase()
+          .replace(/\s+/g, ' ')
+          .toLowerCase()
 
-        if (v === 'ALICE PAITRA COLESEL' || v === 'ALICE' || v.indexOf('ALICE PAITRA') === 0) {
+        if (!v) return null
+
+        if (v === 'alice' || v === 'alice paitra colesel' || v.indexOf('alice paitra') === 0) {
           return 'Alice'
         }
-        if (v === 'RENAN SOUZA' || v === 'RENAN') {
+        if (v === 'renan' || v === 'renan souza') {
           return 'Renan'
         }
         if (
-          v === 'KAROLINE' ||
-          v === 'VENDAS 1' ||
-          v === 'MARIA CAROLINE' ||
-          v === 'MARIA CAROLINE SANTOS' ||
-          v === 'CONSUMIDOR FINAL' ||
-          v === 'CONSUMIDOR FINAL.' ||
-          v.indexOf('KAROLINE ') === 0 ||
-          v.indexOf('MARIA CAROLINE') === 0
+          v === 'maria caroline santos' ||
+          v === 'maria caroline' ||
+          v === 'carol' ||
+          v === 'karoline' ||
+          v === 'karoline (vendas 1)' ||
+          v === 'vendas 1' ||
+          v === 'consumidor final' ||
+          v === 'consumidor final.' ||
+          v.indexOf('karoline ') === 0 ||
+          v.indexOf('maria caroline ') === 0 ||
+          v.indexOf('carol ') === 0
         ) {
-          return 'Karoline (Vendas 1)'
+          return 'Caroline'
         }
-        if (v === 'VENDAS 2') {
+        if (v === 'vendas 2') {
           return 'Vendas 2'
         }
         console.warn(
@@ -1096,8 +1102,10 @@ cronAdd('bling_sync_manual_runner', '* * * * *', () => {
           } else if (
             uPerfil === 'vendedor_1' ||
             uNome.indexOf('Vendas 1') !== -1 ||
-            uNome.indexOf('Karoline') !== -1
+            uNome.indexOf('Karoline') !== -1 ||
+            uNome.indexOf('Caroline') !== -1
           ) {
+            mapVendedorParaUsuarioId['Caroline'] = uId
             mapVendedorParaUsuarioId['Karoline (Vendas 1)'] = uId
           } else if (uPerfil === 'vendedor_2' || uNome.indexOf('Vendas 2') !== -1) {
             mapVendedorParaUsuarioId['Vendas 2'] = uId
@@ -2458,27 +2466,33 @@ cronAdd('bling_sync_automatica', '*/5 * * * *', () => {
             .trim()
             .normalize('NFD')
             .replace(/[\u0300-\u036f]/g, '')
-            .toUpperCase()
+            .replace(/\s+/g, ' ')
+            .toLowerCase()
 
-          if (v === 'ALICE PAITRA COLESEL' || v === 'ALICE' || v.indexOf('ALICE PAITRA') === 0) {
+          if (!v) return null
+
+          if (v === 'alice' || v === 'alice paitra colesel' || v.indexOf('alice paitra') === 0) {
             return 'Alice'
           }
-          if (v === 'RENAN SOUZA' || v === 'RENAN') {
+          if (v === 'renan' || v === 'renan souza') {
             return 'Renan'
           }
           if (
-            v === 'KAROLINE' ||
-            v === 'VENDAS 1' ||
-            v === 'MARIA CAROLINE' ||
-            v === 'MARIA CAROLINE SANTOS' ||
-            v === 'CONSUMIDOR FINAL' ||
-            v === 'CONSUMIDOR FINAL.' ||
-            v.indexOf('KAROLINE ') === 0 ||
-            v.indexOf('MARIA CAROLINE') === 0
+            v === 'maria caroline santos' ||
+            v === 'maria caroline' ||
+            v === 'carol' ||
+            v === 'karoline' ||
+            v === 'karoline (vendas 1)' ||
+            v === 'vendas 1' ||
+            v === 'consumidor final' ||
+            v === 'consumidor final.' ||
+            v.indexOf('karoline ') === 0 ||
+            v.indexOf('maria caroline ') === 0 ||
+            v.indexOf('carol ') === 0
           ) {
-            return 'Karoline (Vendas 1)'
+            return 'Caroline'
           }
-          if (v === 'VENDAS 2') {
+          if (v === 'vendas 2') {
             return 'Vendas 2'
           }
           return null
@@ -2507,8 +2521,10 @@ cronAdd('bling_sync_automatica', '*/5 * * * *', () => {
             } else if (
               uPerfil === 'vendedor_1' ||
               uNome.indexOf('Vendas 1') !== -1 ||
-              uNome.indexOf('Karoline') !== -1
+              uNome.indexOf('Karoline') !== -1 ||
+              uNome.indexOf('Caroline') !== -1
             ) {
+              cronMapVendedorParaUsuarioId['Caroline'] = uId
               cronMapVendedorParaUsuarioId['Karoline (Vendas 1)'] = uId
             } else if (uPerfil === 'vendedor_2' || uNome.indexOf('Vendas 2') !== -1) {
               cronMapVendedorParaUsuarioId['Vendas 2'] = uId
@@ -2998,27 +3014,33 @@ cronAdd('bling_sync_automatica', '*/5 * * * *', () => {
             .trim()
             .normalize('NFD')
             .replace(/[\u0300-\u036f]/g, '')
-            .toUpperCase()
+            .replace(/\s+/g, ' ')
+            .toLowerCase()
 
-          if (v === 'ALICE PAITRA COLESEL' || v === 'ALICE' || v.indexOf('ALICE PAITRA') === 0) {
+          if (!v) return null
+
+          if (v === 'alice' || v === 'alice paitra colesel' || v.indexOf('alice paitra') === 0) {
             return 'Alice'
           }
-          if (v === 'RENAN SOUZA' || v === 'RENAN') {
+          if (v === 'renan' || v === 'renan souza') {
             return 'Renan'
           }
           if (
-            v === 'KAROLINE' ||
-            v === 'VENDAS 1' ||
-            v === 'MARIA CAROLINE' ||
-            v === 'MARIA CAROLINE SANTOS' ||
-            v === 'CONSUMIDOR FINAL' ||
-            v === 'CONSUMIDOR FINAL.' ||
-            v.indexOf('KAROLINE ') === 0 ||
-            v.indexOf('MARIA CAROLINE') === 0
+            v === 'maria caroline santos' ||
+            v === 'maria caroline' ||
+            v === 'carol' ||
+            v === 'karoline' ||
+            v === 'karoline (vendas 1)' ||
+            v === 'vendas 1' ||
+            v === 'consumidor final' ||
+            v === 'consumidor final.' ||
+            v.indexOf('karoline ') === 0 ||
+            v.indexOf('maria caroline ') === 0 ||
+            v.indexOf('carol ') === 0
           ) {
-            return 'Karoline (Vendas 1)'
+            return 'Caroline'
           }
-          if (v === 'VENDAS 2') {
+          if (v === 'vendas 2') {
             return 'Vendas 2'
           }
           return null
@@ -3047,8 +3069,10 @@ cronAdd('bling_sync_automatica', '*/5 * * * *', () => {
             } else if (
               uPerfil === 'vendedor_1' ||
               uNome.indexOf('Vendas 1') !== -1 ||
-              uNome.indexOf('Karoline') !== -1
+              uNome.indexOf('Karoline') !== -1 ||
+              uNome.indexOf('Caroline') !== -1
             ) {
+              cronMapVendedorParaUsuarioId['Caroline'] = uId
               cronMapVendedorParaUsuarioId['Karoline (Vendas 1)'] = uId
             } else if (uPerfil === 'vendedor_2' || uNome.indexOf('Vendas 2') !== -1) {
               cronMapVendedorParaUsuarioId['Vendas 2'] = uId
@@ -3622,27 +3646,33 @@ cronAdd('bling_sync_automatica', '*/5 * * * *', () => {
             .trim()
             .normalize('NFD')
             .replace(/[\u0300-\u036f]/g, '')
-            .toUpperCase()
+            .replace(/\s+/g, ' ')
+            .toLowerCase()
 
-          if (v === 'ALICE PAITRA COLESEL' || v === 'ALICE' || v.indexOf('ALICE PAITRA') === 0) {
+          if (!v) return null
+
+          if (v === 'alice' || v === 'alice paitra colesel' || v.indexOf('alice paitra') === 0) {
             return 'Alice'
           }
-          if (v === 'RENAN SOUZA' || v === 'RENAN') {
+          if (v === 'renan' || v === 'renan souza') {
             return 'Renan'
           }
           if (
-            v === 'KAROLINE' ||
-            v === 'VENDAS 1' ||
-            v === 'MARIA CAROLINE' ||
-            v === 'MARIA CAROLINE SANTOS' ||
-            v === 'CONSUMIDOR FINAL' ||
-            v === 'CONSUMIDOR FINAL.' ||
-            v.indexOf('KAROLINE ') === 0 ||
-            v.indexOf('MARIA CAROLINE') === 0
+            v === 'maria caroline santos' ||
+            v === 'maria caroline' ||
+            v === 'carol' ||
+            v === 'karoline' ||
+            v === 'karoline (vendas 1)' ||
+            v === 'vendas 1' ||
+            v === 'consumidor final' ||
+            v === 'consumidor final.' ||
+            v.indexOf('karoline ') === 0 ||
+            v.indexOf('maria caroline ') === 0 ||
+            v.indexOf('carol ') === 0
           ) {
-            return 'Karoline (Vendas 1)'
+            return 'Caroline'
           }
-          if (v === 'VENDAS 2') {
+          if (v === 'vendas 2') {
             return 'Vendas 2'
           }
           return null
@@ -3671,8 +3701,10 @@ cronAdd('bling_sync_automatica', '*/5 * * * *', () => {
             } else if (
               uPerfil === 'vendedor_1' ||
               uNome.indexOf('Vendas 1') !== -1 ||
-              uNome.indexOf('Karoline') !== -1
+              uNome.indexOf('Karoline') !== -1 ||
+              uNome.indexOf('Caroline') !== -1
             ) {
+              cronMapVendedorParaUsuarioId['Caroline'] = uId
               cronMapVendedorParaUsuarioId['Karoline (Vendas 1)'] = uId
             } else if (uPerfil === 'vendedor_2' || uNome.indexOf('Vendas 2') !== -1) {
               cronMapVendedorParaUsuarioId['Vendas 2'] = uId
