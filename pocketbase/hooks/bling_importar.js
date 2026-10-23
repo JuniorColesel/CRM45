@@ -2165,7 +2165,7 @@ routerAdd(
 // ============================================================================
 // 7. CRON AUTOMÁTICO DE 15 MINUTOS COM MOTOR INTEGRADO DE MATERIALIZAÇÃO
 // ============================================================================
-cronAdd('bling_sync_automatica', '*/15 * * * *', () => {
+cronAdd('bling_sync_automatica', '* * * * *', () => {
   try {
     const agoraMs = Date.now()
     const agoraIso = new Date(agoraMs).toISOString()
@@ -2815,6 +2815,618 @@ cronAdd('bling_sync_automatica', '*/15 * * * *', () => {
             criadosNaPagina +
             ' criados, ' +
             atualizadosNaPagina +
+            ' atualizados.',
+        )
+      } else if (etapaAtual === 'pedidos') {
+        console.log(
+          '[BLING-CRON] Executando página ' +
+            paginaAtual +
+            ' de pedidos (log ID: ' +
+            syncAlvo.id +
+            ').',
+        )
+
+        // Helper local para base64
+        function cronEncodeBase64(str) {
+          const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+          let output = ''
+          for (
+            let block = 0, charCode, idx = 0, map = chars;
+            str.charAt(idx | 0) || ((map = '='), idx % 1);
+            output += map.charAt(63 & (block >> (8 - (idx % 1) * 8)))
+          ) {
+            charCode = str.charCodeAt((idx += 3 / 4))
+            if (charCode > 0xff) throw new Error('Caractere inválido para base64')
+            block = (block << 8) | charCode
+          }
+          return output
+        }
+
+        // Helper local para refresh OAuth
+        function cronExecutarRefreshOAuth(conn) {
+          try {
+            const refreshToken = conn.getString('refresh_token')
+            if (!refreshToken) return null
+
+            let cId = ''
+            let cSec = ''
+            try {
+              cId = $os.getenv('BLING_CLIENT_ID') || $secrets.get('BLING_CLIENT_ID') || ''
+              cSec = $os.getenv('BLING_CLIENT_SECRET') || $secrets.get('BLING_CLIENT_SECRET') || ''
+            } catch (_) {}
+
+            if (!cId || !cSec) return null
+
+            const b64 = cronEncodeBase64(cId + ':' + cSec)
+            const refreshBody =
+              'grant_type=refresh_token&refresh_token=' + encodeURIComponent(refreshToken)
+
+            const refreshRes = $http.send({
+              url: 'https://www.bling.com.br/Api/v3/oauth/token',
+              method: 'POST',
+              headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                Authorization: 'Basic ' + b64,
+                'enable-jwt': '1',
+              },
+              body: refreshBody,
+              timeout: 15,
+            })
+
+            if (refreshRes && refreshRes.statusCode === 200) {
+              const rData = refreshRes.json || {}
+              const novoAccess = rData.access_token || ''
+              const novoRefresh = rData.refresh_token || refreshToken
+              const novoExpiresIn = Number(rData.expires_in) || 21600
+              const novoExpiresAt = new Date(Date.now() + novoExpiresIn * 1000)
+
+              if (novoAccess) {
+                conn.set('access_token', novoAccess)
+                conn.set('refresh_token', novoRefresh)
+                conn.set('expires_at', novoExpiresAt.toISOString())
+                conn.set('last_refresh_at', new Date().toISOString())
+                conn.set('status', 'conectado')
+                conn.set('ultimo_erro', '')
+                $app.save(conn)
+                return novoAccess
+              }
+            } else {
+              const errDet = refreshRes && refreshRes.json ? JSON.stringify(refreshRes.json) : ''
+              conn.set('status', 'erro_renovacao')
+              conn.set('ultimo_erro', 'Falha no refresh automático: ' + errDet)
+              $app.save(conn)
+            }
+          } catch (errRef) {
+            try {
+              conn.set('status', 'erro_renovacao')
+              conn.set('ultimo_erro', 'Exceção no refresh: ' + String(errRef.message || errRef))
+              $app.save(conn)
+            } catch (_) {}
+          }
+          return null
+        }
+
+        // Helper local para obter token de acesso válido
+        function cronGetValidBlingAccessToken() {
+          try {
+            const conns = $app.findRecordsByFilter('bling_connections', '', '-created', 1, 0)
+            if (conns && conns.length > 0) {
+              const conn = conns[0]
+              const status = conn.getString('status')
+              const accessToken = conn.getString('access_token')
+              const expiresAtStr = conn.getString('expires_at')
+
+              if (status === 'conectado' && accessToken) {
+                const expiraEm = expiresAtStr ? new Date(expiresAtStr).getTime() : 0
+                const agora = Date.now()
+                const margem = 5 * 60 * 1000
+
+                if (expiraEm > agora + margem) {
+                  return { token: accessToken, conn: conn }
+                }
+
+                const tokenRenovado = cronExecutarRefreshOAuth(conn)
+                if (tokenRenovado) {
+                  return { token: tokenRenovado, conn: conn }
+                }
+              }
+            }
+          } catch (_) {}
+          return { token: '', conn: null }
+        }
+
+        function cronPausarMs(ms) {
+          if (!ms || ms <= 0) return
+          const tAlvo = Date.now() + ms
+          while (Date.now() < tAlvo) {}
+        }
+
+        let cronUltimoMomentoChamada = 0
+        function cronThrottleChamadaBling(intervaloMinMs) {
+          const minIntervalo = intervaloMinMs || 380
+          const agora = Date.now()
+          const decorrido = agora - cronUltimoMomentoChamada
+          if (decorrido < minIntervalo) {
+            cronPausarMs(minIntervalo - decorrido)
+          }
+          cronUltimoMomentoChamada = Date.now()
+        }
+
+        function cronNormalizarDoc(doc) {
+          if (!doc) return ''
+          return String(doc).replace(/[^\w]/g, '').trim().toLowerCase()
+        }
+
+        function cronMapearVendedor(vendedorBling) {
+          if (!vendedorBling) return null
+          const v = String(vendedorBling)
+            .trim()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toUpperCase()
+
+          if (v === 'ALICE PAITRA COLESEL' || v === 'ALICE' || v.indexOf('ALICE PAITRA') === 0) {
+            return 'Alice'
+          }
+          if (v === 'RENAN SOUZA' || v === 'RENAN') {
+            return 'Renan'
+          }
+          if (
+            v === 'KAROLINE' ||
+            v === 'VENDAS 1' ||
+            v === 'MARIA CAROLINE' ||
+            v === 'MARIA CAROLINE SANTOS' ||
+            v === 'CONSUMIDOR FINAL' ||
+            v === 'CONSUMIDOR FINAL.' ||
+            v.indexOf('KAROLINE ') === 0 ||
+            v.indexOf('MARIA CAROLINE') === 0
+          ) {
+            return 'Karoline (Vendas 1)'
+          }
+          if (v === 'VENDAS 2') {
+            return 'Vendas 2'
+          }
+          return null
+        }
+
+        const cronMapVendedorParaUsuarioId = {}
+        try {
+          const usuariosCadastrados = $app.findRecordsByFilter(
+            'usuarios',
+            'ativo = true',
+            'nome',
+            50,
+            0,
+          )
+          for (let u = 0; u < usuariosCadastrados.length; u++) {
+            const uRec = usuariosCadastrados[u]
+            const uId = uRec.id
+            const uPerfil = uRec.getString('perfil')
+            const uNome = uRec.getString('nome') || ''
+            const uEmail = uRec.getString('email') || ''
+
+            if (uNome.indexOf('Alice') !== -1 || uEmail.indexOf('alice') !== -1) {
+              cronMapVendedorParaUsuarioId['Alice'] = uId
+            } else if (uNome.indexOf('Renan') !== -1 || uEmail.indexOf('renan') !== -1) {
+              cronMapVendedorParaUsuarioId['Renan'] = uId
+            } else if (
+              uPerfil === 'vendedor_1' ||
+              uNome.indexOf('Vendas 1') !== -1 ||
+              uNome.indexOf('Karoline') !== -1
+            ) {
+              cronMapVendedorParaUsuarioId['Karoline (Vendas 1)'] = uId
+            } else if (uPerfil === 'vendedor_2' || uNome.indexOf('Vendas 2') !== -1) {
+              cronMapVendedorParaUsuarioId['Vendas 2'] = uId
+            }
+          }
+        } catch (_) {}
+
+        function cronResolverUsuarioIdPorVendedorCrm(vendedorCrm) {
+          if (!vendedorCrm) return null
+          return cronMapVendedorParaUsuarioId[vendedorCrm] || null
+        }
+
+        const tokenInfo = cronGetValidBlingAccessToken()
+        let currentAccessToken = tokenInfo.token
+        const connectionRecord = tokenInfo.conn
+
+        if (!currentAccessToken) {
+          syncAlvo.set('status', 'erro')
+          syncAlvo.set('finalizado_em', new Date().toISOString())
+          syncAlvo.set('atualizado_em', new Date().toISOString())
+          syncAlvo.set('mensagem_resumo', 'Token OAuth do Bling inválido ou desconectado.')
+          let errosList = []
+          try {
+            errosList = JSON.parse(syncAlvo.getString('erros')) || []
+          } catch (_) {
+            errosList = []
+          }
+          errosList.push('Conecte o CRM ao Bling via OAuth em /bling antes de sincronizar.')
+          syncAlvo.set('erros', errosList)
+          $app.save(syncAlvo)
+          return
+        }
+
+        // Executar chamada GET com throttle, backoff e refresh em 401
+        let refreshFeito401 = false
+        function cronGetBling(url, maxTentativas) {
+          let tentativas = 0
+          const limite = maxTentativas || 4
+          let ultimoResultado = null
+          let ultimoErro = null
+
+          while (tentativas < limite) {
+            tentativas++
+            cronThrottleChamadaBling(380)
+
+            try {
+              const res = $http.send({
+                url: url,
+                method: 'GET',
+                headers: {
+                  Accept: 'application/json',
+                  Authorization: 'Bearer ' + currentAccessToken,
+                },
+                timeout: 20,
+              })
+              ultimoResultado = res
+
+              if (res.statusCode === 401 && !refreshFeito401 && connectionRecord) {
+                refreshFeito401 = true
+                const novoToken = cronExecutarRefreshOAuth(connectionRecord)
+                if (novoToken) {
+                  currentAccessToken = novoToken
+                  cronThrottleChamadaBling(380)
+                  const retryRes = $http.send({
+                    url: url,
+                    method: 'GET',
+                    headers: {
+                      Accept: 'application/json',
+                      Authorization: 'Bearer ' + currentAccessToken,
+                    },
+                    timeout: 20,
+                  })
+                  ultimoResultado = retryRes
+                  return retryRes
+                }
+              }
+
+              if (res.statusCode === 429 && tentativas < limite) {
+                const esperaMs = 1200 * tentativas
+                cronPausarMs(esperaMs)
+                continue
+              }
+
+              if (res.statusCode >= 500 && tentativas < limite) {
+                const esperaMs = 1000 * tentativas
+                cronPausarMs(esperaMs)
+                continue
+              }
+
+              return res
+            } catch (httpErr) {
+              ultimoErro = httpErr
+              if (tentativas < limite) {
+                const esperaMs = 800 * tentativas
+                cronPausarMs(esperaMs)
+                continue
+              }
+            }
+          }
+
+          if (ultimoResultado) return ultimoResultado
+          throw new Error(
+            'Falha definitiva de rede após ' +
+              limite +
+              ' tentativas: ' +
+              String((ultimoErro && ultimoErro.message) || ultimoErro || 'Erro desconhecido'),
+          )
+        }
+
+        const urlPedidos =
+          'https://api.bling.com.br/Api/v3/pedidos/vendas?pagina=' + paginaAtual + '&limite=100'
+
+        let resPedidos = null
+        let falhaChamada = null
+        try {
+          resPedidos = cronGetBling(urlPedidos, 4)
+        } catch (errChamada) {
+          falhaChamada = errChamada
+        }
+
+        const statusCodePedidos = resPedidos ? resPedidos.statusCode : 0
+        const isVazioHttp = statusCodePedidos === 404 || statusCodePedidos === 204
+
+        if (
+          !isVazioHttp &&
+          (falhaChamada || !resPedidos || statusCodePedidos < 200 || statusCodePedidos >= 300)
+        ) {
+          const msgErro = falhaChamada
+            ? String(falhaChamada.message || falhaChamada)
+            : 'HTTP ' + statusCodePedidos + ' na página ' + paginaAtual + ' de pedidos.'
+
+          console.error('[BLING-CRON] Falha na página ' + paginaAtual + ' de pedidos:', msgErro)
+
+          let errosList = []
+          try {
+            errosList = JSON.parse(syncAlvo.getString('erros')) || []
+          } catch (_) {
+            errosList = []
+          }
+          errosList.push(msgErro)
+          syncAlvo.set('erros', errosList)
+          syncAlvo.set('status', 'erro')
+          syncAlvo.set('finalizado_em', new Date().toISOString())
+          syncAlvo.set('atualizado_em', new Date().toISOString())
+          syncAlvo.set(
+            'mensagem_resumo',
+            'Erro ao processar página ' + paginaAtual + ' de pedidos: ' + msgErro,
+          )
+          $app.save(syncAlvo)
+          return
+        }
+
+        const pedJson = (resPedidos && resPedidos.json) || {}
+        const pedidosArr = isVazioHttp ? [] : pedJson.data || []
+
+        // 5. Página vazia (0 registros): NÃO avançar indefinidamente, NÃO transicionar (Tarefa 3B)
+        if (isVazioHttp || pedidosArr.length === 0) {
+          const agoraFinal = new Date().toISOString()
+          syncAlvo.set('etapa_atual', 'pedidos')
+          syncAlvo.set('pagina_atual', paginaAtual)
+          syncAlvo.set('pedidos_lidos', 0)
+          syncAlvo.set('pedidos_persistidos', 0)
+          syncAlvo.set('pedidos_atualizados', 0)
+          syncAlvo.set('paginas_pedidos_lidas', 1)
+          syncAlvo.set('status', 'sucesso')
+          syncAlvo.set('atualizado_em', agoraFinal)
+          syncAlvo.set('finalizado_em', agoraFinal)
+          syncAlvo.set('duracao_ms', Date.now() - agoraMs)
+          syncAlvo.set(
+            'mensagem_resumo',
+            'Página ' + paginaAtual + ' de pedidos sem registros no Bling.',
+          )
+          $app.save(syncAlvo)
+
+          console.log(
+            '[BLING-CRON] Página ' +
+              paginaAtual +
+              ' de pedidos sem registros. Execução concluída mantendo página atual.',
+          )
+          return
+        }
+
+        // Mapear clientes já existentes para vincular pedidos
+        const clientesExistentes = $app.findRecordsByFilter('clientes', '', '-created', 5000, 0)
+        const mapPorBlingId = {}
+        const mapPorDoc = {}
+
+        for (let i = 0; i < clientesExistentes.length; i++) {
+          const c = clientesExistentes[i]
+          const bId = c.getString('bling_id')
+          const doc = cronNormalizarDoc(c.getString('cnpj_cpf'))
+
+          if (bId) mapPorBlingId[bId] = c
+          if (doc) mapPorDoc[doc] = c
+        }
+
+        let totalPedidosLidos = 0
+        let totalPedidosPersistidos = 0
+        let totalPedidosAtualizados = 0
+        let totalPedidosSemCliente = 0
+        const errosPedidos = []
+        const comprasPorClienteId = {}
+
+        for (let pi = 0; pi < pedidosArr.length; pi++) {
+          totalPedidosLidos++
+          const itemP = pedidosArr[pi]
+          const blingPedidoId = String(itemP.id || '')
+          const numPedido = String(itemP.numero || '')
+          const sitId = itemP.situacao ? String(itemP.situacao.id || '') : ''
+          const valorTotal = Number(itemP.total || itemP.valor || 0)
+          const dataPed = itemP.data || itemP.dataSaida || ''
+          const dataAtend = itemP.dataSaida || ''
+
+          let sitNome = ''
+          let statusNorm = 'outro'
+          if (sitId === '6') {
+            sitNome = 'Em aberto'
+            statusNorm = 'em_aberto'
+          } else if (sitId === '9') {
+            sitNome = 'Atendido'
+            statusNorm = 'atendido'
+          } else if (sitId === '12') {
+            sitNome = 'Cancelado'
+            statusNorm = 'cancelado'
+          } else if (itemP.situacao && itemP.situacao.nome) {
+            sitNome = itemP.situacao.nome
+            const sn = sitNome.toLowerCase()
+            if (sn.indexOf('aberto') !== -1) statusNorm = 'em_aberto'
+            else if (sn.indexOf('atendido') !== -1) statusNorm = 'atendido'
+            else if (sn.indexOf('cancel') !== -1) statusNorm = 'cancelado'
+          } else {
+            sitNome = 'Situacao #' + sitId
+          }
+
+          let clienteRecordAssociado = null
+          let cBlingId = ''
+          let cNome = ''
+          let cDoc = ''
+          if (itemP.contato) {
+            cBlingId = String(itemP.contato.id || '')
+            cNome = String(itemP.contato.nome || '')
+            const docNorm = cronNormalizarDoc(itemP.contato.numeroDocumento || '')
+            cDoc = String(itemP.contato.numeroDocumento || '')
+            if (cBlingId && mapPorBlingId[cBlingId]) {
+              clienteRecordAssociado = mapPorBlingId[cBlingId]
+            } else if (docNorm && mapPorDoc[docNorm]) {
+              clienteRecordAssociado = mapPorDoc[docNorm]
+            }
+          }
+
+          let statusVinculo = 'sem_cliente'
+          let clienteCrmId = ''
+          if (clienteRecordAssociado) {
+            statusVinculo = 'vinculado'
+            clienteCrmId = clienteRecordAssociado.id
+
+            if (
+              sitId === '6' ||
+              sitId === '9' ||
+              sitNome === 'Em aberto' ||
+              sitNome === 'Atendido'
+            ) {
+              if (!comprasPorClienteId[clienteCrmId]) {
+                comprasPorClienteId[clienteCrmId] = {
+                  totalValor: 0,
+                  qtdPedidos: 0,
+                  datas: [],
+                }
+              }
+              comprasPorClienteId[clienteCrmId].totalValor += valorTotal
+              comprasPorClienteId[clienteCrmId].qtdPedidos += 1
+              if (dataPed) comprasPorClienteId[clienteCrmId].datas.push(dataPed)
+            }
+          } else {
+            totalPedidosSemCliente++
+          }
+
+          const vendP = itemP.vendedor ? itemP.vendedor.nome : ''
+          const vendCrmP = cronMapearVendedor(vendP)
+          const respIdP = cronResolverUsuarioIdPorVendedorCrm(vendCrmP)
+
+          let pedExistente = null
+          try {
+            pedExistente = $app.findFirstRecordByData(
+              'bling_pedidos',
+              'bling_pedido_id',
+              blingPedidoId,
+            )
+          } catch (_) {}
+
+          if (pedExistente) {
+            try {
+              pedExistente.set('numero', numPedido)
+              pedExistente.set('situacao_bling_id', sitId)
+              pedExistente.set('situacao_bling_nome', sitNome)
+              pedExistente.set('status_normalizado', statusNorm)
+              pedExistente.set('valor_total', valorTotal)
+              pedExistente.set('data_pedido', dataPed)
+              if (dataAtend) pedExistente.set('data_atendimento', dataAtend)
+              if (cBlingId) pedExistente.set('bling_contato_id', cBlingId)
+              if (cNome) pedExistente.set('contato_nome', cNome)
+              if (cDoc) pedExistente.set('documento', cDoc)
+              pedExistente.set('cliente_id', clienteCrmId)
+              pedExistente.set('status_vinculo', statusVinculo)
+              if (vendP) pedExistente.set('vendedor_bling', vendP)
+              if (vendCrmP) pedExistente.set('vendedor_crm', vendCrmP)
+              if (respIdP) pedExistente.set('responsavel_id', respIdP)
+              pedExistente.set('sincronizado_em', new Date().toISOString())
+
+              $app.save(pedExistente)
+              totalPedidosAtualizados++
+            } catch (eUpPed) {
+              errosPedidos.push(
+                'Erro ao atualizar pedido ' + numPedido + ': ' + (eUpPed.message || eUpPed),
+              )
+            }
+          } else {
+            try {
+              const pedCol = $app.findCollectionByNameOrId('bling_pedidos')
+              const novoPed = new Record(pedCol)
+              novoPed.set('bling_pedido_id', blingPedidoId)
+              novoPed.set('numero', numPedido)
+              novoPed.set('situacao_bling_id', sitId)
+              novoPed.set('situacao_bling_nome', sitNome)
+              novoPed.set('status_normalizado', statusNorm)
+              novoPed.set('valor_total', valorTotal)
+              novoPed.set('data_pedido', dataPed)
+              if (dataAtend) novoPed.set('data_atendimento', dataAtend)
+              if (cBlingId) novoPed.set('bling_contato_id', cBlingId)
+              if (cNome) novoPed.set('contato_nome', cNome)
+              if (cDoc) novoPed.set('documento', cDoc)
+              novoPed.set('cliente_id', clienteCrmId)
+              novoPed.set('status_vinculo', statusVinculo)
+              if (vendP) novoPed.set('vendedor_bling', vendP)
+              if (vendCrmP) novoPed.set('vendedor_crm', vendCrmP)
+              if (respIdP) novoPed.set('responsavel_id', respIdP)
+              novoPed.set('sincronizado_em', new Date().toISOString())
+
+              $app.save(novoPed)
+              totalPedidosPersistidos++
+            } catch (eAddPed) {
+              errosPedidos.push(
+                'Erro ao criar pedido ' + numPedido + ': ' + (eAddPed.message || eAddPed),
+              )
+            }
+          }
+        }
+
+        // Atualizar acumulados de compras dos clientes vinculados nesta rodada
+        for (const cId in comprasPorClienteId) {
+          try {
+            const cRec = $app.findRecordById('clientes', cId)
+            const dadosComp = comprasPorClienteId[cId]
+            const totalAtual = cRec.getFloat('valor_total_vendas') || 0
+            const qtdAtual = cRec.getInt('total_compras') || 0
+            // Somente atualizar campos se fizer sentido ou mantiver integridade
+            if (dadosComp.datas.length > 0) {
+              dadosComp.datas.sort()
+              const ultima = dadosComp.datas[dadosComp.datas.length - 1]
+              const dataGravada = cRec.getString('data_ultima_compra')
+              if (!dataGravada || ultima > dataGravada) {
+                cRec.set('data_ultima_compra', ultima)
+                $app.save(cRec)
+              }
+            }
+          } catch (_) {}
+        }
+
+        const proximaPaginaPedidos = paginaAtual + 1
+        const agoraConclusao = new Date().toISOString()
+
+        syncAlvo.set('pedidos_lidos', totalPedidosLidos)
+        syncAlvo.set('pedidos_persistidos', totalPedidosPersistidos)
+        syncAlvo.set('pedidos_atualizados', totalPedidosAtualizados)
+        syncAlvo.set('pedidos_sem_cliente', totalPedidosSemCliente)
+        syncAlvo.set('paginas_pedidos_lidas', 1)
+        syncAlvo.set('etapa_atual', 'pedidos')
+        syncAlvo.set('pagina_atual', proximaPaginaPedidos)
+        syncAlvo.set('status', 'sucesso')
+        syncAlvo.set('atualizado_em', agoraConclusao)
+        syncAlvo.set('finalizado_em', agoraConclusao)
+        syncAlvo.set('duracao_ms', Date.now() - agoraMs)
+        if (errosPedidos.length > 0) {
+          syncAlvo.set('erros_pedidos', errosPedidos)
+        }
+
+        const msgResumo =
+          'Página ' +
+          paginaAtual +
+          ' de pedidos processada com sucesso (' +
+          totalPedidosLidos +
+          ' lidos, ' +
+          totalPedidosPersistidos +
+          ' criados, ' +
+          totalPedidosAtualizados +
+          ' atualizados). Próxima página: ' +
+          proximaPaginaPedidos +
+          '.'
+        syncAlvo.set('mensagem_resumo', msgResumo)
+        $app.save(syncAlvo)
+
+        console.log(
+          '[BLING-CRON] Página ' +
+            paginaAtual +
+            ' de pedidos concluída com sucesso. Próxima página: ' +
+            proximaPaginaPedidos +
+            '. Total na rodada: ' +
+            totalPedidosLidos +
+            ' lidos, ' +
+            totalPedidosPersistidos +
+            ' criados, ' +
+            totalPedidosAtualizados +
             ' atualizados.',
         )
       }
