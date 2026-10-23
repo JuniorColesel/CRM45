@@ -2163,9 +2163,9 @@ routerAdd(
 )
 
 // ============================================================================
-// 7. CRON AUTOMÁTICO DE 15 MINUTOS COM MOTOR INTEGRADO DE MATERIALIZAÇÃO
+// 7. CRON AUTOMÁTICO DE 5 MINUTOS COM MOTOR INTEGRADO DE MATERIALIZAÇÃO
 // ============================================================================
-cronAdd('bling_sync_automatica', '* * * * *', () => {
+cronAdd('bling_sync_automatica', '*/5 * * * *', () => {
   try {
     const agoraMs = Date.now()
     const agoraIso = new Date(agoraMs).toISOString()
