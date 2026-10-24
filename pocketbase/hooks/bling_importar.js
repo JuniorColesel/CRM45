@@ -5,8 +5,7 @@
  * 2. GET  /backend/v1/bling/callback     -> Callback público OAuth Bling (validação state, troca de code, tela HTML de sucesso/erro)
  * 3. GET  /backend/v1/bling/status       -> Consulta de status da conexão (somente ceo_financeiro, NUNCA retorna tokens)
  * 4. POST /backend/v1/bling/disconnect   -> Desconectar Bling / revogar sessão local (somente ceo_financeiro)
- * 5. POST /backend/v1/bling/sincronizar  -> Motor de sincronização read-only v0.0.64 alimentado pelo token OAuth seguro
- * 6. POST /backend/v1/bling/importar     -> Rota legada de teste pontual (read-only)
+ * 5. POST /backend/v1/bling/importar     -> Rota legada de teste pontual (read-only)
  *
  * REGRA ABSOLUTA DE READ-ONLY DO CRM:
  * - Toda chamada de dados à api.bling.com.br usa EXCLUSIVAMENTE o método GET.
@@ -1498,9 +1497,9 @@ cronAdd('bling_sync_manual_runner', '* * * * *', () => {
                 comprasPorClienteId[clienteCrmId].totalValor += valorTotal
                 comprasPorClienteId[clienteCrmId].qtdPedidos += 1
                 if (dataPed) comprasPorClienteId[clienteCrmId].datas.push(dataPed)
+              } else {
+                totalPedidosSemCliente++
               }
-            } else {
-              totalPedidosSemCliente++
             }
 
             const vendP = itemP.vendedor ? itemP.vendedor.nome : ''
