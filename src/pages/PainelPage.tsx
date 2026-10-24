@@ -12,6 +12,7 @@ import {
   limparCachePainel,
   type DadosPainelComercialCompleto,
 } from '@/services/painelService'
+import { formatarNomeVendedorExibicao } from '@/lib/funil/vendedorExibicao'
 
 export function PainelPage() {
   const { user } = useAuth()
@@ -79,7 +80,7 @@ export function PainelPage() {
                 Painel Comercial
                 {perfil === 'vendedor_1' && (
                   <span className="ml-2 text-xs font-semibold py-0.5 px-2 rounded-full bg-blue-100 text-blue-800 align-middle">
-                    Visão: Karoline (Vendas 1)
+                    Visão: {formatarNomeVendedorExibicao('Karoline (Vendas 1)')}
                   </span>
                 )}
                 {perfil === 'vendedor_2' && (

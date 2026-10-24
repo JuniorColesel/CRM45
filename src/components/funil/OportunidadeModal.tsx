@@ -41,6 +41,7 @@ import type {
 import { formatarMoeda } from '@/types/clientes'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/pocketbase/errors'
+import { formatarNomeVendedorExibicao } from '@/lib/funil/vendedorExibicao'
 
 interface OportunidadeModalProps {
   open: boolean
@@ -98,7 +99,22 @@ export default function OportunidadeModal({
         setClienteId(oportunidade.cliente_id || '')
         setValor(oportunidade.valor !== undefined ? String(oportunidade.valor) : '')
         setEtapaId(oportunidade.etapa_id || etapas[0]?.id || '')
-        setVendedorId(oportunidade.vendedor || user?.id || '')
+        let vid = oportunidade.vendedor || user?.id || ''
+        if (vid && !usuarios.some((u) => u.id === vid)) {
+          const correspondente = usuarios.find(
+            (u) =>
+              u.nome === vid ||
+              (u.perfil === 'vendedor_1' &&
+                (vid.toLowerCase().includes('karoline') ||
+                  vid.toLowerCase().includes('caroline') ||
+                  vid.toLowerCase().includes('vendas 1'))) ||
+              (u.perfil === 'vendedor_2' && vid.toLowerCase().includes('vendas 2')),
+          )
+          if (correspondente) {
+            vid = correspondente.id
+          }
+        }
+        setVendedorId(vid)
         setResponsavelId(oportunidade.responsavel_id || user?.id || '')
         setStatus(oportunidade.status || 'aberto')
         setMotivoPerdaId(oportunidade.motivo_perda_id || '')
@@ -434,17 +450,36 @@ export default function OportunidadeModal({
                     <SelectItem value="sem_vendedor">
                       <span className="text-[#64748B] italic">Sem vendedor</span>
                     </SelectItem>
-                    {usuarios.map((u) => (
-                      <SelectItem key={u.id} value={u.id}>
-                        {u.nome} ({u.perfil})
-                      </SelectItem>
-                    ))}
+                    {usuarios.map((u) => {
+                      const nomeExibicao =
+                        u.perfil === 'vendedor_1'
+                          ? 'Caroline'
+                          : formatarNomeVendedorExibicao(u.nome)
+                      return (
+                        <SelectItem key={u.id} value={u.id}>
+                          {nomeExibicao}
+                        </SelectItem>
+                      )
+                    })}
+                    {vendedorId &&
+                      vendedorId !== 'sem_vendedor' &&
+                      !usuarios.some((u) => u.id === vendedorId) && (
+                        <SelectItem value={vendedorId}>
+                          {formatarNomeVendedorExibicao(vendedorId)}
+                        </SelectItem>
+                      )}
                   </SelectContent>
                 </Select>
               ) : (
                 <Input
                   id="op_vendedor"
-                  value={user?.nome ? `${user.nome} (Você)` : 'Você'}
+                  value={
+                    user?.perfil === 'vendedor_1'
+                      ? 'Caroline (Você)'
+                      : user?.nome
+                        ? `${formatarNomeVendedorExibicao(user.nome)} (Você)`
+                        : 'Você'
+                  }
                   disabled
                   className="bg-slate-100 text-[#64748B] cursor-not-allowed"
                 />

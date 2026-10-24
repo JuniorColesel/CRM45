@@ -59,6 +59,7 @@ import ImportarClientesModal from '@/components/clientes/ImportarClientesModal'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/pocketbase/errors'
 import { PaginacaoControles } from '@/components/common/PaginacaoControles'
+import { formatarNomeVendedorExibicao } from '@/lib/funil/vendedorExibicao'
 
 export default function ClientesPage() {
   const navigate = useNavigate()
@@ -231,7 +232,7 @@ export default function ClientesPage() {
 
       toast({
         title: 'Cliente assumido com sucesso!',
-        description: `O cliente "${cliente.nome_empresa}" foi atribuído a você (${novoVendedor}) e ativado na sua carteira.`,
+        description: `O cliente "${cliente.nome_empresa}" foi atribuído a você (${formatarNomeVendedorExibicao(novoVendedor)}) e ativado na sua carteira.`,
       })
 
       carregarClientes()
@@ -412,7 +413,9 @@ export default function ClientesPage() {
                 <SelectItem value="todos">Todos os vendedores</SelectItem>
                 <SelectItem value="Alice">Alice</SelectItem>
                 <SelectItem value="Renan">Renan</SelectItem>
-                <SelectItem value="Karoline (Vendas 1)">Karoline (Vendas 1)</SelectItem>
+                <SelectItem value="Karoline (Vendas 1)">
+                  {formatarNomeVendedorExibicao('Karoline (Vendas 1)')}
+                </SelectItem>
                 <SelectItem value="Vendas 2">Vendas 2</SelectItem>
               </SelectContent>
             </Select>
@@ -595,7 +598,9 @@ export default function ClientesPage() {
                         {/* Vendedor */}
                         <td className="py-3.5 px-4">
                           <span className="text-xs font-medium text-[#0F172A]">
-                            {cliente.vendedor || '-'}
+                            {cliente.vendedor
+                              ? formatarNomeVendedorExibicao(cliente.vendedor)
+                              : '-'}
                           </span>
                         </td>
 
@@ -759,7 +764,9 @@ export default function ClientesPage() {
                     <div className="grid grid-cols-2 gap-2 text-xs text-[#64748B] pt-1">
                       <div>
                         <span className="text-[11px] block text-[#94A3B8]">Vendedor</span>
-                        <strong className="text-[#0F172A]">{cliente.vendedor || '-'}</strong>
+                        <strong className="text-[#0F172A]">
+                          {cliente.vendedor ? formatarNomeVendedorExibicao(cliente.vendedor) : '-'}
+                        </strong>
                       </div>
                       <div>
                         <span className="text-[11px] block text-[#94A3B8]">Total de Vendas</span>

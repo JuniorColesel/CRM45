@@ -41,6 +41,7 @@ import {
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/pocketbase/errors'
 import { verificarClienteDuplicado } from '@/lib/clientes/clienteUtils'
+import { formatarNomeVendedorExibicao } from '@/lib/funil/vendedorExibicao'
 
 interface ClienteModalProps {
   open: boolean
@@ -473,7 +474,9 @@ export default function ClienteModal({
                 <SelectContent>
                   <SelectItem value="Alice">Alice</SelectItem>
                   <SelectItem value="Renan">Renan</SelectItem>
-                  <SelectItem value="Karoline (Vendas 1)">Karoline (Vendas 1)</SelectItem>
+                  <SelectItem value="Karoline (Vendas 1)">
+                    {formatarNomeVendedorExibicao('Karoline (Vendas 1)')}
+                  </SelectItem>
                   <SelectItem value="Vendas 2">Vendas 2</SelectItem>
                 </SelectContent>
               </Select>
