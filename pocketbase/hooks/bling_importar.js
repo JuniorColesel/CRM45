@@ -3066,6 +3066,145 @@ cronAdd('bling_sync_automatica', '*/5 * * * *', () => {
           }
         }
 
+        // 3.1 ENRIQUECIMENTO AUTOMÁTICO DE VENDEDOR (Microetapa 10B-2)
+        // Seleciona até 15 clientes com bling_id pendentes de vendedor/responsavel_id
+        let enriAnalisados = 0
+        let enriComVendedor = 0
+        let enriAtualizados = 0
+        let enriSemVendedor = 0
+        let enriErros = 0
+
+        try {
+          const clientesParaEnriquecer = []
+          const idsVistos = {}
+
+          // Prioridade 1: vendedor vazio + responsavel_id vazio
+          try {
+            const p1 = $app.findRecordsByFilter(
+              'clientes',
+              "bling_id != '' && (vendedor = '' || vendedor = null) && (responsavel_id = '' || responsavel_id = null)",
+              '-created',
+              15,
+              0,
+            )
+            for (let i = 0; i < p1.length && clientesParaEnriquecer.length < 15; i++) {
+              const c = p1[i]
+              if (!idsVistos[c.id]) {
+                idsVistos[c.id] = true
+                clientesParaEnriquecer.push(c)
+              }
+            }
+          } catch (eP1) {
+            console.warn(
+              '[BLING-CRON] Erro ao buscar clientes prioridade 1 para enriquecimento:',
+              eP1,
+            )
+          }
+
+          // Prioridade 2: vendedor vazio (e responsavel_id preenchido)
+          if (clientesParaEnriquecer.length < 15) {
+            try {
+              const p2 = $app.findRecordsByFilter(
+                'clientes',
+                "bling_id != '' && (vendedor = '' || vendedor = null) && responsavel_id != ''",
+                '-created',
+                15 - clientesParaEnriquecer.length,
+                0,
+              )
+              for (let i = 0; i < p2.length && clientesParaEnriquecer.length < 15; i++) {
+                const c = p2[i]
+                if (!idsVistos[c.id]) {
+                  idsVistos[c.id] = true
+                  clientesParaEnriquecer.push(c)
+                }
+              }
+            } catch (eP2) {
+              console.warn(
+                '[BLING-CRON] Erro ao buscar clientes prioridade 2 para enriquecimento:',
+                eP2,
+              )
+            }
+          }
+
+          // Prioridade 3: responsavel_id vazio (e vendedor preenchido)
+          if (clientesParaEnriquecer.length < 15) {
+            try {
+              const p3 = $app.findRecordsByFilter(
+                'clientes',
+                "bling_id != '' && vendedor != '' && (responsavel_id = '' || responsavel_id = null)",
+                '-created',
+                15 - clientesParaEnriquecer.length,
+                0,
+              )
+              for (let i = 0; i < p3.length && clientesParaEnriquecer.length < 15; i++) {
+                const c = p3[i]
+                if (!idsVistos[c.id]) {
+                  idsVistos[c.id] = true
+                  clientesParaEnriquecer.push(c)
+                }
+              }
+            } catch (eP3) {
+              console.warn(
+                '[BLING-CRON] Erro ao buscar clientes prioridade 3 para enriquecimento:',
+                eP3,
+              )
+            }
+          }
+
+          // Processar lote de até 15 clientes de forma segura e resiliente
+          for (let k = 0; k < clientesParaEnriquecer.length; k++) {
+            const clienteItem = clientesParaEnriquecer[k]
+            enriAnalisados++
+            const vendAntes = clienteItem.getString('vendedor') || ''
+            const respAntes = clienteItem.getString('responsavel_id') || ''
+            try {
+              const clienteRetorno = enriquecerVendedorClienteBling(clienteItem)
+              const vendDepois = clienteRetorno ? clienteRetorno.getString('vendedor') || '' : ''
+              const respDepois = clienteRetorno
+                ? clienteRetorno.getString('responsavel_id') || ''
+                : ''
+
+              if (vendDepois) {
+                enriComVendedor++
+              } else {
+                enriSemVendedor++
+              }
+
+              if (vendDepois !== vendAntes || respDepois !== respAntes) {
+                enriAtualizados++
+              }
+            } catch (errEnri) {
+              enriErros++
+              console.warn(
+                '[BLING-CRON] Erro ao enriquecer cliente ' +
+                  clienteItem.id +
+                  ' (bling_id: ' +
+                  clienteItem.getString('bling_id') +
+                  '):',
+                errEnri && errEnri.message ? errEnri.message : errEnri,
+              )
+            }
+          }
+
+          if (enriAnalisados > 0) {
+            console.log(
+              '[BLING-CRON] Enriquecimento de vendedores: ' +
+                enriAnalisados +
+                ' analisados, ' +
+                enriComVendedor +
+                ' com vendedor encontrado, ' +
+                enriAtualizados +
+                ' atualizados, ' +
+                enriSemVendedor +
+                ' sem vendedor, ' +
+                enriErros +
+                ' erros.',
+            )
+          }
+        } catch (errGeralEnri) {
+          console.warn('[BLING-CRON] Erro no bloco de enriquecimento de clientes:', errGeralEnri)
+        }
+
         // Atualizar estado e contadores no log desta rodada
         // Se a página retornou menos itens que o limite (ex: 74 < 100), esta foi a última página com dados.
         // A próxima execução já receberá etapa_atual = 'pedidos' e pagina_atual = 1.
@@ -3099,6 +3238,38 @@ cronAdd('bling_sync_automatica', '*/5 * * * *', () => {
           msgResumo += ' Próxima página: ' + proximaPagina + '.'
         } else {
           msgResumo += ' Última página de contatos atingida. Próxima etapa: pedidos (página 1).'
+        }
+        if (enriAnalisados > 0) {
+          msgResumo +=
+            ' Enriquecimento: ' +
+            enriAnalisados +
+            ' analisados (' +
+            enriComVendedor +
+            ' com vendedor, ' +
+            enriAtualizados +
+            ' atualizados, ' +
+            enriSemVendedor +
+            ' sem vendedor, ' +
+            enriErros +
+            ' erros).'
+        }
+        if (enriErros > 0) {
+          try {
+            let avisosList = []
+            try {
+              avisosList = JSON.parse(syncAlvo.getString('avisos')) || []
+            } catch (_) {
+              avisosList = []
+            }
+            avisosList.push(
+              'Enriquecimento de vendedores: ' +
+                enriErros +
+                ' erros em ' +
+                enriAnalisados +
+                ' analisados.',
+            )
+            syncAlvo.set('avisos', avisosList)
+          } catch (_) {}
         }
         syncAlvo.set('mensagem_resumo', msgResumo)
         $app.save(syncAlvo)
