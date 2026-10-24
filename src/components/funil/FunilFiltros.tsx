@@ -24,7 +24,7 @@ export const OPCOES_VENDEDORES_REAIS = [
   { id: 'todos', nome: 'Todos os Vendedores' },
   { id: '7nngwxctdc2209b', nome: 'Alice' },
   { id: '4esottmb9weuv6f', nome: 'Renan' },
-  { id: 'yfnf6za3jx1fuxn', nome: 'Karoline (Vendas 1)' },
+  { id: 'yfnf6za3jx1fuxn', nome: 'Caroline' },
   { id: '0jzl0jrcja5z2c5', nome: 'Vendas 2' },
   { id: 'sem_vendedor', nome: 'Sem vendedor' },
 ]

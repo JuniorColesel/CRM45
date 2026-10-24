@@ -44,6 +44,7 @@ import {
 } from '@/types/clientes'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/pocketbase/errors'
+import { formatarNomeVendedorExibicao } from '@/lib/funil/vendedorExibicao'
 
 interface OportunidadeDetalhesSheetProps {
   oportunidade: OportunidadeModel | null
@@ -87,15 +88,24 @@ export default function OportunidadeDetalhesSheet({
   if (vendedorId && usuarios) {
     const userFound = usuarios.find((u) => u.id === vendedorId)
     if (userFound) {
-      if (userFound.nome.includes('Alice')) nomeVendedor = 'Alice'
-      else if (userFound.nome.includes('Renan')) nomeVendedor = 'Renan'
-      else if (userFound.nome.includes('Karoline') || userFound.perfil === 'vendedor_1') {
-        nomeVendedor = 'Karoline (Vendas 1)'
-      } else if (userFound.perfil === 'vendedor_2') nomeVendedor = 'Vendas 2'
-      else nomeVendedor = userFound.nome
+      if (userFound.perfil === 'vendedor_1') {
+        nomeVendedor = 'Caroline'
+      } else if (userFound.perfil === 'vendedor_2') {
+        nomeVendedor = 'Vendas 2'
+      } else {
+        nomeVendedor = formatarNomeVendedorExibicao(userFound.nome)
+      }
     }
   } else if (oportunidade.expand?.responsavel_id?.nome) {
-    nomeVendedor = oportunidade.expand.responsavel_id.nome
+    nomeVendedor = formatarNomeVendedorExibicao(oportunidade.expand.responsavel_id.nome)
+  }
+
+  // Se vendedor for string de nome/alias direto e não id
+  if (nomeVendedor === 'Sem vendedor' && vendedorId && typeof vendedorId === 'string') {
+    const formatado = formatarNomeVendedorExibicao(vendedorId)
+    if (formatado !== 'Sem vendedor' && formatado !== vendedorId) {
+      nomeVendedor = formatado
+    }
   }
 
   // Regra de Data de Fechamento:

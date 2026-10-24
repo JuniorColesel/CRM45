@@ -4,6 +4,7 @@ import { User, Calendar, Building } from 'lucide-react'
 import type { OportunidadeModel } from '@/types/clientes'
 import { formatarMoeda, formatarData } from '@/types/clientes'
 import type { Usuario } from '@/contexts/AuthContext'
+import { formatarNomeVendedorExibicao } from '@/lib/funil/vendedorExibicao'
 
 interface KanbanCardProps {
   oportunidade: OportunidadeModel
@@ -26,22 +27,23 @@ function obterNomeVendedor(oportunidade: OportunidadeModel, usuarios?: Usuario[]
   if (vendedorId && usuarios) {
     const userFound = usuarios.find((u) => u.id === vendedorId)
     if (userFound) {
-      if (userFound.nome.includes('Alice')) return 'Alice'
-      if (userFound.nome.includes('Renan')) return 'Renan'
-      if (userFound.nome.includes('Karoline') || userFound.perfil === 'vendedor_1') {
-        return 'Karoline (Vendas 1)'
-      }
+      if (userFound.perfil === 'vendedor_1') return 'Caroline'
       if (userFound.perfil === 'vendedor_2') return 'Vendas 2'
-      return userFound.nome
+      return formatarNomeVendedorExibicao(userFound.nome)
     }
   }
 
   if (oportunidade.expand?.responsavel_id?.nome) {
     const n = oportunidade.expand.responsavel_id.nome
-    if (n.includes('Alice')) return 'Alice'
-    if (n.includes('Renan')) return 'Renan'
-    if (n.includes('Karoline')) return 'Karoline (Vendas 1)'
-    return n
+    return formatarNomeVendedorExibicao(n)
+  }
+
+  // Se vendedorId for string textual (ex: "Karoline (Vendas 1)" ou alias)
+  if (vendedorId && typeof vendedorId === 'string') {
+    const formatado = formatarNomeVendedorExibicao(vendedorId)
+    if (formatado !== 'Sem vendedor' && formatado !== vendedorId) {
+      return formatado
+    }
   }
 
   // Se Bling e não tiver vendedor confiável: "Sem vendedor". NUNCA Renan por fallback!
