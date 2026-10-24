@@ -3067,6 +3067,151 @@ cronAdd('bling_sync_automatica', '*/5 * * * *', () => {
         }
 
         // 3.1 ENRIQUECIMENTO AUTOMÁTICO DE VENDEDOR (Microetapa 10B-2)
+        // Helper inline no callback para enriquecimento de vendedor de cliente
+        var cronEnriquecerVendedorClienteBling = function (cliente) {
+          if (!cliente) return null
+
+          const blingId = cliente.getString('bling_id')
+          if (!blingId || !String(blingId).trim()) {
+            return cliente
+          }
+
+          if (!currentAccessToken) {
+            return cliente
+          }
+
+          // Throttle de ~380ms para rate limit do Bling (usando helper local do cron)
+          cronThrottleChamadaBling(380)
+
+          let res = null
+          try {
+            res = $http.send({
+              url:
+                'https://api.bling.com.br/Api/v3/contatos/' +
+                encodeURIComponent(String(blingId).trim()),
+              method: 'GET',
+              headers: {
+                Accept: 'application/json',
+                Authorization: 'Bearer ' + currentAccessToken,
+              },
+              timeout: 15,
+            })
+          } catch (httpErr) {
+            console.error(
+              '[ENRIQUECER-VENDEDOR] Falha de comunicação HTTP com o Bling:',
+              String((httpErr && httpErr.message) || httpErr),
+            )
+            return cliente
+          }
+
+          if (res && res.statusCode === 401 && !refreshFeito401 && connectionRecord) {
+            refreshFeito401 = true
+            const novoToken = cronExecutarRefreshOAuth(connectionRecord)
+            if (novoToken) {
+              currentAccessToken = novoToken
+              cronThrottleChamadaBling(380)
+              try {
+                res = $http.send({
+                  url:
+                    'https://api.bling.com.br/Api/v3/contatos/' +
+                    encodeURIComponent(String(blingId).trim()),
+                  method: 'GET',
+                  headers: {
+                    Accept: 'application/json',
+                    Authorization: 'Bearer ' + currentAccessToken,
+                  },
+                  timeout: 15,
+                })
+              } catch (_) {}
+            }
+          }
+
+          if (!res || res.statusCode < 200 || res.statusCode >= 300) {
+            console.warn(
+              '[ENRIQUECER-VENDEDOR] Bling retornou status ' +
+                (res ? res.statusCode : 'nulo') +
+                ' ao consultar contato ' +
+                blingId,
+            )
+            return cliente
+          }
+
+          const body = res.json || {}
+          const contatoData = body.data || body
+          const vendedorNode = contatoData.vendedor || null
+
+          if (!vendedorNode || typeof vendedorNode !== 'object') {
+            return cliente
+          }
+
+          const vendedorNome = vendedorNode.nome ? String(vendedorNode.nome) : ''
+          if (!vendedorNome.trim()) {
+            return cliente
+          }
+
+          const vNorm = vendedorNome
+            .trim()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toUpperCase()
+
+          let vendedorValido = null
+          if (
+            vNorm === 'MARIA CAROLINE SANTOS' ||
+            vNorm === 'MARIA CAROLINE' ||
+            vNorm === 'CAROL' ||
+            vNorm === 'KAROLINE' ||
+            vNorm === 'KAROLINE (VENDAS 1)' ||
+            vNorm === 'VENDAS 1' ||
+            vNorm.startsWith('KAROLINE ') ||
+            vNorm.startsWith('MARIA CAROLINE') ||
+            vNorm.startsWith('CAROL ')
+          ) {
+            vendedorValido = 'Karoline (Vendas 1)'
+          } else if (
+            vNorm === 'ALICE PAITRA COLESEL' ||
+            vNorm === 'ALICE' ||
+            vNorm.startsWith('ALICE PAITRA')
+          ) {
+            vendedorValido = 'Alice'
+          } else if (vNorm === 'RENAN SOUZA' || vNorm === 'RENAN') {
+            vendedorValido = 'Renan'
+          } else if (vNorm === 'VENDAS 2') {
+            vendedorValido = 'Vendas 2'
+          } else {
+            return cliente
+          }
+
+          const responsavelIdResolvido = cronResolverUsuarioIdPorVendedorCrm(vendedorValido)
+
+          let modificado = false
+          if (cliente.getString('vendedor') !== vendedorValido) {
+            cliente.set('vendedor', vendedorValido)
+            modificado = true
+          }
+
+          if (
+            responsavelIdResolvido &&
+            cliente.getString('responsavel_id') !== responsavelIdResolvido
+          ) {
+            cliente.set('responsavel_id', responsavelIdResolvido)
+            modificado = true
+          }
+
+          if (modificado) {
+            try {
+              $app.save(cliente)
+            } catch (saveErr) {
+              console.error(
+                '[ENRIQUECER-VENDEDOR] Falha ao salvar cliente enriquecido:',
+                String((saveErr && saveErr.message) || saveErr),
+              )
+            }
+          }
+
+          return cliente
+        }
+
         // Seleciona até 15 clientes com bling_id pendentes de vendedor/responsavel_id
         let enriAnalisados = 0
         let enriComVendedor = 0
@@ -3158,7 +3303,7 @@ cronAdd('bling_sync_automatica', '*/5 * * * *', () => {
             const vendAntes = clienteItem.getString('vendedor') || ''
             const respAntes = clienteItem.getString('responsavel_id') || ''
             try {
-              const clienteRetorno = enriquecerVendedorClienteBling(clienteItem)
+              const clienteRetorno = cronEnriquecerVendedorClienteBling(clienteItem)
               const vendDepois = clienteRetorno ? clienteRetorno.getString('vendedor') || '' : ''
               const respDepois = clienteRetorno
                 ? clienteRetorno.getString('responsavel_id') || ''
