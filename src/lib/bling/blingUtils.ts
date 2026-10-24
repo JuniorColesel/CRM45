@@ -36,16 +36,18 @@ export function mapearVendedorBlingParaCrm(vendedorBling?: string | null): Vende
   }
 
   // 3. Karoline (Vendas 1)
-  // "Karoline", "Vendas 1", "Maria Caroline", "Maria Caroline Santos", "Consumidor Final", "Consumidor Final."
+  // "Karoline", "Karoline (Vendas 1)", "Vendas 1", "Carol", "Maria Caroline", "MARIA CAROLINE SANTOS"
+  // Tarefa 10B: "Consumidor Final" / "Consumidor Final." NÃO mapeiam para nenhum vendedor (deixam de ser alias de Caroline).
   if (
     v === 'KAROLINE' ||
+    v === 'KAROLINE (VENDAS 1)' ||
     v === 'VENDAS 1' ||
+    v === 'CAROL' ||
     v === 'MARIA CAROLINE' ||
     v === 'MARIA CAROLINE SANTOS' ||
-    v === 'CONSUMIDOR FINAL' ||
-    v === 'CONSUMIDOR FINAL.' ||
     v.startsWith('KAROLINE ') ||
-    v.startsWith('MARIA CAROLINE')
+    v.startsWith('MARIA CAROLINE') ||
+    v.startsWith('CAROL ')
   ) {
     return 'Karoline (Vendas 1)'
   }

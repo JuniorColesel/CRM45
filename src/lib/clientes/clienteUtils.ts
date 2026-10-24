@@ -136,15 +136,17 @@ export function mapearVendedorParaCrm(
   if (v === 'RENAN SOUZA' || v === 'RENAN') {
     return 'Renan'
   }
+  // Tarefa 10B: "Consumidor Final" / "Consumidor Final." NÃO mapeiam para nenhum vendedor
   if (
     v === 'KAROLINE' ||
+    v === 'KAROLINE (VENDAS 1)' ||
     v === 'VENDAS 1' ||
+    v === 'CAROL' ||
     v === 'MARIA CAROLINE' ||
     v === 'MARIA CAROLINE SANTOS' ||
-    v === 'CONSUMIDOR FINAL' ||
-    v === 'CONSUMIDOR FINAL.' ||
     v.startsWith('KAROLINE ') ||
-    v.startsWith('MARIA CAROLINE')
+    v.startsWith('MARIA CAROLINE') ||
+    v.startsWith('CAROL ')
   ) {
     return 'Karoline (Vendas 1)'
   }
