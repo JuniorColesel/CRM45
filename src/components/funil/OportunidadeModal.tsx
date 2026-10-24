@@ -520,7 +520,7 @@ export default function OportunidadeModal({
                     <span className="text-[#64748B] font-medium">Em Aberto</span>
                   </SelectItem>
                   <SelectItem value="ganho">
-                    <span className="text-[#16A34A] font-semibold">Ganho (Fechado)</span>
+                    <span className="text-[#16A34A] font-semibold">Ganho</span>
                   </SelectItem>
                   <SelectItem value="perdido">
                     <span className="text-[#DC2626] font-semibold">Perdido</span>

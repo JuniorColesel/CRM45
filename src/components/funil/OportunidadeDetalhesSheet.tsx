@@ -109,11 +109,11 @@ export default function OportunidadeDetalhesSheet({
   }
 
   // Regra de Data de Fechamento:
-  // Para pedido em aberto Bling (etapa Em aberto Bling ou situacao Em aberto):
+  // Para pedido em aberto Bling (etapa Pedidos em aberto ou situacao Em aberto):
   // data_fechamento fica vazia até ficar Atendido -> mostrar "Em andamento"
   const isEmAbertoBling =
     oportunidade.tipo_origem === 'bling_pedido' &&
-    (etapaNome.toLowerCase().includes('em aberto') ||
+    (etapaNome.toLowerCase().includes('aberto') ||
       oportunidade.observacoes?.includes('Em aberto') ||
       !oportunidade.data_fechamento)
 
@@ -150,7 +150,7 @@ export default function OportunidadeDetalhesSheet({
       case 'ganho':
         return (
           <Badge className="bg-emerald-100 text-[#16A34A] border-emerald-200 text-xs font-semibold">
-            Ganho (Fechado)
+            Ganho
           </Badge>
         )
       case 'perdido':

@@ -181,13 +181,20 @@ export default function FunilPage() {
     return condicoes.join(' && ')
   }, [filtros, periodo, modoVisao])
 
-  // Carregar dados auxiliares (etapas, clientes, usuários, motivos)
+  // Carregar dados auxiliares (etapas canônicas 1..4, clientes, usuários, motivos)
+  // Tarefa 9A: O funil exibe EXCLUSIVAMENTE as 4 colunas canônicas nesta ordem:
+  // 1. Aguardando
+  // 2. Não aprovado
+  // 3. Pedidos em aberto
+  // 4. Atendido
+  // Etapas antigas como Prospecção, Qualificação, etc. são filtradas fora do Kanban.
   useEffect(() => {
     let cancelado = false
     async function carregarAuxiliares() {
       try {
         const [etapasRes, clientesRes, usuariosRes, motivosRes] = await Promise.all([
           pb.collection('etapas_funil').getFullList<EtapaFunilModel>({
+            filter: 'ordem >= 1 && ordem <= 4',
             sort: 'ordem',
           }),
           pb.collection('clientes').getFullList<ClienteModel>({
@@ -207,7 +214,11 @@ export default function FunilPage() {
             .catch(() => []),
         ])
         if (!cancelado) {
-          setEtapas(etapasRes)
+          // Garante apenas as 4 etapas com ordem 1..4 ordenadas estritamente
+          const etapasCanonicas = etapasRes
+            .filter((e) => e.ordem >= 1 && e.ordem <= 4)
+            .sort((a, b) => a.ordem - b.ordem)
+          setEtapas(etapasCanonicas)
           setClientes(clientesRes)
           setUsuarios(usuariosRes.length > 0 ? usuariosRes : user ? [user] : [])
           setMotivosPerda(motivosRes)

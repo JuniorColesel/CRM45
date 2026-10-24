@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import type { EtapaFunilModel, OportunidadeModel } from '@/types/clientes'
 import KanbanColumn from './KanbanColumn'
 
@@ -45,11 +45,15 @@ export default function KanbanBoard({
     onMudarEtapa(opId, novaEtapaId)
   }
 
+  const etapasOrdenadas = useMemo(() => {
+    return [...etapas].sort((a, b) => a.ordem - b.ordem)
+  }, [etapas])
+
   return (
     <div className="w-full h-full min-h-0">
       {/* Desktop: scroll horizontal do Kanban se não couber na largura; colunas com altura total do container */}
       <div className="flex flex-col md:flex-row gap-3 overflow-x-auto pb-2 pt-0.5 items-stretch h-full min-h-0">
-        {etapas.map((etapa) => {
+        {etapasOrdenadas.map((etapa) => {
           const opsColuna = oportunidadesPorEtapa[etapa.id] || []
           const carregandoMais = Boolean(carregandoPorEtapa && carregandoPorEtapa[etapa.id])
           const temMais = Boolean(temMaisPorEtapa && temMaisPorEtapa[etapa.id])

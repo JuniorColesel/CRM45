@@ -1,9 +1,13 @@
 /**
- * Endpoint de agregação completa do Funil Comercial
+ * Endpoint de agregação completa do Funil Comercial (4 Colunas Canônicas - Tarefa 9A)
  * Rota: GET /backend/v1/funil/metricas
  *
- * Retorna contadores e subtotais (valor e quantidade) de CADA etapa sobre TODAS
- * as oportunidades elegíveis do filtro, além dos totais globais e resumo.
+ * Retorna contadores e subtotais (valor e quantidade) exclusivamente das 4 etapas canônicas:
+ * 1. Aguardando
+ * 2. Não aprovado
+ * 3. Pedidos em aberto
+ * 4. Atendido
+ *
  * NUNCA calculado no frontend a partir dos cards visíveis paginados.
  */
 
