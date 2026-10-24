@@ -115,8 +115,14 @@ routerAdd(
     const whereClause = condicoes.join(' AND ')
 
     try {
-      // 1. Carregar lista de etapas ordenadas
-      const etapasList = $app.findRecordsByFilter('etapas_funil', '', 'ordem', 50, 0)
+      // 1. Carregar lista de etapas canônicas ordenadas (somente ordem 1 a 4)
+      const etapasList = $app.findRecordsByFilter(
+        'etapas_funil',
+        'ordem >= 1 && ordem <= 4',
+        'ordem',
+        10,
+        0,
+      )
       const etapasResultado = []
       const mapaEtapas = {}
 

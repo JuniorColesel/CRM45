@@ -1784,28 +1784,32 @@ cronAdd('bling_sync_manual_runner', '* * * * *', () => {
         }
 
         // ====================================================================
-        // 6. MATERIALIZAÇÃO DE OPORTUNIDADES NO CRM
+        // 6. MATERIALIZAÇÃO DE OPORTUNIDADES NO CRM (4 COLUNAS CANÔNICAS - TAREFA 9A)
         // ====================================================================
         try {
-          const etapasList = $app.findRecordsByFilter('etapas_funil', '', 'ordem', 20, 0)
-          let etapaPropostaId = ''
-          let etapaNegociacaoId = ''
-          let etapaEmAbertoBlingId = ''
-          let etapaFechadoId = ''
-          let etapaPerdidoId = ''
+          const etapasList = $app.findRecordsByFilter(
+            'etapas_funil',
+            'ordem >= 1 && ordem <= 4',
+            'ordem',
+            10,
+            0,
+          )
+          let etapaAguardandoId = ''
+          let etapaNaoAprovadoId = ''
+          let etapaPedidosEmAbertoId = ''
+          let etapaAtendidoId = ''
 
           for (let ep = 0; ep < etapasList.length; ep++) {
             const epRec = etapasList[ep]
-            const epNome = epRec.getString('nome').toLowerCase()
-            if (epNome.indexOf('propost') !== -1) etapaPropostaId = epRec.id
-            if (epNome.indexOf('negoc') !== -1) etapaNegociacaoId = epRec.id
-            if (epNome.indexOf('em aberto') !== -1) etapaEmAbertoBlingId = epRec.id
-            if (epNome === 'fechado') etapaFechadoId = epRec.id
-            if (epNome === 'perdido') etapaPerdidoId = epRec.id
+            const epNome = epRec.getString('nome').toLowerCase().trim()
+            if (epNome === 'aguardando') etapaAguardandoId = epRec.id
+            if (epNome === 'não aprovado' || epNome === 'nao aprovado')
+              etapaNaoAprovadoId = epRec.id
+            if (epNome === 'pedidos em aberto') etapaPedidosEmAbertoId = epRec.id
+            if (epNome === 'atendido') etapaAtendidoId = epRec.id
           }
 
           let motivoNaoAprovadaId = ''
-          let motivoCanceladoId = ''
           try {
             const motNaoAprov = $app.findFirstRecordByData(
               'motivos_perda',
@@ -1814,22 +1818,14 @@ cronAdd('bling_sync_manual_runner', '* * * * *', () => {
             )
             if (motNaoAprov) motivoNaoAprovadaId = motNaoAprov.id
           } catch (_) {}
-          try {
-            const motCanc = $app.findFirstRecordByData(
-              'motivos_perda',
-              'descricao',
-              'Cancelado no Bling',
-            )
-            if (motCanc) motivoCanceladoId = motCanc.id
-          } catch (_) {}
 
           if (
-            etapaPropostaId &&
-            etapaNegociacaoId &&
-            etapaFechadoId &&
-            etapaEmAbertoBlingId &&
-            etapaPerdidoId
+            etapaAguardandoId &&
+            etapaNaoAprovadoId &&
+            etapaPedidosEmAbertoId &&
+            etapaAtendidoId
           ) {
+            // A) Materializar Propostas elegíveis: somente 'aguardando' e 'nao_aprovada'
             $app
               .db()
               .newQuery(`
@@ -1847,9 +1843,8 @@ cronAdd('bling_sync_manual_runner', '* * * * *', () => {
                 bp.cliente_id,
                 COALESCE(bp.valor_total, 0) as valor,
                 CASE
-                  WHEN bp.status_normalizado = 'rascunho' THEN {:etapaProposta}
-                  WHEN bp.status_normalizado = 'aguardando' THEN {:etapaNegociacao}
-                  WHEN bp.status_normalizado = 'nao_aprovada' THEN {:etapaPerdido}
+                  WHEN bp.status_normalizado = 'aguardando' THEN {:etapaAguardando}
+                  WHEN bp.status_normalizado = 'nao_aprovada' THEN {:etapaNaoAprovado}
                 END as etapa_id,
                 CASE
                   WHEN bp.status_normalizado = 'nao_aprovada' THEN 'perdido'
@@ -1875,19 +1870,19 @@ cronAdd('bling_sync_manual_runner', '* * * * *', () => {
               WHERE bp.visivel_funil = 1
                 AND bp.status_vinculo = 'vinculado'
                 AND bp.cliente_id IS NOT NULL AND bp.cliente_id != ''
-                AND (bp.status_normalizado = 'rascunho' OR bp.status_normalizado = 'aguardando' OR bp.status_normalizado = 'nao_aprovada')
+                AND (bp.status_normalizado = 'aguardando' OR bp.status_normalizado = 'nao_aprovada')
                 AND bp.bling_proposta_id NOT IN (
                   SELECT o.bling_proposta_id FROM oportunidades o WHERE o.bling_proposta_id IS NOT NULL AND o.bling_proposta_id != ''
                 )
             `)
               .bind({
-                etapaProposta: etapaPropostaId,
-                etapaNegociacao: etapaNegociacaoId,
-                etapaPerdido: etapaPerdidoId,
+                etapaAguardando: etapaAguardandoId,
+                etapaNaoAprovado: etapaNaoAprovadoId,
                 motivoNaoAprovada: motivoNaoAprovadaId || '',
               })
               .execute()
 
+            // B) Materializar Pedidos elegíveis: somente 'Em aberto' (6) e 'Atendido' (9)
             $app
               .db()
               .newQuery(`
@@ -1905,27 +1900,17 @@ cronAdd('bling_sync_manual_runner', '* * * * *', () => {
                 bp.cliente_id,
                 COALESCE(bp.valor_total, 0) as valor,
                 CASE
-                  WHEN bp.situacao_bling_nome = 'Em aberto' OR bp.situacao_bling_id = '6' THEN {:etapaEmAberto}
-                  WHEN bp.situacao_bling_nome = 'Atendido' OR bp.situacao_bling_id = '9' THEN {:etapaFechado}
-                  WHEN bp.situacao_bling_nome = 'Cancelado' OR bp.situacao_bling_id = '12' THEN {:etapaPerdido}
+                  WHEN bp.situacao_bling_nome = 'Em aberto' OR bp.situacao_bling_id = '6' THEN {:etapaPedidosEmAberto}
+                  WHEN bp.situacao_bling_nome = 'Atendido' OR bp.situacao_bling_id = '9' THEN {:etapaAtendido}
                 END as etapa_id,
-                CASE
-                  WHEN bp.situacao_bling_nome = 'Cancelado' OR bp.situacao_bling_id = '12' THEN 'perdido'
-                  ELSE 'ganho'
-                END as status,
-                CASE
-                  WHEN (bp.situacao_bling_nome = 'Cancelado' OR bp.situacao_bling_id = '12') AND {:motivoCancelado} != '' THEN {:motivoCancelado}
-                  ELSE ''
-                END as motivo_perda_id,
+                'ganho' as status,
+                '' as motivo_perda_id,
                 CASE WHEN bp.responsavel_id IS NOT NULL AND bp.responsavel_id != '' THEN bp.responsavel_id ELSE '' END as responsavel_id,
                 CASE WHEN bp.data_pedido != '' THEN substr(bp.data_pedido, 1, 10) ELSE '' END as data_origem,
                 CASE WHEN bp.data_pedido != '' THEN substr(bp.data_pedido, 1, 10) ELSE '' END as data_prevista_fechamento,
                 CASE
-                  WHEN bp.situacao_bling_nome = 'Em aberto' OR bp.situacao_bling_id = '6' THEN ''
-                  WHEN bp.situacao_bling_nome = 'Atendido' AND bp.data_atendimento != '' THEN substr(bp.data_atendimento, 1, 10)
-                  WHEN bp.situacao_bling_nome = 'Cancelado' AND bp.data_pedido != '' THEN substr(bp.data_pedido, 1, 10)
-                  WHEN bp.data_atendimento != '' THEN substr(bp.data_atendimento, 1, 10)
-                  WHEN bp.data_pedido != '' THEN substr(bp.data_pedido, 1, 10)
+                  WHEN (bp.situacao_bling_nome = 'Atendido' OR bp.situacao_bling_id = '9') AND bp.data_atendimento != '' THEN substr(bp.data_atendimento, 1, 10)
+                  WHEN (bp.situacao_bling_nome = 'Atendido' OR bp.situacao_bling_id = '9') AND bp.data_pedido != '' THEN substr(bp.data_pedido, 1, 10)
                   ELSE ''
                 END as data_fechamento,
                 'Pedido Bling nº ' || COALESCE(bp.numero, bp.bling_pedido_id) || ' (' || COALESCE(bp.situacao_bling_nome, '') || ')' as observacoes,
@@ -1936,19 +1921,18 @@ cronAdd('bling_sync_manual_runner', '* * * * *', () => {
               FROM bling_pedidos bp
               WHERE bp.status_vinculo = 'vinculado'
                 AND bp.cliente_id IS NOT NULL AND bp.cliente_id != ''
-                AND (bp.situacao_bling_nome = 'Em aberto' OR bp.situacao_bling_nome = 'Atendido' OR bp.situacao_bling_nome = 'Cancelado' OR bp.situacao_bling_id = '6' OR bp.situacao_bling_id = '9' OR bp.situacao_bling_id = '12')
+                AND (bp.situacao_bling_nome = 'Em aberto' OR bp.situacao_bling_nome = 'Atendido' OR bp.situacao_bling_id = '6' OR bp.situacao_bling_id = '9')
                 AND bp.bling_pedido_id NOT IN (
                   SELECT o.bling_pedido_id FROM oportunidades o WHERE o.bling_pedido_id IS NOT NULL AND o.bling_pedido_id != ''
                 )
             `)
               .bind({
-                etapaEmAberto: etapaEmAbertoBlingId,
-                etapaFechado: etapaFechadoId,
-                etapaPerdido: etapaPerdidoId,
-                motivoCancelado: motivoCanceladoId || '',
+                etapaPedidosEmAberto: etapaPedidosEmAbertoId,
+                etapaAtendido: etapaAtendidoId,
               })
               .execute()
 
+            // C) Remover oportunidades de propostas fora do funil (rascunho, aprovada, convertida, outro, visivel_funil=0)
             $app
               .db()
               .newQuery(`
@@ -1956,7 +1940,21 @@ cronAdd('bling_sync_manual_runner', '* * * * *', () => {
               WHERE tipo_origem = 'bling_proposta'
                 AND bling_proposta_id IN (
                   SELECT bp.bling_proposta_id FROM bling_propostas bp
-                  WHERE bp.status_normalizado = 'convertida' OR bp.status_normalizado = 'outro' OR bp.visivel_funil = 0
+                  WHERE bp.status_normalizado NOT IN ('aguardando', 'nao_aprovada') OR bp.visivel_funil = 0
+                )
+            `)
+              .execute()
+
+            // D) Remover oportunidades de pedidos fora do funil (Cancelado 12 ou outros)
+            $app
+              .db()
+              .newQuery(`
+              DELETE FROM oportunidades
+              WHERE tipo_origem = 'bling_pedido'
+                AND bling_pedido_id IN (
+                  SELECT bp.bling_pedido_id FROM bling_pedidos bp
+                  WHERE bp.situacao_bling_nome NOT IN ('Em aberto', 'Atendido')
+                    AND bp.situacao_bling_id NOT IN ('6', '9')
                 )
             `)
               .execute()
