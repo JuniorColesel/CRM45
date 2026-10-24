@@ -835,6 +835,276 @@ routerAdd(
 )
 
 // ============================================================================
+// TAREFA 10B MICROETAPA 10B-1: FUNÇÃO ISOLADA DE ENRIQUECIMENTO DE VENDEDOR
+// ============================================================================
+/**
+ * Consulta o detalhe do contato no Bling ERP (GET /Api/v3/contatos/{bling_id})
+ * e enriquece o vendedor e responsavel_id do registro de cliente no CRM.
+ *
+ * @param {Record} cliente - Registro da coleção 'clientes' do PocketBase
+ * @returns {Record|null} - Cliente atualizado (ou o próprio se inalterado) ou null se cliente inválido
+ */
+function enriquecerVendedorClienteBling(cliente) {
+  if (!cliente) return null
+
+  // 1. Se cliente não tem bling_id preenchido (CRM-native), retornar imediatamente sem HTTP e sem alterar nada
+  const blingId = cliente.getString('bling_id')
+  if (!blingId || !String(blingId).trim()) {
+    return cliente
+  }
+
+  // Obter token OAuth válido usando a infraestrutura do hook
+  function obterTokenParaEnriquecimento() {
+    try {
+      const conns = $app.findRecordsByFilter('bling_connections', '', '-created', 1, 0)
+      if (conns && conns.length > 0) {
+        const conn = conns[0]
+        const status = conn.getString('status')
+        const accessToken = conn.getString('access_token')
+        const refreshToken = conn.getString('refresh_token')
+        const expiresAtStr = conn.getString('expires_at')
+
+        if (status === 'conectado' && accessToken) {
+          const expiraEm = expiresAtStr ? new Date(expiresAtStr).getTime() : 0
+          const agora = Date.now()
+          const margem = 5 * 60 * 1000
+
+          if (expiraEm > agora + margem) {
+            return accessToken
+          }
+
+          // Se próximo de expirar, tentar renovar via refresh_token
+          if (refreshToken) {
+            let cId = ''
+            let cSec = ''
+            try {
+              cId = $os.getenv('BLING_CLIENT_ID') || $secrets.get('BLING_CLIENT_ID') || ''
+              cSec = $os.getenv('BLING_CLIENT_SECRET') || $secrets.get('BLING_CLIENT_SECRET') || ''
+            } catch (_) {}
+
+            if (cId && cSec) {
+              const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+              let b64 = ''
+              const strCred = cId + ':' + cSec
+              for (
+                let block = 0, charCode, idx = 0, map = chars;
+                strCred.charAt(idx | 0) || ((map = '='), idx % 1);
+                b64 += map.charAt(63 & (block >> (8 - (idx % 1) * 8)))
+              ) {
+                charCode = strCred.charCodeAt((idx += 3 / 4))
+                if (charCode > 0xff) break
+                block = (block << 8) | charCode
+              }
+
+              const refreshRes = $http.send({
+                url: 'https://www.bling.com.br/Api/v3/oauth/token',
+                method: 'POST',
+                headers: {
+                  Accept: 'application/json',
+                  'Content-Type': 'application/x-www-form-urlencoded',
+                  Authorization: 'Basic ' + b64,
+                  'enable-jwt': '1',
+                },
+                body: 'grant_type=refresh_token&refresh_token=' + encodeURIComponent(refreshToken),
+                timeout: 15,
+              })
+
+              if (refreshRes && refreshRes.statusCode === 200) {
+                const rData = refreshRes.json || {}
+                const novoAccess = rData.access_token || ''
+                const novoRefresh = rData.refresh_token || refreshToken
+                const novoExpiresIn = Number(rData.expires_in) || 21600
+                const novoExpiresAt = new Date(Date.now() + novoExpiresIn * 1000)
+
+                if (novoAccess) {
+                  conn.set('access_token', novoAccess)
+                  conn.set('refresh_token', novoRefresh)
+                  conn.set('expires_at', novoExpiresAt.toISOString())
+                  conn.set('last_refresh_at', new Date().toISOString())
+                  conn.set('status', 'conectado')
+                  conn.set('ultimo_erro', '')
+                  $app.save(conn)
+                  return novoAccess
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
+    return ''
+  }
+
+  const token = obterTokenParaEnriquecimento()
+  if (!token) {
+    console.warn(
+      '[ENRIQUECER-VENDEDOR] Token Bling ausente ou expirado; cliente mantido sem alterações.',
+    )
+    return cliente
+  }
+
+  // Throttle de ~380ms para respeito ao rate limit do Bling
+  const tAlvo = Date.now() + 380
+  while (Date.now() < tAlvo) {
+    /* pausa na VM */
+  }
+
+  // 2. Consultar o detalhe do contato: GET /Api/v3/contatos/{bling_id}
+  let res = null
+  try {
+    res = $http.send({
+      url: 'https://api.bling.com.br/Api/v3/contatos/' + encodeURIComponent(String(blingId).trim()),
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        Authorization: 'Bearer ' + token,
+      },
+      timeout: 15,
+    })
+  } catch (httpErr) {
+    console.error(
+      '[ENRIQUECER-VENDEDOR] Falha de comunicação HTTP com o Bling:',
+      String((httpErr && httpErr.message) || httpErr),
+    )
+    return cliente
+  }
+
+  if (!res || res.statusCode < 200 || res.statusCode >= 300) {
+    console.warn(
+      '[ENRIQUECER-VENDEDOR] Bling retornou status ' +
+        (res ? res.statusCode : 'nulo') +
+        ' ao consultar contato ' +
+        blingId,
+    )
+    return cliente
+  }
+
+  // 3. Ler apenas o nó vendedor da resposta: vendedor.id e vendedor.nome. Ignorar todo o resto.
+  const body = res.json || {}
+  const contatoData = body.data || body
+  const vendedorNode = contatoData.vendedor || null
+
+  if (!vendedorNode || typeof vendedorNode !== 'object') {
+    // Vendedor ausente: NENHUM fallback, não alterar nada
+    return cliente
+  }
+
+  const vendedorNome = vendedorNode.nome ? String(vendedorNode.nome) : ''
+  if (!vendedorNome.trim()) {
+    // Vendedor vazio: NENHUM fallback, não alterar nada
+    return cliente
+  }
+
+  // 4. Mapear o nome para o valor técnico válido do campo clientes.vendedor
+  // Comparação sem sensibilidade a caixa/acentos
+  const vNorm = vendedorNome
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+
+  let vendedorValido = null
+  if (
+    vNorm === 'MARIA CAROLINE SANTOS' ||
+    vNorm === 'MARIA CAROLINE' ||
+    vNorm === 'CAROL' ||
+    vNorm === 'KAROLINE' ||
+    vNorm === 'KAROLINE (VENDAS 1)' ||
+    vNorm === 'VENDAS 1' ||
+    vNorm.startsWith('KAROLINE ') ||
+    vNorm.startsWith('MARIA CAROLINE') ||
+    vNorm.startsWith('CAROL ')
+  ) {
+    // NUNCA gravar a string 'Caroline'; gravar 'Karoline (Vendas 1)'
+    vendedorValido = 'Karoline (Vendas 1)'
+  } else if (
+    vNorm === 'ALICE PAITRA COLESEL' ||
+    vNorm === 'ALICE' ||
+    vNorm.startsWith('ALICE PAITRA')
+  ) {
+    vendedorValido = 'Alice'
+  } else if (vNorm === 'RENAN SOUZA' || vNorm === 'RENAN') {
+    vendedorValido = 'Renan'
+  } else if (vNorm === 'VENDAS 2') {
+    vendedorValido = 'Vendas 2'
+  } else {
+    // Nome não corresponde a nenhum vendedor conhecido: NENHUM fallback, não alterar nada
+    return cliente
+  }
+
+  // 5. Cliente JÁ EXISTENTE com bling_id: atualizar clientes.vendedor
+  // Se o hook já tiver função de resolução de usuário por vendedor, atualizar responsavel_id coerentemente
+  let responsavelIdResolvido = null
+  try {
+    const usuarios = $app.findRecordsByFilter('usuarios', 'ativo = true', 'nome', 50, 0)
+    for (let u = 0; u < usuarios.length; u++) {
+      const uRec = usuarios[u]
+      const uPerfil = uRec.getString('perfil')
+      const uNome = uRec.getString('nome') || ''
+      const uEmail = uRec.getString('email') || ''
+
+      if (
+        vendedorValido === 'Alice' &&
+        (uNome.indexOf('Alice') !== -1 || uEmail.indexOf('alice') !== -1)
+      ) {
+        responsavelIdResolvido = uRec.id
+        break
+      } else if (
+        vendedorValido === 'Renan' &&
+        (uNome.indexOf('Renan') !== -1 || uEmail.indexOf('renan') !== -1)
+      ) {
+        responsavelIdResolvido = uRec.id
+        break
+      } else if (
+        vendedorValido === 'Karoline (Vendas 1)' &&
+        (uPerfil === 'vendedor_1' ||
+          uNome.indexOf('Vendas 1') !== -1 ||
+          uNome.indexOf('Karoline') !== -1 ||
+          uNome.indexOf('Caroline') !== -1)
+      ) {
+        responsavelIdResolvido = uRec.id
+        break
+      } else if (
+        vendedorValido === 'Vendas 2' &&
+        (uPerfil === 'vendedor_2' || uNome.indexOf('Vendas 2') !== -1)
+      ) {
+        responsavelIdResolvido = uRec.id
+        break
+      }
+    }
+  } catch (errUser) {
+    console.warn(
+      '[ENRIQUECER-VENDEDOR] Aviso ao resolver responsavel_id:',
+      String((errUser && errUser.message) || errUser),
+    )
+  }
+
+  let modificado = false
+  if (cliente.getString('vendedor') !== vendedorValido) {
+    cliente.set('vendedor', vendedorValido)
+    modificado = true
+  }
+
+  if (responsavelIdResolvido && cliente.getString('responsavel_id') !== responsavelIdResolvido) {
+    cliente.set('responsavel_id', responsavelIdResolvido)
+    modificado = true
+  }
+
+  if (modificado) {
+    try {
+      $app.save(cliente)
+    } catch (saveErr) {
+      console.error(
+        '[ENRIQUECER-VENDEDOR] Falha ao salvar cliente enriquecido:',
+        String((saveErr && saveErr.message) || saveErr),
+      )
+    }
+  }
+
+  return cliente
+}
+
+// ============================================================================
 // WORKER AD-HOC DE SEGUNDO PLANO (CRON RUNNER IDIOMÁTICO)
 // ============================================================================
 cronAdd('bling_sync_manual_runner', '* * * * *', () => {
