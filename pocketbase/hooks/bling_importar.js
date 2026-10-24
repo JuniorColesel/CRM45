@@ -1665,32 +1665,16 @@ cronAdd('bling_sync_manual_runner', '* * * * *', () => {
             let visivelFunil = 0
 
             const sitNormKey = (sitPropNome || sitPropId).toLowerCase().trim()
-            if (sitPropId === '0' || sitNormKey === 'rascunho') {
+            if (sitNormKey === 'rascunho') {
               statusNormalizado = 'rascunho'
-              visivelFunil = 1
-            } else if (
-              sitPropId === '1' ||
-              sitNormKey === 'aguardando' ||
-              sitNormKey === 'aguardando aprovação' ||
-              sitNormKey === 'aguardando aprovacao'
-            ) {
+              visivelFunil = 0
+            } else if (sitNormKey === 'aguardando') {
               statusNormalizado = 'aguardando'
               visivelFunil = 1
-            } else if (
-              sitPropId === '2' ||
-              sitNormKey === 'aprovado' ||
-              sitNormKey === 'aprovada'
-            ) {
+            } else if (sitNormKey === 'aprovado') {
               statusNormalizado = 'convertida'
               visivelFunil = 0
-            } else if (
-              sitPropId === '3' ||
-              sitNormKey === 'nao_aprovada' ||
-              sitNormKey === 'não aprovado' ||
-              sitNormKey === 'nao aprovado' ||
-              sitNormKey === 'não aprovada' ||
-              sitNormKey === 'nao aprovada'
-            ) {
+            } else if (sitNormKey === 'não aprovado') {
               statusNormalizado = 'nao_aprovada'
               visivelFunil = 1
             } else {
@@ -3939,28 +3923,16 @@ cronAdd('bling_sync_automatica', '*/5 * * * *', () => {
           let visivelFunil = 0
 
           const sitNormKey = (sitPropNome || sitPropId).toLowerCase().trim()
-          if (sitPropId === '0' || sitNormKey === 'rascunho') {
+          if (sitNormKey === 'rascunho') {
             statusNormalizado = 'rascunho'
-            visivelFunil = 1
-          } else if (
-            sitPropId === '1' ||
-            sitNormKey === 'aguardando' ||
-            sitNormKey === 'aguardando aprovação' ||
-            sitNormKey === 'aguardando aprovacao'
-          ) {
+            visivelFunil = 0
+          } else if (sitNormKey === 'aguardando') {
             statusNormalizado = 'aguardando'
             visivelFunil = 1
-          } else if (sitPropId === '2' || sitNormKey === 'aprovado' || sitNormKey === 'aprovada') {
+          } else if (sitNormKey === 'aprovado') {
             statusNormalizado = 'convertida'
             visivelFunil = 0
-          } else if (
-            sitPropId === '3' ||
-            sitNormKey === 'nao_aprovada' ||
-            sitNormKey === 'não aprovado' ||
-            sitNormKey === 'nao aprovado' ||
-            sitNormKey === 'não aprovada' ||
-            sitNormKey === 'nao aprovada'
-          ) {
+          } else if (sitNormKey === 'não aprovado') {
             statusNormalizado = 'nao_aprovada'
             visivelFunil = 1
           } else {
